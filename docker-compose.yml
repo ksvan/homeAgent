@@ -1,0 +1,21 @@
+services:
+  homeagent:
+    build: .
+    restart: unless-stopped
+    env_file: .env
+    environment:
+      APP_ENV: production
+      LOG_FORMAT: json
+    volumes:
+      # Persist SQLite databases and ChromaDB across container restarts
+      - ./data:/app/data
+      # Allow prompt overrides without rebuilding the image
+      - ./prompts:/app/prompts
+    ports:
+      - "8080:8080"
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8080/health')"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 15s

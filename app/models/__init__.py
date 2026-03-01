@@ -8,11 +8,12 @@ from app.models.memory import (
     UserProfile,
 )
 from app.models.tasks import Task
-from app.models.users import ChannelMapping, Household, User
+from app.models.users import ActionPolicy, ChannelMapping, Household, User
 
 __all__ = [
     "Household",
     "User",
+    "ActionPolicy",
     "ChannelMapping",
     "UserProfile",
     "HouseholdProfile",

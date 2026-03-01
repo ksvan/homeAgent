@@ -1,10 +1,10 @@
 from __future__ import annotations
 
 import logging
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import datetime, timezone
 
-from pydantic_ai import Agent, RunContext
+from pydantic_ai import Agent, AgentRunResult, RunContext
 from pydantic_ai.messages import ModelMessage
 
 from app.agent.llm_router import LLMRouter, TaskType
@@ -22,16 +22,34 @@ class AgentDeps:
     current_date: str
     current_time: str
     timezone: str
+    # M3: memory context
+    user_profile_text: str = ""
+    household_profile_text: str = ""
+    conversation_summary: str | None = None
+    relevant_memories: list[str] = field(default_factory=list)
+    # M4: home context
+    home_context_text: str = ""
+    # M5: for policy gate — available inside process_tool_call callback via ctx.deps
+    user_id: str = ""
+    household_id: str = ""
+    channel_user_id: str = ""
 
 
 def _make_conversation_agent() -> Agent[AgentDeps, str]:
     settings = get_settings()
     model = LLMRouter(settings).get_model(TaskType.CONVERSATION)
 
+    # Attach the Homey MCP toolset if the connection is running
+    from app.homey.mcp_client import get_mcp_server
+
+    mcp_server = get_mcp_server()
+    toolsets = [mcp_server] if mcp_server is not None else []
+
     a: Agent[AgentDeps, str] = Agent(
         model=model,
         deps_type=AgentDeps,
         output_type=str,
+        toolsets=toolsets or None,
     )
 
     @a.system_prompt
@@ -46,8 +64,30 @@ def _make_conversation_agent() -> Agent[AgentDeps, str]:
         }
         persona = load_persona(vars_)
         instructions = load_instructions(vars_)
+
         parts = [p for p in (persona, instructions) if p]
-        return "\n\n---\n\n".join(parts) if parts else "You are a helpful household assistant."
+        base = "\n\n---\n\n".join(parts) if parts else "You are a helpful household assistant."
+
+        extra_sections: list[str] = []
+        if d.home_context_text:
+            extra_sections.append(d.home_context_text)
+        if d.user_profile_text:
+            extra_sections.append(d.user_profile_text)
+        if d.household_profile_text:
+            extra_sections.append(d.household_profile_text)
+        if d.conversation_summary:
+            extra_sections.append(f"## Conversation Summary\n{d.conversation_summary}")
+        if d.relevant_memories:
+            mem_block = "\n".join(f"- {m}" for m in d.relevant_memories)
+            extra_sections.append(f"## Relevant Memories\n{mem_block}")
+
+        if extra_sections:
+            return base + "\n\n---\n\n" + "\n\n".join(extra_sections)
+        return base
+
+    from app.agent.tools.reminders import register_reminder_tools
+
+    register_reminder_tools(a)
 
     return a
 
@@ -63,7 +103,7 @@ def get_conversation_agent() -> Agent[AgentDeps, str]:
 
 
 def reload_agent() -> None:
-    """Recreate the agent singleton (called on admin /reload)."""
+    """Recreate the agent singleton (called on admin /reload or after MCP starts)."""
     global _conversation_agent
     _conversation_agent = None
     from app.agent.prompts import clear_prompt_cache
@@ -77,7 +117,21 @@ async def run_conversation(
     user_name: str,
     household_name: str = "the household",
     message_history: list[ModelMessage] | None = None,
-) -> str:
+    user_profile_text: str = "",
+    household_profile_text: str = "",
+    conversation_summary: str | None = None,
+    relevant_memories: list[str] | None = None,
+    home_context_text: str = "",
+    user_id: str = "",
+    household_id: str = "",
+    channel_user_id: str = "",
+) -> AgentRunResult[str]:
+    """
+    Run the conversation agent and return the full AgentRunResult.
+
+    Callers should use result.output for the response text, and
+    result.new_messages() to inspect tool calls made during the run.
+    """
     settings = get_settings()
     now = datetime.now(timezone.utc)
 
@@ -87,13 +141,20 @@ async def run_conversation(
         household_name=household_name,
         current_date=now.strftime("%A, %d %B %Y"),
         current_time=now.strftime("%H:%M"),
-        timezone="UTC",  # M3: use household timezone from DB profile
+        timezone="UTC",  # M4: use household timezone from DB profile
+        user_profile_text=user_profile_text,
+        household_profile_text=household_profile_text,
+        conversation_summary=conversation_summary,
+        relevant_memories=relevant_memories or [],
+        home_context_text=home_context_text,
+        user_id=user_id,
+        household_id=household_id,
+        channel_user_id=channel_user_id,
     )
 
     agent = get_conversation_agent()
-    result = await agent.run(
+    return await agent.run(
         text,
         deps=deps,
         message_history=message_history or [],
     )
-    return str(result.output)

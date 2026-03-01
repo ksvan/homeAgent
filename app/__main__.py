@@ -35,19 +35,39 @@ def _run_migrations() -> None:
 
 async def _run_development() -> None:
     """Long-polling mode — no public URL required."""
+    from app.agent.agent import reload_agent
     from app.bot import handle_incoming_message
+    from app.channels.registry import set_channel
     from app.channels.telegram import TelegramChannel
     from app.config import get_settings
+    from app.homey.mcp_client import start_mcp
+    from app.logging_setup import configure_logging
+    from app.policy.seeder import seed_policies
+    from app.scheduler.cleanup import register_cleanup_jobs
+    from app.scheduler.engine import start_scheduler
+    from app.scheduler.reminders import restore_pending_reminders
 
     settings = get_settings()
+    configure_logging(settings.log_level, settings.log_format)
+
     if not settings.telegram_bot_token:
         logger.error("TELEGRAM_BOT_TOKEN is not set — cannot start bot")
         sys.exit(1)
+
+    seed_policies()
+
+    await start_mcp()
+    reload_agent()  # pick up MCP toolset if connected
+
+    await start_scheduler()
+    await restore_pending_reminders()
+    await register_cleanup_jobs()
 
     channel = TelegramChannel(
         token=settings.telegram_bot_token,
         on_message=handle_incoming_message,
     )
+    set_channel(channel)
     logger.info("HomeAgent starting in development mode (Telegram polling)")
     await channel.start_polling()
 

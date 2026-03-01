@@ -26,9 +26,14 @@ def _db_ok(engine_fn: Callable[[], Engine]) -> str:
 
 @router.get("/health")
 async def health() -> dict[str, object]:
+    from app.homey.mcp_client import get_mcp_server
+    from app.scheduler.engine import get_scheduler
+
     db_users = _db_ok(users_engine)
     db_memory = _db_ok(memory_engine)
     db_cache = _db_ok(cache_engine)
+    mcp_status = "ok" if get_mcp_server() is not None else "disconnected"
+    scheduler_status = "ok" if get_scheduler() is not None else "stopped"
 
     all_ok = all(s == "ok" for s in (db_users, db_memory, db_cache))
     status = "healthy" if all_ok else "degraded"
@@ -46,5 +51,7 @@ async def health() -> dict[str, object]:
             "db_users": db_users,
             "db_memory": db_memory,
             "db_cache": db_cache,
+            "mcp": mcp_status,
+            "scheduler": scheduler_status,
         },
     }

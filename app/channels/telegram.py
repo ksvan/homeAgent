@@ -1,10 +1,11 @@
 from __future__ import annotations
 
 import asyncio
+import json
 import logging
 from collections.abc import Awaitable, Callable
 
-from telegram import InlineKeyboardButton, InlineKeyboardMarkup, Update
+from telegram import CallbackQuery, InlineKeyboardButton, InlineKeyboardMarkup, Update
 from telegram.ext import Application, CallbackQueryHandler, MessageHandler, filters
 
 from app.channels.base import Channel
@@ -30,9 +31,7 @@ class TelegramChannel(Channel):
         self._app.add_handler(
             MessageHandler(filters.TEXT & ~filters.COMMAND, self._handle_message)
         )
-        self._app.add_handler(
-            CallbackQueryHandler(self._handle_callback_query)
-        )
+        self._app.add_handler(CallbackQueryHandler(self._handle_callback_query))
 
     # ------------------------------------------------------------------
     # Incoming update handlers
@@ -54,11 +53,108 @@ class TelegramChannel(Channel):
             await update.message.reply_text(response)
 
     async def _handle_callback_query(self, update: Update, _context: object) -> None:
-        """Handle Yes/No confirmation button presses (Policy Gate — M5)."""
-        if not update.callback_query:
+        """Handle Yes/No confirmation button presses from the Policy Gate."""
+        query = update.callback_query
+        if not query or not query.data or not query.from_user:
             return
-        # Stub: full implementation in Milestone 5 (Policy Gate)
-        await update.callback_query.answer("Not yet implemented")
+
+        telegram_id = query.from_user.id
+        settings = get_settings()
+        if telegram_id not in settings.allowed_telegram_ids:
+            await query.answer()
+            return
+
+        data: str = query.data
+        if data.startswith("confirm:"):
+            token = data[len("confirm:"):]
+            await self._execute_confirmed_action(query, token, telegram_id)
+        elif data.startswith("cancel:"):
+            token = data[len("cancel:"):]
+            await self._cancel_pending_action(query, token, telegram_id)
+        else:
+            await query.answer("Unknown action")
+
+    async def _execute_confirmed_action(
+        self, query: CallbackQuery, token: str, telegram_id: int
+    ) -> None:
+        from app.homey.mcp_client import get_mcp_server
+        from app.policy.pending import delete_pending_action, get_pending_action
+
+        action = get_pending_action(token)
+        if action is None:
+            await query.answer()
+            await query.edit_message_text("⚠️ This action has expired or was already handled.")
+            return
+
+        if not await self._action_belongs_to(telegram_id, action.user_id):
+            await query.answer("This action doesn't belong to you.")
+            return
+
+        await query.answer("Executing…")
+
+        server = get_mcp_server()
+        if server is None:
+            await query.edit_message_text("⚠️ Homey is not connected — cannot execute.")
+            delete_pending_action(token)
+            return
+
+        try:
+            tool_args: dict[str, object] = json.loads(action.tool_args)
+            result = await server.direct_call_tool(action.tool_name, tool_args, None)
+            delete_pending_action(token)
+
+            await query.edit_message_text(f"✅ Done: {result}")
+            logger.info(
+                "Confirmed action executed: %s (token=%s)", action.tool_name, token
+            )
+
+            # Schedule state verification
+            from app.homey.verify import verify_after_write
+
+            asyncio.ensure_future(
+                verify_after_write(
+                    action.household_id, str(telegram_id), action.tool_name, tool_args
+                )
+            )
+        except Exception:
+            logger.exception("Failed to execute confirmed action (token=%s)", token)
+            delete_pending_action(token)
+            await query.edit_message_text(
+                "❌ Action failed — please check the device and try again."
+            )
+
+    async def _cancel_pending_action(
+        self, query: CallbackQuery, token: str, telegram_id: int
+    ) -> None:
+        from app.policy.pending import delete_pending_action, get_pending_action
+
+        action = get_pending_action(token)
+        if action is None:
+            await query.answer()
+            await query.edit_message_text("⚠️ This action has expired or was already handled.")
+            return
+
+        if not await self._action_belongs_to(telegram_id, action.user_id):
+            await query.answer("This action doesn't belong to you.")
+            return
+
+        await query.answer("Cancelled")
+        delete_pending_action(token)
+        await query.edit_message_text("❌ Action cancelled.")
+        logger.info("Pending action cancelled (token=%s)", token)
+
+    async def _action_belongs_to(self, telegram_id: int, action_user_id: str) -> bool:
+        """Return True if the Telegram user owns the given PendingAction."""
+        from sqlmodel import select
+
+        from app.db import users_session
+        from app.models.users import User
+
+        with users_session() as session:
+            user = session.exec(
+                select(User).where(User.telegram_id == telegram_id)
+            ).first()
+        return user is not None and user.id == action_user_id
 
     # ------------------------------------------------------------------
     # Channel interface

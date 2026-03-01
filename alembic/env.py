@@ -15,6 +15,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from app.config import get_settings  # noqa: E402
 from app.models import (  # noqa: E402, F401  — imported for side effects (metadata registration)
+    ActionPolicy,
     AgentRunLog,
     ChannelMapping,
     ConversationMessage,
@@ -35,7 +36,7 @@ from sqlmodel import SQLModel  # noqa: E402
 # Which tables live in which database
 # ---------------------------------------------------------------------------
 DATABASES: dict[str, set[str]] = {
-    "users": {"household", "user", "channelmapping", "task"},
+    "users": {"household", "user", "channelmapping", "task", "actionpolicy"},
     "memory": {
         "userprofile",
         "householdprofile",

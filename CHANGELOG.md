@@ -53,6 +53,79 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 
 ---
 
+## [0.2.0] - 2026-03-01
+
+### Added
+
+#### Milestone 2 — Bot is alive
+
+- `app/__main__.py` — entry point: development (long-polling) and production (uvicorn webhook) modes
+- `app/api/server.py` — FastAPI application with startup lifespan
+- `app/api/health.py` — `/health` endpoint reporting DB, MCP, and scheduler component status
+- `app/api/webhooks.py` — `/webhook/telegram` with secret-token validation
+- `app/channels/base.py` — `Channel` abstract interface
+- `app/channels/telegram.py` — `TelegramChannel`: polling + webhook modes, inline-button callback handling
+- `app/channels/registry.py` — module-level active-channel singleton
+- `app/bot.py` — central message dispatch: allowlist gate, user auto-create, agent run, response persistence
+- `app/agent/llm_router.py` — `LLMRouter` / `TaskType`: task-aware model selection with fallback
+- `app/agent/agent.py` — Pydantic AI `Agent` singleton with structured `AgentDeps`, dynamic system prompt, MCP toolset attachment
+
+#### Milestone 3 — Memory + context
+
+- `app/memory/profiles.py` — user and household profile CRUD
+- `app/memory/episodic.py` — episodic memory store and retrieval: OpenAI embeddings → sqlite-vec vector search with recency fallback
+- `app/memory/conversation.py` — rolling conversation history, summary compaction, recent message loading
+- `app/agent/context.py` — `assemble_context()`: profiles, history, episodic memories, device state
+- `app/agent/prompts.py` — prompt template loader with variable substitution and hot-reload cache
+
+#### Milestone 4 — Homey integration
+
+- `app/homey/mcp_client.py` — `MCPServerHTTP` singleton; policy gate callback intercepts every tool call; write tools trigger async state verification
+- `app/homey/state_cache.py` — `DeviceSnapshot` CRUD; `update_snapshots_from_tool_calls()` parses agent messages
+- `app/homey/home_profile.py` — `refresh_home_profile()`: queries MCP for zones/devices, writes household profile
+- `app/homey/verify.py` — `verify_after_write()`: post-write read-back; user notified on mismatch
+
+#### Milestone 5 — Policy gate + verify
+
+- `app/models/users.py` — `ActionPolicy` model (tool pattern, arg conditions, impact level, confirm flag, cooldown)
+- `app/policy/default_policies.py` — 7 built-in policies covering alarm, door lock, water shutoff, flow trigger, device control, and read tools
+- `app/policy/gate.py` — `evaluate_policy()`: fnmatch matching; deterministic ordering; conservative fail for unknowns
+- `app/policy/pending.py` — `PendingAction` CRUD with expiry
+- `app/policy/seeder.py` — inserts missing default policies without overwriting user edits
+- `alembic/versions/0002_users_db_action_policy.py` — migration for `actionpolicy` table
+
+#### Milestone 6 — Scheduler + reminders
+
+- `app/scheduler/engine.py` — APScheduler 4.x `AsyncScheduler` singleton
+- `app/scheduler/jobs.py` — `send_reminder()` job
+- `app/scheduler/reminders.py` — `schedule_reminder()`, `cancel_reminder()`, `restore_pending_reminders()` (startup rehydration)
+- `app/scheduler/cleanup.py` — `purge_old_logs()` daily retention job
+- `app/agent/tools/reminders.py` — `set_reminder`, `list_reminders`, `cancel_reminder` Pydantic AI tools
+
+#### Milestone 7 — Production hardening
+
+- `app/logging_setup.py` — `configure_logging()`: structlog integration; console renderer in dev, JSON in prod
+- `app/bot.py` — per-user sliding-window rate limiter; skipped in development and test modes
+- `Dockerfile` — single-stage uv build, non-root user
+- `docker-compose.yml` — `./data` and `./prompts` volume mounts, Docker healthcheck
+- `.dockerignore`
+
+### Changed
+
+- `app/api/health.py` — `/health` now reports `mcp` and `scheduler` component status
+- `app/api/server.py` — lifespan wires logging, scheduler, cleanup jobs, and channel registry
+- `app/__main__.py` — dev startup wires the same sequence as production lifespan
+
+### Fixed
+
+- **Confirmation callback ownership** (`app/channels/telegram.py`) — both confirm and cancel handlers verify via DB lookup that the pressing user owns the `PendingAction`; foreign tokens receive an ephemeral rejection
+- **Episodic memory cross-user leak** (`app/memory/episodic.py`) — `search_memories` now scopes to household-wide memories (`user_id IS NULL`) plus the requesting user's personal memories; other household members' memories are never returned
+- **Policy gate fail-open on unknown write tools** (`app/policy/gate.py`) — unrecognised write tools now require confirmation; `get_*` / `list_*` tools are still allowed; DB lookup failures are also fail-closed
+- **Non-deterministic policy ordering** (`app/policy/gate.py`) — query uses `ORDER BY requires_confirm DESC, name ASC`; confirmation-required policies always win over permissive ones
+
+---
+
 <!-- New entries go above this line -->
 
+[0.2.0]: https://github.com/your-org/homeAgent/releases/tag/v0.2.0
 [0.1.0]: https://github.com/your-org/homeAgent/releases/tag/v0.1.0

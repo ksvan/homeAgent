@@ -1,6 +1,6 @@
 [project]
 name = "homeagent"
-version = "0.1.0"
+version = "0.2.0"
 description = "Locally-orchestrated household AI agent"
 requires-python = ">=3.12"
 
@@ -12,7 +12,6 @@ dependencies = [
     "python-telegram-bot",
     "sqlmodel",
     "alembic",
-    "chromadb",
     # APScheduler 4.x is async-native; still pre-release — allow alpha/beta
     "apscheduler>=4.0.0a1,<5",
     "anthropic",
@@ -21,6 +20,8 @@ dependencies = [
     "structlog",
     "pydantic-settings",
     "python-dotenv",
+    "sqlite-vec>=0.1.6",
+    "numpy",
 ]
 
 [dependency-groups]
@@ -42,6 +43,10 @@ select = ["E", "F", "I"]
 python_version = "3.12"
 strict = true
 exclude = ["alembic/"]
+
+[[tool.mypy.overrides]]
+module = ["sqlite_vec"]
+ignore_missing_imports = true
 
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
