@@ -1,0 +1,92 @@
+# ============================================================
+# HomeAgent .gitignore
+# ============================================================
+
+# ------------------------------------------------------------
+# Secrets — never commit these
+# The pattern .env.* catches all variants (.env.production,
+# .env.staging, .env.backup, etc.)
+# .env.example is explicitly allowed — it must contain only
+# placeholder values, never real credentials.
+# ------------------------------------------------------------
+.env
+.env.*
+!.env.example
+
+# ------------------------------------------------------------
+# Python
+# ------------------------------------------------------------
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+*.egg
+*.egg-info/
+dist/
+build/
+.eggs/
+.venv/
+venv/
+env/
+
+# uv — NOTE: uv.lock SHOULD be committed for reproducible builds.
+# Only the internal uv cache directory is ignored.
+.uv/
+
+# ------------------------------------------------------------
+# Data — persistent volumes, never commit
+# These contain conversation history, memories, device state,
+# and potentially personal information.
+# ------------------------------------------------------------
+data/
+*.db
+*.sqlite
+*.sqlite3
+
+# Chroma vector store
+chroma/
+
+# ------------------------------------------------------------
+# Logs
+# ------------------------------------------------------------
+logs/
+*.log
+
+# ------------------------------------------------------------
+# Docker
+# ------------------------------------------------------------
+.docker/
+
+# ------------------------------------------------------------
+# OS / IDE
+# ------------------------------------------------------------
+.DS_Store
+.AppleDouble
+.LSOverride
+.idea/
+.vscode/
+*.code-workspace
+.claude/
+
+# ------------------------------------------------------------
+# Test / coverage
+# ------------------------------------------------------------
+.pytest_cache/
+.coverage
+htmlcov/
+.mypy_cache/
+.ruff_cache/
+
+# ------------------------------------------------------------
+# Secrets / certs / backups
+# ------------------------------------------------------------
+*.pem
+*.key
+*.crt
+*.p12
+*.pfx
+*.bak
+*.backup
+.secrets
+secrets/

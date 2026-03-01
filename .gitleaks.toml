@@ -1,0 +1,16 @@
+title = "HomeAgent secret scanning"
+
+# Extend the default gitleaks ruleset (catches API keys, tokens,
+# private keys, connection strings, and 100+ other patterns).
+[extend]
+useDefault = true
+
+# Files that are explicitly allowed to contain placeholder-looking
+# secrets. .env.example must only ever hold fake values.
+[allowlist]
+description = "Safe files — must contain only placeholder values"
+paths = [
+    ".env.example",
+    "docs/.*\\.md",
+    "README\\.md",
+]
