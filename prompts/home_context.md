@@ -26,13 +26,14 @@
   Example (edit to match your home):
 -->
 
-The home has two floors:
+The home has three floors. Norwegian standard where ground floor equals first floor
 
-- **Ground floor:** kitchen, living room, hallway, guest toilet
-- **First floor:** master bedroom, children's room (Sofie), children's room (Emma),
-  bathroom, home office
+- **Basement floor:** Gym, movie room, bathrom, storage, hallway/stair
+- **First floor / ground floor:** kitchen, living room, hallway, dining room, outer hallway
+- **Second floor:** master bedroom, children's room 1, children's room 2,
+  bathroom, home office, hallway/stairs
 
-The garage is connected to the house and has its own lighting zone.
+  There are also some outdoor devices, in the garden zone.
 
 ## Device naming conventions
 
@@ -59,8 +60,8 @@ The garage is connected to the house and has its own lighting zone.
 
 - The household is typically awake 06:30–23:00 on weekdays,
   slightly later on weekends.
-- School pick-up is around 14:30 on weekdays.
-- "Night mode" means all lights off, heating set to 18°C.
+- home from school around 14:00
+- "Night mode" means all lights off, heating is kept the same
 
 ---
 

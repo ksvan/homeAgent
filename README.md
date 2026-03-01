@@ -4,6 +4,8 @@ A locally-orchestrated personal AI agent for your household. Talks to your famil
 
 Runs 24/7 in Docker on a Mac or Linux machine. Uses cloud LLMs (Claude, GPT-4o) for reasoning — conversations are sent to Anthropic/OpenAI APIs. All stored data (conversation history, memories, device state) stays local on your machine.
 
+Developed by Claude, with assistance from me and Codex.
+
 ---
 
 ## What It Does
@@ -110,7 +112,7 @@ Key settings:
 **Critical rules — read before pushing to any git remote:**
 
 - `.env` is gitignored. **Never remove it from `.gitignore`.** Never commit it.
-- `.env.example` is committed and must contain only placeholder values (`sk-ant-...`, `123456789`, etc.). Never put real credentials in it.
+- `.env.example` is committed and must contain only placeholder values (`sk-ant-...`, `123456789`, etc.). Never put real credentials in it. This is just a template, helpful samples to get going
 - `data/` is gitignored. It contains conversation history and personal memories.
 - `uv.lock` **should** be committed — it ensures reproducible builds.
 
@@ -222,3 +224,7 @@ docker buildx build \
 - [Tech Stack](docs/tech-stack.md)
 - [Telegram Integration](docs/integrations/telegram.md)
 - [Homey MCP Integration](docs/integrations/homey-mcp.md)
+
+## Other relevant
+
+- Folder prompts contains input and guidance examples for the llms. This needs to be updated to fit your context and preferences. More context could also be helpful, just samples provided now. Including on localization.
