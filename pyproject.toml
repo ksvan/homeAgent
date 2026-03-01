@@ -1,0 +1,48 @@
+[project]
+name = "homeagent"
+version = "0.1.0"
+description = "Locally-orchestrated household AI agent"
+requires-python = ">=3.12"
+
+dependencies = [
+    "pydantic-ai",
+    "fastapi",
+    "uvicorn[standard]",
+    "slowapi",
+    "python-telegram-bot",
+    "sqlmodel",
+    "alembic",
+    "chromadb",
+    # APScheduler 4.x is async-native; still pre-release — allow alpha/beta
+    "apscheduler>=4.0.0a1,<5",
+    "anthropic",
+    "openai",
+    "httpx",
+    "structlog",
+    "pydantic-settings",
+    "python-dotenv",
+]
+
+[dependency-groups]
+dev = [
+    "ruff",
+    "mypy",
+    "pytest",
+    "pytest-asyncio",
+    "httpx",
+]
+
+[tool.ruff]
+line-length = 100
+
+[tool.ruff.lint]
+select = ["E", "F", "I"]
+
+[tool.mypy]
+python_version = "3.12"
+strict = true
+exclude = ["alembic/"]
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+testpaths = ["tests"]
