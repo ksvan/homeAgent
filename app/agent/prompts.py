@@ -1,10 +1,13 @@
 from __future__ import annotations
 
+import logging
 import re
 from functools import lru_cache
 from pathlib import Path
 
 from app.config import get_settings
+
+logger = logging.getLogger(__name__)
 
 
 class _SafeDict(dict):  # type: ignore[type-arg]
@@ -26,7 +29,12 @@ def _render(template: str, variables: dict[str, str]) -> str:
 @lru_cache(maxsize=16)
 def _read_file(path: str) -> str:
     p = Path(path)
-    return p.read_text(encoding="utf-8") if p.exists() else ""
+    if not p.exists():
+        logger.warning("Prompt file not found: %s (cwd=%s)", path, Path.cwd())
+        return ""
+    content = p.read_text(encoding="utf-8")
+    logger.debug("Loaded prompt file: %s (%d chars)", path, len(content))
+    return content
 
 
 def clear_prompt_cache() -> None:
