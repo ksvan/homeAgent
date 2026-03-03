@@ -17,6 +17,9 @@
   Leave {device_states} in place — it is filled in dynamically.
 -->
 
+## Set location
+Home is in timezone CET
+
 ## Home layout
 
 <!--

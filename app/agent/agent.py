@@ -85,9 +85,26 @@ def _make_conversation_agent() -> Agent[AgentDeps, str]:
             return base + "\n\n---\n\n" + "\n\n".join(extra_sections)
         return base
 
+    from app.agent.tools.actions import register_action_tools
     from app.agent.tools.reminders import register_reminder_tools
 
     register_reminder_tools(a)
+    register_action_tools(a)
+
+    if settings.feature_bash:
+        from app.agent.tools.bash import register_bash_tools
+
+        register_bash_tools(a)
+
+    if settings.feature_python:
+        from app.agent.tools.python_exec import register_python_tools
+
+        register_python_tools(a)
+
+    if settings.feature_scrape:
+        from app.agent.tools.scrape import register_scrape_tools
+
+        register_scrape_tools(a)
 
     return a
 
@@ -133,7 +150,13 @@ async def run_conversation(
     result.new_messages() to inspect tool calls made during the run.
     """
     settings = get_settings()
-    now = datetime.now(timezone.utc)
+    try:
+        from zoneinfo import ZoneInfo
+
+        tz = ZoneInfo(settings.household_timezone)
+    except Exception:
+        tz = timezone.utc
+    now = datetime.now(tz)
 
     deps = AgentDeps(
         user_name=user_name,
@@ -141,7 +164,7 @@ async def run_conversation(
         household_name=household_name,
         current_date=now.strftime("%A, %d %B %Y"),
         current_time=now.strftime("%H:%M"),
-        timezone="UTC",  # M4: use household timezone from DB profile
+        timezone=settings.household_timezone,
         user_profile_text=user_profile_text,
         household_profile_text=household_profile_text,
         conversation_summary=conversation_summary,

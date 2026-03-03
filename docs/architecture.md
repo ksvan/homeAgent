@@ -38,22 +38,22 @@ The core design principle: **one agent, rich context, many tools.** Intelligence
 │             │  │                │  │                     │
 │ Claude      │  │ Policy Gate ◄──┤  │ User profiles       │
 │ Sonnet 4.5  │  │ Homey MCP      │  │ Home profile        │
-│ (primary)   │  │ Action Verify  │  │ Conversation history│
-│             │  │ Web search     │  │ Episodic memories   │
-│ GPT-4o      │  │ Reminders      │  │ State cache (SQLite)│
-│ (fallback)  │  │ ...extensible  │  │ Event log           │
-│             │  │                │  │ Agent run log       │
-│ Haiku/Mini  │  │                │  │ Vector search       │
+│ (primary)   │  │ Sched. actions │  │ Conversation history│
+│             │  │ Reminders      │  │ Episodic memories   │
+│ GPT-4o      │  │ Bash runner    │  │ State cache (SQLite)│
+│ (fallback)  │  │ Python exec    │  │ Event log           │
+│             │  │ Web scrape     │  │ Agent run log       │
+│ Haiku/Mini  │  │ Action Verify  │  │ Vector search       │
 │ (background)│  │                │  │                     │
 └─────────────┘  └────────────────┘  └─────────────────────┘
 
                                       ┌─────────────────────┐
                                       │    Scheduler        │
                                       │ APScheduler         │
-                                      │ - Cron jobs         │
+                                      │ - Device actions    │
                                       │ - Reminders         │
+                                      │ - Log retention     │
                                       │ - Cache refresh     │
-                                      │ - Memory compaction │
                                       └─────────────────────┘
 * Planned, not yet implemented
 ```

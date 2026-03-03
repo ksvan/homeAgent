@@ -49,11 +49,11 @@ async def _try_discover_devices(server: object, household_id: str) -> None:
     Attempt to call Homey discovery tools (get_zones, get_devices) and store
     the results in the household profile.  Fails silently if tools aren't found.
     """
-    from pydantic_ai.mcp import MCPServerHTTP
+    from pydantic_ai.mcp import MCPServerStreamableHTTP
 
     from app.memory.profiles import upsert_household_profile
 
-    if not isinstance(server, MCPServerHTTP):
+    if not isinstance(server, MCPServerStreamableHTTP):
         return
 
     # Try to get zones — Homey uses 'get_zones' or similar

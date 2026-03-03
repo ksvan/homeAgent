@@ -1,0 +1,58 @@
+#!/usr/bin/env bash
+# HomeAgent launcher — dev and production modes
+#
+# Usage:
+#   ./start.sh           # development mode (Telegram long polling)
+#   ./start.sh dev       # same as above
+#   ./start.sh prod      # production mode via Docker Compose
+#   ./start.sh logs      # tail Docker Compose logs
+#   ./start.sh stop      # stop Docker Compose stack
+#   ./start.sh restart   # rebuild and restart Docker Compose stack
+
+set -euo pipefail
+
+MODE="${1:-dev}"
+
+case "$MODE" in
+  dev)
+    echo "Starting HomeAgent in development mode (Telegram long polling)..."
+    if ! command -v uv &>/dev/null; then
+      echo "Error: 'uv' not found. Install it: https://docs.astral.sh/uv/"
+      exit 1
+    fi
+    uv run python -m app
+    ;;
+
+  prod)
+    echo "Starting HomeAgent in production mode (Docker Compose)..."
+    if ! command -v docker &>/dev/null; then
+      echo "Error: 'docker' not found. Install Docker Desktop."
+      exit 1
+    fi
+    docker compose up --build -d
+    echo ""
+    echo "Stack is up. Follow logs with:  ./start.sh logs"
+    echo "Stop with:                      ./start.sh stop"
+    ;;
+
+  logs)
+    docker compose logs -f
+    ;;
+
+  stop)
+    echo "Stopping HomeAgent..."
+    docker compose down
+    ;;
+
+  restart)
+    echo "Rebuilding and restarting HomeAgent..."
+    docker compose down
+    docker compose up --build -d
+    echo "Restarted. Follow logs with: ./start.sh logs"
+    ;;
+
+  *)
+    echo "Usage: $0 [dev|prod|logs|stop|restart]"
+    exit 1
+    ;;
+esac

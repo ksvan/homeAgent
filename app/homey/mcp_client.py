@@ -6,19 +6,19 @@ from collections.abc import Awaitable, Callable
 from typing import Any
 
 from pydantic_ai import RunContext
-from pydantic_ai.mcp import MCPServerHTTP
+from pydantic_ai.mcp import MCPServerStreamableHTTP
 
 from app.config import get_settings
 
 logger = logging.getLogger(__name__)
 
-_mcp_server: MCPServerHTTP | None = None
+_mcp_server: MCPServerStreamableHTTP | None = None
 
 # Type alias for the inner call_tool callable passed to process_tool_call
 _DirectCallFn = Callable[[str, dict[str, Any], Any], Awaitable[Any]]
 
 
-def get_mcp_server() -> MCPServerHTTP | None:
+def get_mcp_server() -> MCPServerStreamableHTTP | None:
     """Return the running Homey MCP server instance, or None if not configured."""
     return _mcp_server
 
@@ -108,22 +108,21 @@ def _is_write_tool(tool_name: str) -> bool:
     return any(tool_name.startswith(p) for p in write_prefixes)
 
 
-def _create_mcp_server() -> MCPServerHTTP | None:
-    """Instantiate an MCPServerHTTP from current settings, or return None."""
+def _create_mcp_server() -> MCPServerStreamableHTTP | None:
+    """Instantiate an MCPServerStreamableHTTP from current settings, or return None."""
     settings = get_settings()
-    if not settings.homey_mcp_url or not settings.homey_token:
+    if not settings.homey_mcp_url:
         logger.info("Homey MCP not configured — smart home tools disabled")
         return None
 
-    return MCPServerHTTP(
+    return MCPServerStreamableHTTP(
         url=settings.homey_mcp_url,
-        headers={"Authorization": f"Bearer {settings.homey_token}"},
         tool_prefix="homey",
         process_tool_call=_policy_process_tool_call,
     )
 
 
-async def start_mcp() -> MCPServerHTTP | None:
+async def start_mcp() -> MCPServerStreamableHTTP | None:
     """
     Connect to the Homey MCP server and register it as the module singleton.
 

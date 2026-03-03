@@ -21,9 +21,12 @@ cp .env.example .env
 # Edit .env — minimum required: ANTHROPIC_API_KEY, TELEGRAM_BOT_TOKEN, ALLOWED_TELEGRAM_IDS
 
 uv sync                          # install all dependencies
-uv run alembic upgrade head      # create DB schema
-APP_ENV=development uv run python -m app   # start in polling mode
+uv run alembic upgrade heads     # create DB schema (note: heads, plural)
+./start.sh dev                   # start in polling mode
 ```
+
+> **Tip:** `start.sh` is a convenience wrapper. In dev mode it runs `uv run python -m app`.
+> In production it wraps `docker compose up --build -d`.
 
 In `development` mode the bot uses Telegram long polling — no public URL or webhook setup required.
 
@@ -162,10 +165,11 @@ homeAgent/
 │   │   │   ├── gate.py         # PolicyGate middleware
 │   │   │   └── default_policies.py
 │   │   └── tools/
-│   │       ├── homey.py        # Homey MCP tool wrappers
-│   │       ├── reminders.py
-│   │       ├── web_search.py
-│   │       └── tasks.py        # Task state management tools
+│   │       ├── actions.py      # Scheduled device actions
+│   │       ├── bash.py         # Bash command runner tool
+│   │       ├── python_exec.py  # Python script execution tool
+│   │       ├── reminders.py    # Reminder tools
+│   │       └── scrape.py       # Web scraping tool
 │   ├── channels/
 │   │   ├── base.py             # Channel abstract interface
 │   │   └── telegram.py         # TelegramChannel implementation
@@ -183,7 +187,12 @@ homeAgent/
 │   │   ├── webhooks.py         # /webhook/telegram, /webhook/homey
 │   │   └── health.py           # /health endpoint
 │   ├── scheduler/
-│   │   └── jobs.py             # APScheduler job definitions
+│   │   ├── actions.py          # Scheduled Homey action logic + startup restore
+│   │   ├── cleanup.py          # Log retention jobs
+│   │   ├── engine.py           # APScheduler singleton
+│   │   ├── jobs.py             # Job definitions (reminders, device actions)
+│   │   └── reminders.py        # Reminder schedule/cancel/restore
+│   ├── shell.py                # Subprocess runner (bash + python tools)
 │   └── config.py               # Settings + FeatureFlags from .env
 ├── alembic/                    # DB migration files
 ├── tests/
@@ -199,6 +208,7 @@ homeAgent/
 │   └── Dockerfile
 ├── docker-compose.yml
 ├── pyproject.toml
+├── start.sh                    # Dev/prod launcher
 └── .env.example
 ```
 

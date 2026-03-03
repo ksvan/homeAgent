@@ -45,6 +45,7 @@ async def _run_development() -> None:
     from app.policy.seeder import seed_policies
     from app.scheduler.cleanup import register_cleanup_jobs
     from app.scheduler.engine import start_scheduler
+    from app.scheduler.actions import restore_pending_actions
     from app.scheduler.reminders import restore_pending_reminders
 
     settings = get_settings()
@@ -61,6 +62,7 @@ async def _run_development() -> None:
 
     await start_scheduler()
     await restore_pending_reminders()
+    await restore_pending_actions()
     await register_cleanup_jobs()
 
     channel = TelegramChannel(
