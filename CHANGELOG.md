@@ -8,11 +8,15 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 
 ## Unreleased
 
+### Fixed
+
+- **Memory write missing** (`app/agent/tools/memory.py`) — agent had no mechanism to write to long-term memory; added `store_memory` tool with `content` and `scope` (`household`/`personal`) args; updated `prompts/instructions.md` with explicit rule to call the tool immediately rather than just saying it will remember
+
 ### Planned
 - Channels: email, iMessage, voice
 - TTS via Homey (cast to Google Nest etc.)
 - Home awareness: learning normal state, detecting anomalies
-- Toolbox Docker container: isolate bash/python/scrape tools behind internal HTTP API
+- Improved memory: associate scenarios (e.g. "goodnight") with device action sets
 
 ---
 

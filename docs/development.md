@@ -167,6 +167,7 @@ homeAgent/
 │   │   └── tools/
 │   │       ├── actions.py      # Scheduled device actions
 │   │       ├── bash.py         # Bash command runner tool
+│   │       ├── memory.py       # store_memory tool
 │   │       ├── python_exec.py  # Python script execution tool
 │   │       ├── reminders.py    # Reminder tools
 │   │       └── scrape.py       # Web scraping tool

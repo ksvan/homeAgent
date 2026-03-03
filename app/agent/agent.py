@@ -86,10 +86,12 @@ def _make_conversation_agent() -> Agent[AgentDeps, str]:
         return base
 
     from app.agent.tools.actions import register_action_tools
+    from app.agent.tools.memory import register_memory_tools
     from app.agent.tools.reminders import register_reminder_tools
 
     register_reminder_tools(a)
     register_action_tools(a)
+    register_memory_tools(a)
 
     if settings.feature_bash:
         from app.agent.tools.bash import register_bash_tools
