@@ -12,8 +12,28 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 
 - Channels: email, iMessage, voice
 - TTS via Homey (cast to Google Nest etc.)
-- Home awareness: learning normal state, detecting anomalies
+- Home awareness / anomaly detection (Prometheus baseline jobs)
 - Improved memory: associate scenarios (e.g. "goodnight") with device action sets
+
+---
+
+## [0.5.0] - 2026-03-06
+
+### Added
+
+#### Prometheus MCP integration
+
+- `services/prometheus-mcp/` — standalone read-only MCP server exposing five tools:
+  - `prom_query` — instant PromQL query (current values)
+  - `prom_query_range` — range query returning `TimeSeries` with `datapoints` + `min/max/avg/latest` summaries; output shaped for future anomaly detection
+  - `prom_list_metrics` — list metric names with optional prefix filter
+  - `prom_label_values` — list label values (e.g. all `job` or `room` names)
+  - `prom_series` — series metadata for anomaly baseline enumeration
+- `app/prometheus/mcp_client.py` — HomeAgent-side connection: `MCPServerStreamableHTTP` with `tool_prefix="prom"`, no policy gate (read-only)
+- Numeric guardrails in the MCP server: query timeout, max range window, min step, max series, max datapoints, max response size, optional metric prefix allowlist
+- Optional Bearer token auth for Prometheus (env-driven, LAN setups leave empty)
+- `PROMETHEUS_MCP_URL` added to HomeAgent `app/config.py` and `.env.example`
+- `app/api/server.py` — Prometheus MCP started/stopped alongside Homey MCP in lifespan
 
 ---
 
@@ -192,6 +212,7 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 
 <!-- New entries go above this line -->
 
+[0.5.0]: https://github.com/your-org/homeAgent/releases/tag/v0.5.0
 [0.4.0]: https://github.com/your-org/homeAgent/releases/tag/v0.4.0
 [0.3.0]: https://github.com/your-org/homeAgent/releases/tag/v0.3.0
 [0.2.0]: https://github.com/your-org/homeAgent/releases/tag/v0.2.0

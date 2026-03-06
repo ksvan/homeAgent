@@ -194,8 +194,26 @@ homeAgent/
 │   │   ├── engine.py           # APScheduler singleton
 │   │   ├── jobs.py             # Job definitions (reminders, device actions)
 │   │   └── reminders.py        # Reminder schedule/cancel/restore
+│   ├── homey/
+│   │   ├── mcp_client.py       # Homey MCP connection + policy gate callback
+│   │   ├── home_profile.py     # Device/zone snapshot → household profile
+│   │   ├── state_cache.py      # DeviceSnapshot CRUD
+│   │   └── verify.py           # Post-write state verification
+│   ├── prometheus/
+│   │   └── mcp_client.py       # Prometheus MCP connection (read-only, no policy gate)
 │   ├── shell.py                # Subprocess runner (bash + python tools)
 │   └── config.py               # Settings + FeatureFlags from .env
+├── services/
+│   └── prometheus-mcp/         # Standalone Prometheus MCP server
+│       ├── app/
+│       │   ├── config.py       # Settings (guardrails, Prometheus URL, auth)
+│       │   ├── guards.py       # Numeric guardrail validation
+│       │   ├── models.py       # Pydantic I/O models
+│       │   ├── prom_client.py  # httpx Prometheus HTTP API wrapper
+│       │   ├── mcp_server.py   # FastMCP tools
+│       │   └── main.py         # Entry point (python app/main.py)
+│       ├── requirements.txt
+│       └── .env.example
 ├── alembic/                    # DB migration files
 ├── tests/
 │   ├── unit/
@@ -206,8 +224,6 @@ homeAgent/
 │   ├── instructions.md         # Behavioural rules
 │   └── home_context.md         # Home layout and device context
 ├── docs/
-├── docker/
-│   └── Dockerfile
 ├── docker-compose.yml
 ├── pyproject.toml
 ├── start.sh                    # Dev/prod launcher

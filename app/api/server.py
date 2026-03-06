@@ -24,6 +24,8 @@ async def _lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     from app.channels.telegram import TelegramChannel
     from app.db import users_session
     from app.homey.mcp_client import start_mcp, stop_mcp
+    from app.prometheus.mcp_client import start_mcp as start_prom_mcp
+    from app.prometheus.mcp_client import stop_mcp as stop_prom_mcp
     from app.logging_setup import configure_logging
     from app.models.users import Household
     from app.policy.seeder import seed_policies
@@ -34,9 +36,10 @@ async def _lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     configure_logging(settings.log_level, settings.log_format)
     seed_policies()
 
-    # Start Homey MCP first so the agent can pick up the toolset
+    # Start MCP servers so the agent can pick up their toolsets
     await start_mcp()
-    reload_agent()  # rebuild agent singleton with MCP toolset (if connected)
+    await start_prom_mcp()
+    reload_agent()  # rebuild agent singleton with all connected MCP toolsets
 
     # Start APScheduler, restore pending reminders, register cleanup job
     await start_scheduler()
@@ -66,6 +69,7 @@ async def _lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     await channel.shutdown()
     logger.info("Telegram webhook channel shut down")
     await stop_mcp()
+    await stop_prom_mcp()
     await stop_scheduler()
 
 

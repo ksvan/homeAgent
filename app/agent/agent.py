@@ -39,11 +39,11 @@ def _make_conversation_agent() -> Agent[AgentDeps, str]:
     settings = get_settings()
     model = LLMRouter(settings).get_model(TaskType.CONVERSATION)
 
-    # Attach the Homey MCP toolset if the connection is running
-    from app.homey.mcp_client import get_mcp_server
+    # Attach MCP toolsets for any connected services
+    from app.homey.mcp_client import get_mcp_server as get_homey_mcp
+    from app.prometheus.mcp_client import get_mcp_server as get_prom_mcp
 
-    mcp_server = get_mcp_server()
-    toolsets = [mcp_server] if mcp_server is not None else []
+    toolsets = [s for s in (get_homey_mcp(), get_prom_mcp()) if s is not None]
 
     a: Agent[AgentDeps, str] = Agent(
         model=model,

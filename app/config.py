@@ -105,6 +105,11 @@ class Settings(BaseSettings):
     homey_verify_delay_seconds: int = 2
 
     # ------------------------------------------------------------------
+    # Prometheus MCP  (services/prometheus-mcp/ — read-only metrics)
+    # ------------------------------------------------------------------
+    prometheus_mcp_url: str = ""  # e.g. http://192.168.1.x:9000/mcp
+
+    # ------------------------------------------------------------------
     # Application
     # ------------------------------------------------------------------
     app_env: str = "development"
