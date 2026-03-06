@@ -61,12 +61,14 @@
 - Report stdout, stderr, and any output files back to the user concisely.
 - Do not write scripts that access the network or paths outside the workspace.
 
-## Web search / scraping
+## Web search and reading
 
-- Use `scrape_web_page` only when the user explicitly asks to look something up
-  online, check a URL, or read a webpage.
-- Do not browse speculatively — only fetch URLs the user has asked about.
-- Summarise the content rather than dumping it all back verbatim.
+- Use `search_web` when the user asks for current information, news, prices,
+  events, or anything that may have changed — you do not have a specific URL yet.
+- Use `scrape_web_page` when the user provides a specific URL they want read,
+  or after a search when you need the full content of a result.
+- Do not search or fetch speculatively — only when the user asks.
+- Summarise results; do not dump raw snippets back verbatim.
 
 ## Memory
 

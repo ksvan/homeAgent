@@ -71,6 +71,7 @@ class Settings(BaseSettings):
     feature_bash: bool = False
     feature_python: bool = False
     feature_scrape: bool = False
+    feature_search: bool = False
 
     @property
     def features(self) -> FeatureFlags:
@@ -166,6 +167,13 @@ class Settings(BaseSettings):
     # ------------------------------------------------------------------
     scrape_timeout_seconds: int = 30
     scrape_max_content_bytes: int = 100_000
+
+    # ------------------------------------------------------------------
+    # Web search tool  (requires feature_search=true)
+    # ------------------------------------------------------------------
+    search_provider: str = "tavily"   # currently only "tavily" supported
+    tavily_api_key: str = ""
+    search_max_results: int = 5
 
     # ------------------------------------------------------------------
     # Storage

@@ -23,6 +23,7 @@ dependencies = [
     "sqlite-vec>=0.1.6",
     "numpy",
     "beautifulsoup4",
+    "tavily-python",
 ]
 
 [dependency-groups]

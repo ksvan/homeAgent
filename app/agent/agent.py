@@ -108,6 +108,11 @@ def _make_conversation_agent() -> Agent[AgentDeps, str]:
 
         register_scrape_tools(a)
 
+    if settings.feature_search:
+        from app.agent.tools.search import register_search_tools
+
+        register_search_tools(a)
+
     return a
 
 
