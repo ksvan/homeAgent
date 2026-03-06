@@ -219,6 +219,7 @@ docker buildx build \
 ## Docs
 
 - [Architecture](docs/architecture.md)
+- [Architecture Diagrams](docs/architecture-diagrams.md)
 - [Agent Design](docs/agent-design.md)
 - [Memory Design](docs/memory-design.md)
 - [Tech Stack](docs/tech-stack.md)

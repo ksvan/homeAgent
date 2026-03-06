@@ -6,6 +6,8 @@ HomeAgent is a locally-orchestrated AI agent server. It runs 24/7 on a single ma
 
 The core design principle: **one agent, rich context, many tools.** Intelligence lives in context assembly and memory retrieval — not in routing between sub-agents.
 
+Visual diagrams: [architecture-diagrams.md](architecture-diagrams.md)
+
 ---
 
 ## System Diagram
@@ -38,13 +40,14 @@ The core design principle: **one agent, rich context, many tools.** Intelligence
 │             │  │                │  │                     │
 │ Claude      │  │ Policy Gate ◄──┤  │ User profiles       │
 │ Sonnet 4.5  │  │ Homey MCP      │  │ Home profile        │
-│ (primary)   │  │ Sched. actions │  │ Conversation history│
-│             │  │ Reminders      │  │ Episodic memories   │
-│ GPT-4o      │  │ Bash runner    │  │ State cache (SQLite)│
-│ (fallback)  │  │ Python exec    │  │ Event log           │
-│             │  │ Web scrape     │  │ Agent run log       │
-│ Haiku/Mini  │  │ Web search*    │  │ Vector search       │
-│ (background)│  │ Action Verify  │  │                     │
+│ (primary)   │  │ Prometheus MCP†│  │ Conversation history│
+│             │  │ Sched. actions │  │ Episodic memories   │
+│ GPT-4o      │  │ Reminders      │  │ State cache (SQLite)│
+│ (fallback)  │  │ Bash runner    │  │ Event log           │
+│             │  │ Python exec    │  │ Agent run log       │
+│ Haiku/Mini  │  │ Web scrape     │  │ Vector search       │
+│ (background)│  │ Web search*    │  │                     │
+│             │  │ Action Verify  │  │                     │
 └─────────────┘  └────────────────┘  └─────────────────────┘
 
                                       ┌─────────────────────┐
@@ -56,6 +59,7 @@ The core design principle: **one agent, rich context, many tools.** Intelligence
                                       │ - Cache refresh     │
                                       └─────────────────────┘
 * Web search uses a provider adapter — swap backends via SEARCH_PROVIDER in .env
+† Prometheus MCP runs as a separate service in services/prometheus-mcp/
 * Planned, not yet implemented (channels)
 ```
 
