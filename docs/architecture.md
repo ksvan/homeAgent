@@ -43,8 +43,8 @@ The core design principle: **one agent, rich context, many tools.** Intelligence
 │ GPT-4o      │  │ Bash runner    │  │ State cache (SQLite)│
 │ (fallback)  │  │ Python exec    │  │ Event log           │
 │             │  │ Web scrape     │  │ Agent run log       │
-│ Haiku/Mini  │  │ Action Verify  │  │ Vector search       │
-│ (background)│  │                │  │                     │
+│ Haiku/Mini  │  │ Web search*    │  │ Vector search       │
+│ (background)│  │ Action Verify  │  │                     │
 └─────────────┘  └────────────────┘  └─────────────────────┘
 
                                       ┌─────────────────────┐
@@ -55,7 +55,8 @@ The core design principle: **one agent, rich context, many tools.** Intelligence
                                       │ - Log retention     │
                                       │ - Cache refresh     │
                                       └─────────────────────┘
-* Planned, not yet implemented
+* Web search uses a provider adapter — swap backends via SEARCH_PROVIDER in .env
+* Planned, not yet implemented (channels)
 ```
 
 ---

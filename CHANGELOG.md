@@ -8,6 +8,10 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 
 ## Unreleased
 
+### Added
+
+- `app/agent/tools/search.py` — `search_web` tool with provider adapter pattern: `SearchResult` dataclass + `SearchProvider` Protocol as the stable interface; `TavilyProvider` as the default backend (free tier, 1 000 searches/month); swap providers by implementing `SearchProvider` and adding a branch in `_get_provider()` keyed on `SEARCH_PROVIDER` in `.env`
+
 ### Fixed
 
 - **Memory write missing** (`app/agent/tools/memory.py`) — agent had no mechanism to write to long-term memory; added `store_memory` tool with `content` and `scope` (`household`/`personal`) args; updated `prompts/instructions.md` with explicit rule to call the tool immediately rather than just saying it will remember

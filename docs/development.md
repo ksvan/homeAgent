@@ -170,7 +170,8 @@ homeAgent/
 │   │       ├── memory.py       # store_memory tool
 │   │       ├── python_exec.py  # Python script execution tool
 │   │       ├── reminders.py    # Reminder tools
-│   │       └── scrape.py       # Web scraping tool
+│   │       ├── scrape.py       # Web page reader tool
+│   │       └── search.py       # Web search tool (provider adapter)
 │   ├── channels/
 │   │   ├── base.py             # Channel abstract interface
 │   │   └── telegram.py         # TelegramChannel implementation
