@@ -1,15 +1,18 @@
 from __future__ import annotations
 
 from functools import lru_cache
+from pathlib import Path
 
 from pydantic_settings import BaseSettings, SettingsConfigDict
+
+# Absolute path to the repo root .env — works regardless of CWD at startup.
+# app/config.py lives at services/prometheus-mcp/app/config.py → 3 parents up = repo root.
+_ROOT_ENV = Path(__file__).resolve().parents[3] / ".env"
 
 
 class Settings(BaseSettings):
     model_config = SettingsConfigDict(
-        # Root .env only — prometheus-mcp is co-located and shares the same
-        # config file. Path is relative to CWD at startup (services/prometheus-mcp/).
-        env_file="../../.env",
+        env_file=str(_ROOT_ENV),
         env_file_encoding="utf-8",
         extra="ignore",
     )
