@@ -7,7 +7,10 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 
 class Settings(BaseSettings):
     model_config = SettingsConfigDict(
-        env_file=".env",
+        # Load root .env first (shared settings like PROMETHEUS_URL),
+        # then local .env overrides (MCP_HOST, MCP_PORT, guardrails).
+        # Path is relative to CWD at startup (services/prometheus-mcp/).
+        env_file=("../../.env", ".env"),
         env_file_encoding="utf-8",
         extra="ignore",
     )
