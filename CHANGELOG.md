@@ -17,6 +17,15 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 
 ---
 
+## [0.5.1] - 2026-03-06
+
+### Fixed
+
+- **Prometheus tools missing in dev mode** (`app/__main__.py`) — `_run_development()` was not calling `start_prom_mcp()`, so Prometheus MCP was only attached in production (FastAPI lifespan). Added `await start_prom_mcp()` after `await start_mcp()` so both MCPs are loaded in dev polling mode.
+- **Agent re-prompts after Telegram confirmation** (`app/channels/telegram.py`) — if `direct_call_tool` raised any exception during `_execute_confirmed_action`, the success-path `save_message_pair` was never reached. On the next user message the agent saw an incomplete history and re-triggered the policy gate. Fix: `save_message_pair` is now called in both the success and failure paths with explicit messages that tell the agent the action was confirmed and either completed or failed, preventing unnecessary re-confirmation loops.
+
+---
+
 ## [0.5.0] - 2026-03-06
 
 ### Added
@@ -212,6 +221,7 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 
 <!-- New entries go above this line -->
 
+[0.5.1]: https://github.com/your-org/homeAgent/releases/tag/v0.5.1
 [0.5.0]: https://github.com/your-org/homeAgent/releases/tag/v0.5.0
 [0.4.0]: https://github.com/your-org/homeAgent/releases/tag/v0.4.0
 [0.3.0]: https://github.com/your-org/homeAgent/releases/tag/v0.3.0

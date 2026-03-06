@@ -98,6 +98,8 @@ class TelegramChannel(Channel):
             delete_pending_action(token)
             return
 
+        from app.memory.conversation import save_message_pair
+
         try:
             tool_args: dict[str, object] = json.loads(action.tool_args)
             result = await server.direct_call_tool(action.tool_name, tool_args, None)
@@ -109,12 +111,10 @@ class TelegramChannel(Channel):
             )
 
             # Persist to conversation history so the agent doesn't re-prompt next message
-            from app.memory.conversation import save_message_pair
-
             save_message_pair(
                 action.user_id,
-                "[User confirmed action]",
-                f"Done: {action.tool_name} completed successfully.",
+                "[User confirmed action via Telegram button]",
+                f"The action '{action.tool_name}' was confirmed by the user and executed successfully. No further confirmation is needed.",
             )
 
             # Schedule state verification
@@ -130,6 +130,12 @@ class TelegramChannel(Channel):
             delete_pending_action(token)
             await query.edit_message_text(
                 "❌ Action failed — please check the device and try again."
+            )
+            # Persist failure so the agent doesn't keep re-prompting for the same action
+            save_message_pair(
+                action.user_id,
+                "[User confirmed action via Telegram button — action failed]",
+                f"The action '{action.tool_name}' was confirmed by the user but failed to execute. The user has been notified. Do not retry this action automatically.",
             )
 
     async def _cancel_pending_action(

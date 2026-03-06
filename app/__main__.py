@@ -42,6 +42,7 @@ async def _run_development() -> None:
     from app.config import get_settings
     from app.homey.mcp_client import start_mcp
     from app.logging_setup import configure_logging
+    from app.prometheus.mcp_client import start_mcp as start_prom_mcp
     from app.policy.seeder import seed_policies
     from app.scheduler.cleanup import register_cleanup_jobs
     from app.scheduler.engine import start_scheduler
@@ -58,6 +59,7 @@ async def _run_development() -> None:
     seed_policies()
 
     await start_mcp()
+    await start_prom_mcp()
     reload_agent()  # pick up MCP toolset if connected
 
     await start_scheduler()
