@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import json
 import logging
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timedelta
 
 from sqlmodel import select
 
@@ -26,7 +26,7 @@ def save_pending_action(
     Returns the UUID token (encoded in the Telegram inline button callback_data).
     """
     settings = get_settings()
-    now = datetime.now(timezone.utc)
+    now = datetime.utcnow()
     expires_at = now + timedelta(seconds=settings.telegram_confirm_timeout_seconds)
 
     with cache_session() as session:
@@ -52,7 +52,7 @@ def get_pending_action(token: str) -> PendingAction | None:
         ).first()
         if action is None:
             return None
-        if action.expires_at < datetime.now(timezone.utc):
+        if action.expires_at < datetime.utcnow():
             session.delete(action)
             session.commit()
             return None
