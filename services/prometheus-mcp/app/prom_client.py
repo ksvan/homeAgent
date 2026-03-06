@@ -34,8 +34,21 @@ def _build_client() -> httpx.AsyncClient:
 async def _get(path: str, params: dict[str, Any]) -> Any:
     """Make a GET request to the Prometheus HTTP API and return parsed JSON data."""
     settings = get_settings()
-    async with _build_client() as client:
-        response = await client.get(path, params=params)
+    try:
+        async with _build_client() as client:
+            response = await client.get(path, params=params)
+    except httpx.ConnectError as exc:
+        raise RuntimeError(
+            f"Cannot reach Prometheus at {settings.prometheus_url} — "
+            "check that PROMETHEUS_URL is set correctly and Prometheus is running."
+        ) from exc
+    except httpx.TimeoutException as exc:
+        raise RuntimeError(
+            f"Prometheus request timed out ({settings.prom_timeout_seconds}s) — "
+            "server may be overloaded or unreachable."
+        ) from exc
+    except httpx.HTTPError as exc:
+        raise RuntimeError(f"Prometheus HTTP error: {exc}") from exc
 
     if len(response.content) > settings.prom_max_response_bytes:
         raise ValueError(
