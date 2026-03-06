@@ -8,6 +8,17 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 
 ## Unreleased
 
+### Planned
+
+- Channels: email, iMessage, voice
+- TTS via Homey (cast to Google Nest etc.)
+- Home awareness: learning normal state, detecting anomalies
+- Improved memory: associate scenarios (e.g. "goodnight") with device action sets
+
+---
+
+## [0.4.0] - 2026-03-06
+
 ### Added
 
 - `app/agent/tools/search.py` — `search_web` tool with provider adapter pattern: `SearchResult` dataclass + `SearchProvider` Protocol as the stable interface; `TavilyProvider` as the default backend (free tier, 1 000 searches/month); swap providers by implementing `SearchProvider` and adding a branch in `_get_provider()` keyed on `SEARCH_PROVIDER` in `.env`
@@ -15,12 +26,7 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 ### Fixed
 
 - **Memory write missing** (`app/agent/tools/memory.py`) — agent had no mechanism to write to long-term memory; added `store_memory` tool with `content` and `scope` (`household`/`personal`) args; updated `prompts/instructions.md` with explicit rule to call the tool immediately rather than just saying it will remember
-
-### Planned
-- Channels: email, iMessage, voice
-- TTS via Homey (cast to Google Nest etc.)
-- Home awareness: learning normal state, detecting anomalies
-- Improved memory: associate scenarios (e.g. "goodnight") with device action sets
+- **Agent verbosity** (`prompts/persona.md`) — brevity rule moved to top of persona so it's encountered before any other instruction; `prompts.py` now logs a warning when a prompt file is not found instead of silently returning empty string
 
 ---
 
@@ -64,8 +70,6 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 
 - Agent reported wrong year/time (defaulted to UTC, ignored household timezone) — fixed by `HOUSEHOLD_TIMEZONE` + `ZoneInfo`
 - `alembic upgrade head` failed with multiple branch heads — command was already `heads` (plural) in startup code; documented in dev guide
-
-
 
 ## [0.2.0] - 2026-03-01
 
@@ -188,6 +192,7 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 
 <!-- New entries go above this line -->
 
+[0.4.0]: https://github.com/your-org/homeAgent/releases/tag/v0.4.0
 [0.3.0]: https://github.com/your-org/homeAgent/releases/tag/v0.3.0
 [0.2.0]: https://github.com/your-org/homeAgent/releases/tag/v0.2.0
 [0.1.0]: https://github.com/your-org/homeAgent/releases/tag/v0.1.0
