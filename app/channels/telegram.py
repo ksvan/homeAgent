@@ -108,6 +108,15 @@ class TelegramChannel(Channel):
                 "Confirmed action executed: %s (token=%s)", action.tool_name, token
             )
 
+            # Persist to conversation history so the agent doesn't re-prompt next message
+            from app.memory.conversation import save_message_pair
+
+            save_message_pair(
+                action.user_id,
+                "[User confirmed action]",
+                f"Done: {action.tool_name} completed successfully.",
+            )
+
             # Schedule state verification
             from app.homey.verify import verify_after_write
 

@@ -23,7 +23,6 @@ def _create_mcp_server() -> MCPServerStreamableHTTP | None:
         return None
     return MCPServerStreamableHTTP(
         url=settings.prometheus_mcp_url,
-        tool_prefix="prom",
     )
 
 
