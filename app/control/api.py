@@ -13,6 +13,15 @@ logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/admin", tags=["admin"])
 
+# Shutdown signal: set this before stopping the server so open SSE connections
+# exit cleanly and uvicorn can drain without being force-cancelled.
+_stream_shutdown = asyncio.Event()
+
+
+def signal_stream_shutdown() -> None:
+    """Signal all active admin SSE streams to close gracefully."""
+    _stream_shutdown.set()
+
 
 @router.get("", response_class=HTMLResponse)
 async def admin_page() -> str:
@@ -114,13 +123,17 @@ async def admin_stream() -> StreamingResponse:
             # Replay recent history to new client
             for event in get_recent_events():
                 yield _format_sse(event)
-            # Then stream new events
-            while True:
+            # Then stream new events; poll in short bursts so shutdown is noticed quickly
+            heartbeat_deadline = asyncio.get_event_loop().time() + 30.0
+            while not _stream_shutdown.is_set():
                 try:
-                    event = await asyncio.wait_for(q.get(), timeout=30.0)
+                    event = await asyncio.wait_for(q.get(), timeout=1.0)
                     yield _format_sse(event)
+                    heartbeat_deadline = asyncio.get_event_loop().time() + 30.0
                 except asyncio.TimeoutError:
-                    yield ": heartbeat\n\n"
+                    if asyncio.get_event_loop().time() >= heartbeat_deadline:
+                        yield ": heartbeat\n\n"
+                        heartbeat_deadline = asyncio.get_event_loop().time() + 30.0
         except asyncio.CancelledError:
             pass
         finally:
@@ -139,6 +152,75 @@ def _format_sse(event: object) -> str:
     assert isinstance(event, ControlEvent)
     data = json.dumps({"run_id": event.run_id, "ts": event.ts, **event.payload})
     return f"event: {event.event_type}\ndata: {data}\n\n"
+
+
+@router.get("/memory")
+async def admin_memory() -> dict[str, Any]:
+    from sqlmodel import select
+
+    from app.db import memory_session, users_session
+    from app.models.memory import (
+        ConversationSummary,
+        EpisodicMemory,
+        HouseholdProfile,
+        UserProfile,
+    )
+    from app.models.users import User
+
+    with memory_session() as ms:
+        memories = ms.exec(
+            select(EpisodicMemory).order_by(EpisodicMemory.created_at.desc())
+        ).all()
+        u_profiles = ms.exec(select(UserProfile)).all()
+        h_profiles = ms.exec(select(HouseholdProfile)).all()
+        summaries = ms.exec(select(ConversationSummary)).all()
+
+    # Resolve user IDs → display names via users.db
+    user_ids: set[str] = {m.user_id for m in memories if m.user_id}
+    user_ids |= {p.user_id for p in u_profiles}
+    user_ids |= {s.user_id for s in summaries}
+
+    user_names: dict[str, str] = {}
+    if user_ids:
+        with users_session() as us:
+            rows = us.exec(select(User).where(User.id.in_(list(user_ids)))).all()
+            user_names = {u.id: u.name for u in rows}
+
+    h0 = h_profiles[0] if h_profiles else None
+
+    return {
+        "episodic": [
+            {
+                "id": m.id,
+                "content": m.content,
+                "scope": (
+                    user_names.get(m.user_id, m.user_id[:8]) if m.user_id else "household"
+                ),
+                "created_at": m.created_at.isoformat() if m.created_at else None,
+            }
+            for m in memories
+        ],
+        "user_profiles": [
+            {
+                "user": user_names.get(p.user_id, p.user_id[:8]),
+                "data": json.loads(p.summary) if p.summary else {},
+                "updated_at": p.updated_at.isoformat() if p.updated_at else None,
+            }
+            for p in u_profiles
+        ],
+        "household_profile": {
+            "data": json.loads(h0.summary) if h0 and h0.summary else {},
+            "updated_at": h0.updated_at.isoformat() if h0 and h0.updated_at else None,
+        },
+        "summaries": [
+            {
+                "user": user_names.get(s.user_id, s.user_id[:8]),
+                "text": s.summary,
+                "created_at": s.created_at.isoformat() if s.created_at else None,
+            }
+            for s in summaries
+        ],
+    }
 
 
 # ---------------------------------------------------------------------------
@@ -214,6 +296,35 @@ header { background: var(--surface); border-bottom: 1px solid var(--border); pad
 .ev-body .d { color: var(--dim); }
 .ev-body .err { color: var(--red); }
 .run-tag { font-size: 10px; color: var(--dim); margin-left: 6px; }
+
+/* Tab bar */
+.tab-bar { display: flex; gap: 0; padding: 0 20px; border-bottom: 1px solid var(--border); background: var(--surface); flex-shrink: 0; }
+.tab { background: none; border: none; border-bottom: 2px solid transparent; color: var(--dim); padding: 8px 16px; cursor: pointer; font-size: 12px; font-family: inherit; }
+.tab.active { color: var(--text); border-bottom-color: var(--accent); }
+.tab:hover:not(.active) { color: var(--text); }
+
+/* Tab panels */
+.tab-panel { display: none; flex: 1; min-height: 0; flex-direction: column; }
+.tab-panel.active { display: flex; }
+
+/* Details tab */
+.details-body { flex: 1; overflow-y: auto; }
+.details-toolbar { padding: 12px 20px; display: flex; align-items: center; gap: 12px; border-bottom: 1px solid var(--border); flex-shrink: 0; }
+.details-btn { background: var(--surface); border: 1px solid var(--border); color: var(--text); padding: 4px 12px; border-radius: 5px; cursor: pointer; font-size: 12px; font-family: inherit; }
+.details-btn:hover { border-color: var(--accent); }
+.details-section { padding: 0 20px 24px; }
+.details-section h3 { font-size: 10px; color: var(--dim); margin: 20px 0 10px; text-transform: uppercase; letter-spacing: 0.1em; }
+.profiles-row { display: grid; grid-template-columns: 1fr 1fr; }
+.mem-table { width: 100%; border-collapse: collapse; font-size: 13px; }
+.mem-table th { text-align: left; color: var(--dim); font-weight: normal; padding: 5px 10px; border-bottom: 1px solid var(--border); font-size: 10px; text-transform: uppercase; letter-spacing: 0.05em; }
+.mem-table td { padding: 8px 10px; border-bottom: 1px solid var(--border); vertical-align: top; line-height: 1.4; }
+.mem-table tr:last-child td { border-bottom: none; }
+.scope-tag { color: var(--dim); font-size: 11px; white-space: nowrap; }
+.time-tag { color: var(--dim); font-size: 11px; white-space: nowrap; }
+.profile-kv { display: grid; grid-template-columns: auto 1fr; gap: 4px 14px; font-size: 13px; padding: 4px 0; }
+.profile-key { color: var(--dim); }
+.summary-block { font-size: 13px; line-height: 1.5; padding: 8px 12px; background: var(--surface); border: 1px solid var(--border); border-radius: 6px; margin-bottom: 10px; }
+.summary-user { color: var(--dim); font-size: 11px; margin-bottom: 6px; }
 </style>
 </head>
 <body>
@@ -229,6 +340,12 @@ header { background: var(--surface); border-bottom: 1px solid var(--border); pad
   </div>
 </header>
 
+<div class="tab-bar">
+  <button class="tab active" data-tab="live">Live</button>
+  <button class="tab" data-tab="details">Details</button>
+</div>
+
+<div id="tab-live" class="tab-panel active">
 <div class="layout">
   <div class="sidebar">
     <div class="card">
@@ -264,6 +381,37 @@ header { background: var(--surface); border-bottom: 1px solid var(--border); pad
       <span style="margin-left:auto;font-size:11px;color:var(--dim)" id="ev-count">0 events</span>
     </div>
     <div class="stream-body" id="feed"></div>
+  </div>
+</div>
+</div>
+
+<div id="tab-details" class="tab-panel">
+  <div class="details-body">
+    <div class="details-toolbar">
+      <button class="details-btn" id="refresh-memory">↺ Refresh</button>
+      <span id="memory-updated" style="font-size:11px;color:var(--dim)"></span>
+    </div>
+    <section class="details-section">
+      <h3>Episodic Memories <span id="mem-count" style="font-size:10px;color:var(--dim)"></span></h3>
+      <table class="mem-table">
+        <thead><tr><th style="width:100px">Scope</th><th>Memory</th><th style="width:80px">Stored</th></tr></thead>
+        <tbody id="mem-tbody"></tbody>
+      </table>
+    </section>
+    <div class="profiles-row">
+      <section class="details-section">
+        <h3>User Profiles</h3>
+        <div id="user-profiles"><span style="color:var(--dim)">—</span></div>
+      </section>
+      <section class="details-section">
+        <h3>Household Profile</h3>
+        <div id="household-profile"><span style="color:var(--dim)">—</span></div>
+      </section>
+    </div>
+    <section class="details-section">
+      <h3>Conversation Summaries</h3>
+      <div id="conv-summaries"><span style="color:var(--dim)">—</span></div>
+    </section>
   </div>
 </div>
 
@@ -426,6 +574,82 @@ async function fetchStats() {
     }
   } catch (e) {}
 }
+
+// XSS-safe escaping
+function esc(s) {
+  return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+}
+
+// Relative time display
+function relTime(iso) {
+  if (!iso) return '';
+  const diff = Date.now() - new Date(iso).getTime();
+  if (diff < 60000) return 'just now';
+  if (diff < 3600000) return Math.floor(diff/60000) + 'm ago';
+  if (diff < 86400000) return Math.floor(diff/3600000) + 'h ago';
+  return Math.floor(diff/86400000) + 'd ago';
+}
+
+// Tab switching
+document.querySelectorAll('.tab').forEach(btn => {
+  btn.addEventListener('click', () => {
+    document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
+    document.querySelectorAll('.tab-panel').forEach(p => p.classList.remove('active'));
+    btn.classList.add('active');
+    document.getElementById('tab-' + btn.dataset.tab).classList.add('active');
+    if (btn.dataset.tab === 'details') loadMemory();
+  });
+});
+
+// Memory details loader
+async function loadMemory() {
+  try {
+    const r = await fetch('/admin/memory');
+    if (!r.ok) return;
+    const d = await r.json();
+
+    document.getElementById('mem-count').textContent = '(' + d.episodic.length + ')';
+    document.getElementById('mem-tbody').innerHTML = d.episodic.length
+      ? d.episodic.map(m =>
+          '<tr><td class="scope-tag">' + esc(m.scope) + '</td>' +
+          '<td>' + esc(m.content) + '</td>' +
+          '<td class="time-tag">' + relTime(m.created_at) + '</td></tr>'
+        ).join('')
+      : '<tr><td colspan="3" style="color:var(--dim);padding:12px 10px">No memories yet</td></tr>';
+
+    document.getElementById('user-profiles').innerHTML = d.user_profiles.length
+      ? d.user_profiles.map(p =>
+          '<div style="margin-bottom:14px">' +
+          '<div class="summary-user">' + esc(p.user) + '</div>' +
+          '<div class="profile-kv">' +
+          Object.entries(p.data).map(([k,v]) =>
+            '<span class="profile-key">' + esc(k) + '</span><span>' + esc(String(v)) + '</span>'
+          ).join('') + '</div></div>'
+        ).join('')
+      : '<span style="color:var(--dim)">No profiles yet</span>';
+
+    const hp = d.household_profile;
+    document.getElementById('household-profile').innerHTML = Object.keys(hp.data).length
+      ? '<div class="profile-kv">' +
+        Object.entries(hp.data).map(([k,v]) =>
+          '<span class="profile-key">' + esc(k) + '</span><span>' + esc(String(v)) + '</span>'
+        ).join('') + '</div>'
+      : '<span style="color:var(--dim)">No profile yet</span>';
+
+    document.getElementById('conv-summaries').innerHTML = d.summaries.length
+      ? d.summaries.map(s =>
+          '<div class="summary-block">' +
+          '<div class="summary-user">' + esc(s.user) + ' — ' + relTime(s.created_at) + '</div>' +
+          '<div>' + esc(s.text) + '</div></div>'
+        ).join('')
+      : '<span style="color:var(--dim)">No summaries yet</span>';
+
+    document.getElementById('memory-updated').textContent =
+      'Updated ' + new Date().toLocaleTimeString();
+  } catch(e) {}
+}
+
+document.getElementById('refresh-memory').addEventListener('click', loadMemory);
 
 fetchStats();
 setInterval(fetchStats, 10000);

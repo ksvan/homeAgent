@@ -214,9 +214,15 @@ class TelegramChannel(Channel):
         except (KeyboardInterrupt, asyncio.CancelledError):
             pass
         finally:
-            await self._app.updater.stop()
-            await self._app.stop()
-            await self._app.shutdown()
+            for _coro in (
+                self._app.updater.stop(),
+                self._app.stop(),
+                self._app.shutdown(),
+            ):
+                try:
+                    await _coro
+                except (asyncio.CancelledError, Exception):
+                    pass
 
     async def initialize(self) -> None:
         """Initialize for webhook mode (called in FastAPI lifespan startup)."""

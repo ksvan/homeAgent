@@ -32,11 +32,22 @@ case "$MODE" in
       echo "  Prometheus MCP running (PID $PROM_PID) → http://localhost:9000/mcp"
     fi
 
-    # Kill background services on exit (Ctrl+C or normal exit)
-    # Send SIGTERM and wait briefly so uvicorn can close active connections cleanly
-    trap '[ -n "$PROM_PID" ] && kill -TERM "$PROM_PID" 2>/dev/null && sleep 1; exit 0' INT TERM EXIT
+    # Run app in background so we can track its PID and ensure it is killed on exit.
+    uv run python -m app &
+    APP_PID=$!
 
-    uv run python -m app
+    # On Ctrl+C / SIGTERM / normal exit: stop both background processes, then wait.
+    # If the app doesn't exit within 5 s after SIGTERM, send SIGKILL.
+    trap '
+      [ -n "$PROM_PID" ] && kill -TERM "$PROM_PID" 2>/dev/null
+      [ -n "$APP_PID"  ] && kill -TERM "$APP_PID"  2>/dev/null
+      sleep 5
+      [ -n "$PROM_PID" ] && kill -9 "$PROM_PID" 2>/dev/null
+      [ -n "$APP_PID"  ] && kill -9 "$APP_PID"  2>/dev/null
+      exit 0
+    ' INT TERM EXIT
+
+    wait $APP_PID
     ;;
 
   prod)

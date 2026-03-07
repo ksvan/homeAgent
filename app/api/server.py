@@ -66,6 +66,11 @@ async def _lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
 
     yield
 
+    # Signal admin SSE streams to close before uvicorn drains connections.
+    from app.control.api import signal_stream_shutdown
+
+    signal_stream_shutdown()
+
     await channel.shutdown()
     logger.info("Telegram webhook channel shut down")
     await stop_mcp()
