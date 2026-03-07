@@ -24,8 +24,8 @@ case "$MODE" in
     PROM_DIR="services/prometheus-mcp"
     PROM_PID=""
 
-    # Start Prometheus MCP if the service has been configured (.env exists)
-    if [ -f "$PROM_DIR/.env" ] && [ -f "$PROM_DIR/.venv/bin/python" ]; then
+    # Start Prometheus MCP if the venv has been set up
+    if [ -f "$PROM_DIR/.venv/bin/python" ]; then
       echo "Starting Prometheus MCP server..."
       (cd "$PROM_DIR" && PYTHONPATH=. .venv/bin/python app/main.py) &
       PROM_PID=$!

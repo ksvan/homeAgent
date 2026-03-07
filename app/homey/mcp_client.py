@@ -135,11 +135,16 @@ async def start_mcp() -> MCPServerStreamableHTTP | None:
         return None
     try:
         await server.__aenter__()
+        await server.list_tools()  # probe: confirms the server is reachable
         _mcp_server = server
         logger.info("Homey MCP connection established (%s)", get_settings().homey_mcp_url)
         return server
     except Exception:
-        logger.exception("Failed to connect to Homey MCP — smart home tools disabled")
+        logger.warning("Homey MCP not reachable — smart home tools disabled")
+        try:
+            await server.__aexit__(None, None, None)
+        except Exception:
+            pass
         return None
 
 
