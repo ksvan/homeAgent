@@ -1,222 +1,91 @@
-<svg xmlns="http://www.w3.org/2000/svg" width="1800" height="1250" viewBox="0 0 1800 1250" role="img" aria-labelledby="title desc">
-  <title id="title">HomeAgent Detailed Software Architecture</title>
-  <desc id="desc">Detailed architecture including webhook entry, channel handling, bot dispatch, context assembly, agent orchestration, policy gate, confirmation loop, persistence and scheduler.</desc>
+<svg xmlns="http://www.w3.org/2000/svg" width="1800" height="1280" viewBox="0 0 1800 1280" role="img" aria-labelledby="title desc">
+  <title id="title">HomeAgent Detailed Architecture</title>
+  <desc id="desc">Detailed runtime/component flow including webhook ingress, context assembly, agent run, policy confirmation loop, memory/background tasks and control plane.</desc>
   <defs>
     <style>
-      .bg { fill: #f8fafc; }
-      .box { fill: #ffffff; stroke: #0f172a; stroke-width: 1.6; rx: 10; }
-      .store { fill: #ecfeff; stroke: #155e75; stroke-width: 1.6; rx: 10; }
-      .decision { fill: #fef3c7; stroke: #92400e; stroke-width: 1.6; }
-      .section { fill: #eef2ff; stroke: #475569; stroke-width: 1.4; rx: 12; }
-      .title { font: 700 28px 'Segoe UI', Arial, sans-serif; fill: #0f172a; }
-      .h2 { font: 700 16px 'Segoe UI', Arial, sans-serif; fill: #0f172a; }
-      .txt { font: 13px 'Segoe UI', Arial, sans-serif; fill: #1e293b; }
-      .arrow { stroke: #1d4ed8; stroke-width: 2; fill: none; marker-end: url(#m); }
-      .arrow2 { stroke: #0f766e; stroke-width: 2; fill: none; marker-end: url(#m2); }
+      .bg{fill:#f8fafc}.sec{fill:#eef2ff;stroke:#475569;stroke-width:1.4;rx:12}.box{fill:#fff;stroke:#0f172a;stroke-width:1.5;rx:10}
+      .db{fill:#ecfeff;stroke:#155e75;stroke-width:1.5;rx:10}.dec{fill:#fef3c7;stroke:#92400e;stroke-width:1.5}
+      .title{font:700 28px 'Segoe UI',Arial,sans-serif;fill:#0f172a}.h{font:700 16px 'Segoe UI',Arial,sans-serif;fill:#0f172a}
+      .t{font:13px 'Segoe UI',Arial,sans-serif;fill:#1e293b}.a{stroke:#1d4ed8;stroke-width:2;fill:none;marker-end:url(#m)}.a2{stroke:#0f766e;stroke-width:2;fill:none;marker-end:url(#m2)}
     </style>
-    <marker id="m" markerWidth="10" markerHeight="10" refX="9" refY="5" orient="auto" markerUnits="strokeWidth">
-      <path d="M0,0 L10,5 L0,10 z" fill="#1d4ed8" />
-    </marker>
-    <marker id="m2" markerWidth="10" markerHeight="10" refX="9" refY="5" orient="auto" markerUnits="strokeWidth">
-      <path d="M0,0 L10,5 L0,10 z" fill="#0f766e" />
-    </marker>
+    <marker id="m" markerWidth="10" markerHeight="10" refX="9" refY="5" orient="auto" markerUnits="strokeWidth"><path d="M0,0 L10,5 L0,10 z" fill="#1d4ed8"/></marker>
+    <marker id="m2" markerWidth="10" markerHeight="10" refX="9" refY="5" orient="auto" markerUnits="strokeWidth"><path d="M0,0 L10,5 L0,10 z" fill="#0f766e"/></marker>
   </defs>
+  <rect class="bg" x="0" y="0" width="1800" height="1280"/>
+  <text class="title" x="34" y="54">HomeAgent Detailed Software Architecture</text>
 
-  <rect class="bg" x="0" y="0" width="1800" height="1250"/>
-  <text class="title" x="36" y="52">HomeAgent Architecture (Detailed View)</text>
+  <rect class="sec" x="28" y="92" width="520" height="520"/>
+  <text class="h" x="46" y="118">Ingress + Channel</text>
+  <rect class="box" x="58" y="145" width="190" height="56"/><text class="t" x="98" y="178">Telegram Update</text>
+  <rect class="box" x="290" y="145" width="235" height="56"/><text class="t" x="310" y="178">`/webhook/telegram`</text>
+  <rect class="box" x="290" y="235" width="235" height="56"/><text class="t" x="320" y="268">TelegramChannel</text>
+  <rect class="box" x="290" y="325" width="235" height="56"/><text class="t" x="313" y="358">handle_incoming_message</text>
+  <polygon class="dec" points="408,415 508,475 408,535 308,475"/><text class="t" x="346" y="472">allowlist +</text><text class="t" x="347" y="490">rate limit</text>
+  <rect class="box" x="58" y="446" width="190" height="56"/><text class="t" x="106" y="479">drop/throttle</text>
 
-  <!-- Request entry lane -->
-  <rect class="section" x="30" y="90" width="510" height="520"/>
-  <text class="h2" x="50" y="118">Request Entry + Channel</text>
+  <rect class="sec" x="570" y="92" width="700" height="520"/>
+  <text class="h" x="588" y="118">Context + Agent Core</text>
+  <rect class="box" x="600" y="150" width="210" height="58"/><text class="t" x="623" y="183">user lookup/create</text>
+  <rect class="box" x="850" y="150" width="210" height="58"/><text class="t" x="882" y="183">assemble_context</text>
+  <rect class="box" x="1100" y="150" width="150" height="58"/><text class="t" x="1120" y="183">prompt loader</text>
 
-  <rect class="box" x="60" y="140" width="180" height="58"/>
-  <text class="txt" x="100" y="174">Telegram Update</text>
+  <rect class="box" x="600" y="245" width="210" height="58"/><text class="t" x="628" y="278">profiles/history</text>
+  <rect class="box" x="850" y="245" width="210" height="58"/><text class="t" x="889" y="278">episodic recall</text>
+  <rect class="box" x="1100" y="245" width="150" height="58"/><text class="t" x="1120" y="278">state cache</text>
 
-  <rect class="box" x="300" y="140" width="210" height="58"/>
-  <text class="txt" x="316" y="164">POST /webhook/telegram</text>
-  <text class="txt" x="334" y="183">app/api/webhooks.py</text>
+  <rect class="box" x="760" y="350" width="330" height="78"/><text class="t" x="828" y="382">run_conversation</text><text class="t" x="814" y="402">PydanticAI Agent</text>
+  <rect class="box" x="760" y="462" width="150" height="56"/><text class="t" x="793" y="494">LLM Router</text>
+  <rect class="box" x="940" y="462" width="150" height="56"/><text class="t" x="960" y="486">Claude/OpenAI</text><text class="t" x="980" y="504">APIs</text>
 
-  <rect class="box" x="300" y="235" width="210" height="58"/>
-  <text class="txt" x="334" y="259">TelegramChannel</text>
-  <text class="txt" x="333" y="278">app/channels/telegram.py</text>
+  <rect class="sec" x="1290" y="92" width="482" height="700"/>
+  <text class="h" x="1308" y="118">Tools + Policy + Confirmation Loop</text>
+  <rect class="box" x="1322" y="145" width="420" height="58"/><text class="t" x="1358" y="178">Homey MCP process_tool_call (policy-gated)</text>
+  <rect class="box" x="1322" y="232" width="420" height="58"/><text class="t" x="1472" y="265">policy evaluate</text>
+  <polygon class="dec" points="1532,322 1662,386 1532,450 1402,386"/><text class="t" x="1473" y="390">confirm?</text>
+  <rect class="box" x="1315" y="474" width="185" height="56"/><text class="t" x="1363" y="507">execute tool</text>
+  <rect class="box" x="1530" y="474" width="220" height="56"/><text class="t" x="1562" y="507">save pending action</text>
+  <rect class="box" x="1530" y="554" width="220" height="56"/><text class="t" x="1571" y="587">inline Yes/No prompt</text>
+  <rect class="box" x="1530" y="634" width="220" height="56"/><text class="t" x="1580" y="667">callback query</text>
+  <rect class="box" x="1315" y="554" width="185" height="56"/><text class="t" x="1350" y="587">post-write verify</text>
+  <rect class="box" x="1315" y="634" width="185" height="56"/><text class="t" x="1360" y="667">run/event logs</text>
+  <rect class="box" x="1322" y="722" width="420" height="52"/><text class="t" x="1368" y="754">Prometheus MCP calls (read-only, no policy gate)</text>
 
-  <rect class="box" x="300" y="330" width="210" height="58"/>
-  <text class="txt" x="316" y="354">handle_incoming_message</text>
-  <text class="txt" x="360" y="373">app/bot.py</text>
+  <rect class="sec" x="28" y="640" width="1744" height="612"/>
+  <text class="h" x="46" y="666">Persistence + Background + Control Plane</text>
 
-  <polygon class="decision" points="405,430 505,490 405,550 305,490"/>
-  <text class="txt" x="352" y="486">Allowlisted?</text>
-  <text class="txt" x="388" y="504">Rate limited?</text>
+  <rect class="db" x="60" y="700" width="250" height="88"/><text class="t" x="125" y="732">users.db</text><text class="t" x="95" y="754">users/tasks/policies</text>
+  <rect class="db" x="340" y="700" width="250" height="88"/><text class="t" x="402" y="732">memory.db</text><text class="t" x="378" y="754">profiles/convo/episodic</text>
+  <rect class="db" x="620" y="700" width="250" height="88"/><text class="t" x="690" y="732">cache.db</text><text class="t" x="650" y="754">snapshots/events/runs/pending</text>
+  <rect class="db" x="900" y="700" width="250" height="88"/><text class="t" x="980" y="732">sqlite-vec</text><text class="t" x="950" y="754">episodic vector index</text>
 
-  <rect class="box" x="60" y="462" width="180" height="58"/>
-  <text class="txt" x="104" y="496">Drop or throttle</text>
+  <rect class="box" x="60" y="830" width="500" height="180"/>
+  <text class="t" x="90" y="860">Scheduler subsystem (`app/scheduler/*`)</text>
+  <text class="t" x="90" y="884">- engine: lifecycle</text><text class="t" x="90" y="906">- reminders/actions: schedule + restore</text>
+  <text class="t" x="90" y="928">- cleanup: retention jobs</text><text class="t" x="90" y="950">- jobs: reminder delivery</text>
 
-  <!-- Context + Agent lane -->
-  <rect class="section" x="570" y="90" width="760" height="520"/>
-  <text class="h2" x="590" y="118">Context Assembly + Agent Runtime</text>
+  <rect class="box" x="600" y="830" width="500" height="180"/>
+  <text class="t" x="630" y="860">Background memory tasks</text>
+  <text class="t" x="630" y="884">- extraction (`memory/extraction.py`, Haiku)</text>
+  <text class="t" x="630" y="906">- summarization (`memory/conversation.py`, Haiku)</text>
+  <text class="t" x="630" y="928">triggered after response (non-blocking)</text>
 
-  <rect class="box" x="610" y="150" width="220" height="62"/>
-  <text class="txt" x="668" y="176">User/Profile lookup</text>
-  <text class="txt" x="695" y="195">users.db</text>
+  <rect class="box" x="1140" y="830" width="600" height="180"/>
+  <text class="t" x="1170" y="860">Control plane + admin</text>
+  <text class="t" x="1170" y="884">`/admin` API (`app/control/api.py`) + SSE bus (`app/control/events.py`)</text>
+  <text class="t" x="1170" y="906">streams logs/job/extraction updates to dashboard</text>
 
-  <rect class="box" x="880" y="150" width="220" height="62"/>
-  <text class="txt" x="918" y="176">Context assembly</text>
-  <text class="txt" x="913" y="195">app/agent/context.py</text>
+  <!-- arrows -->
+  <path class="a" d="M248 173 L290 173"/><path class="a" d="M408 201 L408 235"/><path class="a" d="M408 291 L408 325"/><path class="a" d="M525 352 L600 178"/>
+  <path class="a" d="M408 381 L408 415"/><path class="a" d="M308 475 L248 475"/><path class="a" d="M508 475 L600 475"/>
 
-  <rect class="box" x="1150" y="150" width="150" height="62"/>
-  <text class="txt" x="1168" y="176">Prompt loader</text>
-  <text class="txt" x="1173" y="195">prompts/*.md</text>
+  <path class="a" d="M810 179 L850 179"/><path class="a" d="M1060 179 L1100 179"/><path class="a" d="M705 208 L705 245"/><path class="a" d="M955 208 L955 245"/><path class="a" d="M1175 208 L1175 245"/>
+  <path class="a" d="M705 303 L850 350"/><path class="a" d="M955 303 L925 350"/><path class="a" d="M1175 303 L1030 350"/>
+  <path class="a" d="M1090 390 L1322 174"/><path class="a" d="M925 428 L835 462"/><path class="a" d="M925 428 L1015 462"/>
 
-  <rect class="box" x="610" y="255" width="220" height="62"/>
-  <text class="txt" x="652" y="281">Conversation history</text>
-  <text class="txt" x="664" y="300">app/memory/conversation.py</text>
+  <path class="a" d="M1532 203 L1532 232"/><path class="a" d="M1532 290 L1532 322"/><path class="a" d="M1402 386 L1408 474"/><path class="a" d="M1662 386 L1640 474"/>
+  <path class="a" d="M1408 530 L1408 554"/><path class="a" d="M1640 530 L1640 554"/><path class="a" d="M1640 610 L1640 634"/><path class="a" d="M1530 662 L1500 662"/>
 
-  <rect class="box" x="880" y="255" width="220" height="62"/>
-  <text class="txt" x="933" y="281">Episodic recall</text>
-  <text class="txt" x="944" y="300">app/memory/episodic.py</text>
+  <path class="a2" d="M600 178 L185 700"/><path class="a2" d="M600 274 L465 700"/><path class="a2" d="M955 303 L745 700"/><path class="a2" d="M955 303 L1025 700"/><path class="a2" d="M1408 690 L745 700"/>
+  <path class="a2" d="M1408 610 L1408 700"/><path class="a2" d="M1408 690 L1408 830"/><path class="a2" d="M925 518 L850 830"/><path class="a2" d="M1408 722 L1408 830"/>
 
-  <rect class="box" x="1150" y="255" width="150" height="62"/>
-  <text class="txt" x="1172" y="281">State cache</text>
-  <text class="txt" x="1167" y="300">homey/state_cache.py</text>
-
-  <rect class="box" x="760" y="360" width="370" height="76"/>
-  <text class="txt" x="844" y="388">run_conversation (PydanticAI Agent)</text>
-  <text class="txt" x="883" y="408">app/agent/agent.py</text>
-
-  <rect class="box" x="760" y="470" width="170" height="58"/>
-  <text class="txt" x="790" y="504">LLM Router</text>
-
-  <rect class="box" x="960" y="470" width="170" height="58"/>
-  <text class="txt" x="988" y="495">Anthropic / OpenAI</text>
-  <text class="txt" x="1006" y="514">Model APIs</text>
-
-  <!-- Tooling + policy lane -->
-  <rect class="section" x="1360" y="90" width="410" height="740"/>
-  <text class="h2" x="1380" y="118">Tool Calls, Policy, Confirmations, Verification</text>
-
-  <rect class="box" x="1400" y="150" width="330" height="62"/>
-  <text class="txt" x="1446" y="176">Homey MCP process_tool_call</text>
-  <text class="txt" x="1482" y="195">homey/mcp_client.py</text>
-
-  <rect class="box" x="1400" y="240" width="330" height="62"/>
-  <text class="txt" x="1500" y="266">Policy evaluate</text>
-  <text class="txt" x="1506" y="285">policy/gate.py</text>
-
-  <polygon class="decision" points="1565,330 1695,392 1565,454 1435,392"/>
-  <text class="txt" x="1504" y="396">Requires confirmation?</text>
-
-  <rect class="box" x="1388" y="480" width="160" height="60"/>
-  <text class="txt" x="1437" y="506">Execute tool</text>
-  <text class="txt" x="1432" y="525">(direct call)</text>
-
-  <rect class="box" x="1580" y="480" width="170" height="60"/>
-  <text class="txt" x="1620" y="506">Save pending</text>
-  <text class="txt" x="1618" y="525">policy/pending.py</text>
-
-  <rect class="box" x="1580" y="565" width="170" height="60"/>
-  <text class="txt" x="1610" y="591">Send inline prompt</text>
-  <text class="txt" x="1621" y="610">Telegram</text>
-
-  <rect class="box" x="1580" y="650" width="170" height="60"/>
-  <text class="txt" x="1604" y="676">Callback query</text>
-  <text class="txt" x="1604" y="695">confirm / cancel</text>
-
-  <rect class="box" x="1388" y="565" width="160" height="60"/>
-  <text class="txt" x="1416" y="591">Verify write-back</text>
-  <text class="txt" x="1429" y="610">homey/verify.py</text>
-
-  <rect class="box" x="1388" y="650" width="160" height="60"/>
-  <text class="txt" x="1422" y="676">Log run/event</text>
-  <text class="txt" x="1433" y="695">cache.db</text>
-
-  <!-- Persistence lane -->
-  <rect class="section" x="30" y="650" width="1300" height="540"/>
-  <text class="h2" x="50" y="678">Persistence + Background Subsystems</text>
-
-  <rect class="store" x="70" y="715" width="250" height="90"/>
-  <text class="txt" x="132" y="747">users.db</text>
-  <text class="txt" x="94" y="769">users, households, tasks,</text>
-  <text class="txt" x="114" y="787">action policies</text>
-
-  <rect class="store" x="350" y="715" width="250" height="90"/>
-  <text class="txt" x="408" y="747">memory.db</text>
-  <text class="txt" x="388" y="769">profiles, conversation,</text>
-  <text class="txt" x="416" y="787">episodic rows</text>
-
-  <rect class="store" x="630" y="715" width="250" height="90"/>
-  <text class="txt" x="700" y="747">cache.db</text>
-  <text class="txt" x="663" y="769">snapshots, event/run logs,</text>
-  <text class="txt" x="676" y="787">pending confirmations</text>
-
-  <rect class="store" x="910" y="715" width="250" height="90"/>
-  <text class="txt" x="988" y="747">sqlite-vec</text>
-  <text class="txt" x="960" y="769">episodic_memory_vec</text>
-
-  <rect class="box" x="70" y="860" width="350" height="190"/>
-  <text class="txt" x="110" y="892">Scheduler (app/scheduler/*)</text>
-  <text class="txt" x="95" y="918">- engine.py: scheduler lifecycle</text>
-  <text class="txt" x="95" y="944">- reminders.py: schedule/restore reminders</text>
-  <text class="txt" x="95" y="970">- actions.py: scheduled device actions</text>
-  <text class="txt" x="95" y="996">- cleanup.py: retention cleanup jobs</text>
-  <text class="txt" x="95" y="1022">- jobs.py: executes reminder deliveries</text>
-
-  <rect class="box" x="460" y="860" width="350" height="190"/>
-  <text class="txt" x="508" y="892">Memory services (app/memory/*)</text>
-  <text class="txt" x="485" y="918">- profiles.py: read/write profile summaries</text>
-  <text class="txt" x="485" y="944">- conversation.py: persist + load history</text>
-  <text class="txt" x="485" y="970">- episodic.py: vector indexing/search</text>
-
-  <rect class="box" x="850" y="860" width="430" height="190"/>
-  <text class="txt" x="900" y="892">Background maintenance + integrations</text>
-  <text class="txt" x="875" y="918">- home_profile.py refreshes structured home context</text>
-  <text class="txt" x="875" y="944">- state_cache.py updates snapshot cache from tool runs</text>
-  <text class="txt" x="875" y="970">- policy/seeder.py ensures default policies exist</text>
-  <text class="txt" x="875" y="996">- logging_setup.py binds structured logging output</text>
-
-  <!-- arrows entry lane -->
-  <path class="arrow" d="M240 170 L300 170"/>
-  <path class="arrow" d="M405 198 L405 235"/>
-  <path class="arrow" d="M405 293 L405 330"/>
-  <path class="arrow" d="M510 359 L610 181"/>
-  <path class="arrow" d="M405 388 L405 430"/>
-  <path class="arrow" d="M305 490 L240 490"/>
-  <text class="txt" x="255" y="478">No</text>
-  <path class="arrow" d="M505 490 L610 490"/>
-  <text class="txt" x="535" y="478">Yes</text>
-
-  <!-- arrows context/agent -->
-  <path class="arrow" d="M830 181 L880 181"/>
-  <path class="arrow" d="M1100 181 L1150 181"/>
-  <path class="arrow" d="M720 212 L720 255"/>
-  <path class="arrow" d="M990 212 L990 255"/>
-  <path class="arrow" d="M1225 212 L1225 255"/>
-  <path class="arrow" d="M720 317 L870 360"/>
-  <path class="arrow" d="M990 317 L945 360"/>
-  <path class="arrow" d="M1225 317 L1020 360"/>
-  <path class="arrow" d="M945 436 L845 470"/>
-  <path class="arrow" d="M945 436 L1045 470"/>
-  <path class="arrow" d="M1130 389 L1400 181"/>
-
-  <!-- arrows tooling/policy -->
-  <path class="arrow" d="M1565 212 L1565 240"/>
-  <path class="arrow" d="M1565 302 L1565 330"/>
-  <path class="arrow" d="M1435 392 L1548 510"/>
-  <text class="txt" x="1452" y="438">No</text>
-  <path class="arrow" d="M1695 392 L1665 480"/>
-  <text class="txt" x="1700" y="438">Yes</text>
-  <path class="arrow" d="M1468 540 L1468 565"/>
-  <path class="arrow" d="M1665 540 L1665 565"/>
-  <path class="arrow" d="M1665 625 L1665 650"/>
-  <path class="arrow" d="M1580 680 L510 680"/>
-  <path class="arrow" d="M1548 680 L1468 625"/>
-
-  <!-- data arrows -->
-  <path class="arrow2" d="M610 212 L195 715"/>
-  <path class="arrow2" d="M610 286 L475 715"/>
-  <path class="arrow2" d="M990 317 L755 715"/>
-  <path class="arrow2" d="M1040 317 L1035 715"/>
-  <path class="arrow2" d="M1110 317 L1035 715"/>
-  <path class="arrow2" d="M1468 710 L755 715"/>
-
-  <text class="txt" x="36" y="1220">Detailed architecture generated from current repository modules and docs.</text>
 </svg>

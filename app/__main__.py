@@ -83,11 +83,19 @@ async def _run_development() -> None:
     admin_server = uvicorn.Server(
         uvicorn.Config(admin_app, host="0.0.0.0", port=settings.port, log_level="warning")
     )
-    asyncio.ensure_future(admin_server.serve())
+    admin_task = asyncio.ensure_future(admin_server.serve())
     logger.info("Admin UI available at http://localhost:%d/admin", settings.port)
 
     logger.info("HomeAgent starting in development mode (Telegram polling)")
-    await channel.start_polling()
+    try:
+        await channel.start_polling()
+    finally:
+        # Polling stopped (Ctrl+C or error) — tell uvicorn to exit and wait briefly
+        admin_server.should_exit = True
+        try:
+            await asyncio.wait_for(admin_task, timeout=3.0)
+        except (asyncio.TimeoutError, asyncio.CancelledError):
+            admin_task.cancel()
 
 
 async def _run_production() -> None:
