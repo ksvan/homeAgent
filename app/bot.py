@@ -134,7 +134,18 @@ async def handle_incoming_message(telegram_id: int, text: str) -> str | None:
     except Exception:
         model_name = "unknown"
 
-    emit("run.start", {"user_name": user.name, "model": model_name}, run_id=run_id)
+    ctx_chars = _estimate_context_chars(ctx)
+    emit(
+        "run.start",
+        {
+            "user_name": user.name,
+            "model": model_name,
+            "ctx_chars": ctx_chars,
+            "ctx_tokens": ctx_chars // 4,
+            "msg_count": len(ctx.recent_messages),
+        },
+        run_id=run_id,
+    )
 
     try:
         result = await run_conversation(
@@ -241,3 +252,23 @@ def _write_run_log(
             session.commit()
     except Exception:
         logger.warning("Failed to write AgentRunLog", exc_info=True)
+
+
+def _estimate_context_chars(ctx: object) -> int:
+    """Rough character count of all context fed into the agent for this run."""
+    from app.agent.context import AgentContext
+
+    if not isinstance(ctx, AgentContext):
+        return 0
+    total = (
+        len(ctx.user_profile_text)
+        + len(ctx.household_profile_text)
+        + len(ctx.conversation_summary or "")
+        + sum(len(m) for m in ctx.relevant_memories)
+        + len(ctx.home_context_text)
+    )
+    for msg in ctx.recent_messages:
+        for part in msg.parts:
+            if hasattr(part, "content"):
+                total += len(str(part.content))
+    return total

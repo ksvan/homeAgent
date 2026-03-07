@@ -282,7 +282,8 @@ function addEvent(type, data) {
 
   let body = '';
   if (type === 'run.start') {
-    body = '<strong>' + (data.user_name || 'user') + '</strong> <span class="d">→ ' + shortModel(data.model || '') + '</span>';
+    const ctx = data.ctx_tokens ? ' · <span title="' + (data.ctx_chars || 0).toLocaleString() + ' chars · ' + (data.msg_count || 0) + ' msgs">~' + fmtK(data.ctx_tokens) + ' ctx</span>' : '';
+    body = '<strong>' + (data.user_name || 'user') + '</strong> <span class="d">→ ' + shortModel(data.model || '') + ctx + '</span>';
   } else if (type === 'run.tool_call') {
     const dur = data.duration_ms ? ' <span class="d">' + data.duration_ms + 'ms</span>' : '';
     const errPart = data.success === false ? ' <span class="err">' + (data.error || 'failed') + '</span>' : '';
@@ -313,6 +314,10 @@ function addEvent(type, data) {
 function shortModel(m) {
   const parts = m.split('-');
   return parts.length > 3 ? parts.slice(-3).join('-') : m;
+}
+
+function fmtK(n) {
+  return n >= 1000 ? (n / 1000).toFixed(1) + 'k' : String(n);
 }
 
 // Stats
