@@ -6,120 +6,110 @@ HomeAgent uses a layered memory system designed to make the agent feel genuinely
 
 ## Memory Layers
 
-### Layer 1 — Structural Memory (explicit profiles)
+### Layer 1 — Structural Memory (profiles)
 
-Stored as JSON in SQLite. Manually curated by the agent over time, or directly by users.
+Stored as JSON in SQLite. Updated by the agent via explicit tool calls (`update_user_profile`, `update_household_profile`).
 
 **User Profile** (one per household member):
+
 ```json
 {
   "name": "Kristian",
   "preferred_name": "Kristian",
-  "role": "admin",
-  "timezone": "Europe/Oslo",
-  "language": "en",
-  "preferences": {
-    "response_style": "concise",
-    "morning_briefing": true
-  },
-  "known_facts": [
-    "Works from home on Fridays",
-    "Allergic to cats",
-    "Prefers the bedroom at 19°C at night"
-  ]
+  "wake_time": "07:00",
+  "communication_style": "concise, technical",
+  "preferred_language": "Norwegian"
 }
 ```
 
 **Household Profile** (one per household):
+
 ```json
 {
-  "name": "The Andersen Family",
+  "location": "Oslo, Norway",
   "timezone": "Europe/Oslo",
-  "home_layout": {
-    "floors": 2,
-    "rooms": ["living room", "kitchen", "master bedroom", "kids room", "office"]
-  },
-  "routines": {
-    "weekday_morning": "Kids leave at 7:45. Kristian works from home.",
-    "bedtime": "Kids in bed at 21:00 on school nights."
-  },
-  "known_facts": [
-    "Dog named Max, a Golden Retriever",
-    "Weekly groceries delivered Thursday afternoon"
-  ]
+  "guest_bedroom_default_temp": "18°C"
 }
 ```
 
-These profiles are the agent's "ground truth" about the family and home. They are injected into every system prompt.
+Profiles are always injected into every system prompt — they represent facts the agent should always have available. Unlike episodic memories, profiles are not retrieved by relevance: they are always present.
+
+The agent writes profile updates when the user shares stable personal facts ("my name is Kristian", "I prefer Norwegian"). The user can also ask the agent to update or view the profile directly.
 
 ---
 
 ### Layer 2 — Episodic Memory (extracted facts)
 
-Facts extracted from conversations by a background LLM call after each exchange. Stored in SQLite with metadata, and indexed in Chroma for semantic retrieval.
+Stable facts extracted from conversations by a background LLM call (Haiku) after each exchange. Stored in SQLite and indexed in sqlite-vec for semantic retrieval.
 
 **Schema:**
-```
+
+```text
 EpisodicMemory
-├── id
-├── household_id
-├── user_id (nullable — null means household-level)
-├── content          "Sarah prefers the bedroom lights at 20% when watching TV"
-├── embedding        vector (1536-dim, OpenAI text-embedding-3-small)
-├── source_type      "conversation" | "user_stated" | "agent_observed"
-├── created_at
-├── last_recalled_at
-└── recall_count
+├── id                UUID primary key
+├── household_id      scoping key
+├── user_id           nullable — null means household-level fact
+├── content           "Sarah prefers the bedroom lights at 20% when watching TV"
+├── embedding_id      ID of the corresponding vector in sqlite-vec
+├── source_run_id     which agent run produced this memory
+└── created_at
 ```
 
-Memories are retrieved by semantic similarity to the current user message, before each LLM call. Top-K most relevant memories are injected into the system prompt.
+**How memories get in:**
 
-**Retrieval logic:**
-1. Embed current user message
-2. Query Chroma for top-10 similar memories (scoped to this user + household-level)
-3. Filter by recency score (recently recalled memories ranked higher)
-4. Inject top-5 into system prompt
+- **Auto-extraction** (default): after every agent run, a background Haiku call analyses the exchange and extracts any stable facts worth remembering. This runs fire-and-forget — it never blocks the response.
+- **Explicit store**: the agent calls `store_memory(content, scope)` when the user directly asks it to remember something.
+
+**What is extracted (and what is not):**
+
+The extraction prompt is strict. It only extracts facts that are durable across sessions: user preferences, household facts, named entities, recurring patterns. It explicitly rejects current device states, dates, weather, temporary situations, and conversational filler.
+
+**Retrieval:**
+
+1. Embed current user message (OpenAI text-embedding-3-small)
+2. Query sqlite-vec for top-K similar memories (scoped to this user + household-level)
+3. Inject top results into the system prompt as a `## Relevant Memories` section
 
 ---
 
 ### Layer 3 — Conversation History
 
 Full message history stored in SQLite per user. Used for:
-- Recent context (last 20 messages injected verbatim)
-- Long-term summaries (older conversations compressed)
+
+- Recent context: last 20 message pairs injected verbatim as `message_history`
+- Long-term continuity: older conversations are compressed into a rolling summary
 
 **Schema:**
-```
-Message
-├── id
-├── user_id
-├── role             "user" | "assistant"
+
+```text
+ConversationMessage
+├── id            UUID primary key
+├── user_id       FK to users.db (cross-DB reference, no SQL FK)
+├── role          "user" | "assistant"
 ├── content
-├── channel          "telegram" | "whatsapp" | ...
-├── created_at
-└── summary_id (nullable — links to a summary that replaces older messages)
+└── created_at
 
 ConversationSummary
-├── id
-├── user_id
-├── content          LLM-generated summary of a message batch
-├── covers_from      timestamp
-├── covers_to        timestamp
+├── id            UUID primary key
+├── user_id       unique — one summary per user
+├── summary       LLM-generated bullet-point summary
+├── covers_through_message_id   FK to the last message this summary covers
 └── created_at
 ```
 
 **Compaction strategy:**
-A scheduled job runs nightly. For each user, messages older than 7 days that haven't been summarised yet are batched (up to 50 at a time) and sent to a lightweight LLM for summarisation. The summary is stored, and the raw messages are retained (not deleted) but excluded from context assembly.
+After each agent run, a background task checks the user's message count. When it exceeds 50 messages, the oldest 30 are summarised (incorporating any existing summary as context prefix) by Haiku into 4–8 bullet points. The summary is upserted (replacing the previous one), and the 30 old messages are deleted.
 
-The assembled conversation history for a prompt looks like:
+This runs fire-and-forget — it never blocks the response.
 
-```
-[If any summaries exist]:
-Earlier conversations:
-<summary 1>
-<summary 2>
+The assembled conversation history for a prompt:
 
-[Recent messages, verbatim]:
+```text
+[If a summary exists]:
+## Conversation Summary
+<bullet points>
+
+[Recent messages, verbatim, passed as message_history]:
 User: ...
 Assistant: ...
 ```
@@ -131,59 +121,76 @@ Assistant: ...
 Not stored — built fresh on each request. This is the assembled system prompt passed to the LLM.
 
 **Assembly order:**
-1. Base persona (static)
-2. User profile (from Layer 1)
-3. Household profile (from Layer 1)
-4. Home context (from Homey MCP, if home-related query)
-5. Relevant episodic memories (from Layer 2, top-5)
-6. Conversation summaries + recent messages (from Layer 3)
 
-**Token budget management:**
-- Profiles: ~400 tokens reserved
-- Memories: ~500 tokens reserved (top-5 at ~100 tokens each)
-- Summaries: ~600 tokens reserved
-- Recent messages: ~4000 tokens reserved
-- Tools/response: remainder
+1. Base persona (from `prompts/persona.md` — date, time, timezone filled in)
+2. Instructions (from `prompts/instructions.md`)
+3. Home context (from `prompts/home_context.md` — static layout, naming, routines)
+4. User profile (from Layer 1)
+5. Household profile (from Layer 1)
+6. Conversation summary (from Layer 3, if any)
+7. Relevant episodic memories (from Layer 2, top-K by similarity)
 
-If total exceeds model context, oldest summaries and lowest-relevance memories are dropped first.
+Conversation message history is passed separately as `message_history` (not inside the system prompt).
+
+**Device states are not pre-loaded.** The agent queries Homey live via MCP when it needs current device state. This keeps the system prompt lean and avoids stale data.
 
 ---
 
 ## Memory Update Flow
 
-```
+```text
 User sends message
         │
         ▼
 Agent responds
         │
         ▼
-Background task triggered (async, does not block response)
+Response returned to user immediately
         │
-  ┌─────┴─────┐
-  │           │
-  ▼           ▼
-Save message  Extract memories (LLM call)
-to history         │
-              ┌────┴────┐
-              ▼         ▼
-         New facts?   Profile updates?
-              │              │
-              ▼              ▼
-         Store in       Update user/
-         Chroma +       household profile
-         episodic DB    in SQLite
+Background tasks triggered (fire-and-forget, never block the response)
+        │
+  ┌─────┴─────────────────────┐
+  │                           │
+  ▼                           ▼
+Save message pair to    Auto-extract memories (Haiku call)
+conversation history          │
+                         Any stable facts?
+                              │
+                    ┌─────────┴──────────┐
+                    ▼                    ▼
+              Store in episodic    Emit mem.extract
+              DB + sqlite-vec      event to admin feed
+              index
+
+  ▼
+Check message count — if > 50:
+  Summarize oldest 30 → upsert ConversationSummary
+  Delete the 30 old messages
+  Emit mem.summarize event to admin feed
 ```
+
+---
+
+## Agent Memory Tools
+
+The agent has four memory tools available:
+
+| Tool | When to use |
+| ---- | ----------- |
+| `store_memory(content, scope)` | User explicitly asks to remember something |
+| `update_user_profile(key, value)` | Stable personal fact (name, preference, routine) |
+| `update_household_profile(key, value)` | Stable household fact (location, device nicknames) |
+| `forget_memory(content_substring)` | User asks to forget something, or fact is wrong |
 
 ---
 
 ## Memory Scoping
 
 | Memory type | Scope | Who can see it |
-|---|---|---|
+| ----------- | ----- | -------------- |
 | User profile | Per-user | That user + agent |
 | Household profile | Household | All household members via agent |
-| Episodic — user | Per-user | That user only |
+| Episodic — personal | Per-user | That user only |
 | Episodic — household | Household | All members via agent |
 | Conversation history | Per-user | That user only |
 
@@ -194,9 +201,10 @@ The agent **never surfaces one user's personal memories or conversation to anoth
 ## Memory Correction
 
 Users can correct memories:
-- "That's wrong, remember that I actually prefer..." → agent updates profile/episodic store
-- `/forget` command → clears personal episodic memories and resets user profile to defaults
-- Admin `/forget @username` → clears a specific user's personal memories
+
+- "That's wrong, remember that I actually prefer..." → agent calls `store_memory` or `update_user_profile`
+- "Forget that" → agent calls `forget_memory(content_substring)` to delete matching entries
+- Auto-extracted facts can be overridden the same way
 
 ---
 
@@ -204,4 +212,5 @@ Users can correct memories:
 
 - **Memory aging**: Rarely-recalled memories decay in relevance score over time
 - **Contradiction detection**: New memories checked against existing ones for conflicts
-- **Home event memory**: Agent automatically notes significant home events (first time a device was used, patterns in usage)
+- **Vector DB migration**: The `store_memory` / `search_memories` interface is the clean boundary — sqlite-vec can be swapped for a full vector DB without touching callers
+- **Graph memory**: A separate memory type for relationship graphs (person ↔ device ↔ room) is planned as a future layer alongside episodic

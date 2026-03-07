@@ -39,7 +39,7 @@ Visual diagrams: [architecture-diagrams.md](architecture-diagrams.md)
 │  LLM Router │  │   Tool Layer   │  │   Memory + Cache    │
 │             │  │                │  │                     │
 │ Claude      │  │ Policy Gate ◄──┤  │ User profiles       │
-│ Sonnet 4.5  │  │ Homey MCP      │  │ Home profile        │
+│ Sonnet 4.5  │  │ Homey MCP‡     │  │ Home profile        │
 │ (primary)   │  │ Prometheus MCP†│  │ Conversation history│
 │             │  │ Sched. actions │  │ Episodic memories   │
 │ GPT-4o      │  │ Reminders      │  │ State cache (SQLite)│
@@ -60,6 +60,7 @@ Visual diagrams: [architecture-diagrams.md](architecture-diagrams.md)
                                       └─────────────────────┘
 * Web search uses a provider adapter — swap backends via SEARCH_PROVIDER in .env
 † Prometheus MCP runs as a separate service in services/prometheus-mcp/
+‡ Homey MCP exposes a simple schema (7 everyday tools) by default; full schema available when needed
 * Planned, not yet implemented (channels)
 ```
 
@@ -79,15 +80,12 @@ The "intelligence" of the orchestrator is in how it assembles context before eac
 
 1. **User identification** — who is this, what channel
 2. **Profile retrieval** — user profile + household profile
-3. **Active task state** — any in-progress multi-step tasks for this user
-4. **Semantic memory retrieval** — relevant past memories from vector store
-5. **State cache** — recent device snapshots + recent agent actions for this household
-6. **Conversation history** — recent messages, summarized older history
-7. **Home context** — inject current device states from cache (or live) for home-related queries
-8. **Prompt assembly** — build system prompt from all above
-9. **LLM call** — via LLM Router, with tools available
-10. **Policy Gate** — intercept any high-impact tool calls before execution
-11. **Post-response** — verify state changes, log run, update task state, extract new memories
+3. **Semantic memory retrieval** — relevant past memories from sqlite-vec
+4. **Conversation history** — recent messages, rolling summary of older history
+5. **Prompt assembly** — build system prompt from all above (device states NOT pre-loaded)
+6. **LLM call** — via LLM Router, with tools available (Homey simple schema by default)
+7. **Policy Gate** — intercept any high-impact tool calls before execution
+8. **Post-response** — verify state changes, log run; background: auto-extract memories, summarize history
 
 ### Channel Abstraction
 
@@ -132,12 +130,14 @@ Verification uses the state cache as a baseline and Homey MCP for the live read-
 
 ### State Cache
 
-A local SQLite layer that stores recent device snapshots, event history, and agent run logs. Purposes:
+A local SQLite layer that stores event history, agent run logs, and device snapshots (updated after write actions). Purposes:
 
-- **Reduce live API calls** — serve repeated home state queries from cache
-- **Detect competing actions** — before acting on a device, check if another agent run recently touched it
 - **Audit trail** — full log of what happened and why
-- **Event replay** — home events can be inspected for debugging
+- **Detect competing actions** — before acting on a device, check if another agent run recently touched it
+- **Post-write snapshots** — device state recorded after each agent write action and verification
+- **Event replay** — events can be inspected for debugging
+
+Note: device states are **not** pre-loaded into the agent's system prompt. The agent queries Homey live via MCP for current state when needed.
 
 See [State Cache Tables](#state-cache-tables) below for schema.
 
@@ -194,16 +194,16 @@ pending_action
 4b. If message: TelegramChannel.parse_incoming() → Message(user_id, text, channel)
 5.  Look up User record; if none: begin first-time onboarding (ask for name)
 6.  Event logged to event_log
-6.  Context assembled (profiles + memories + state cache + history)
+6.  Context assembled (profiles + memories + conversation history — no device states)
 7.  LLM Router selects model (task = CONVERSATION)
-8.  Pydantic AI agent runs with assembled context + tools
+8.  Pydantic AI agent runs with assembled context + tools (Homey simple schema by default)
 9.  For each tool call the agent proposes:
       a. Policy Gate evaluates — confirmation required?
       b. If yes: save PendingAction, send confirmation prompt, stop tool execution
       c. If not required: execute tool, log to agent_run_log, verify state change
 10. Final response returned
 11. TelegramChannel.send_message() → user sees reply
-12. Background: extract memories, update device snapshots
+12. Background (fire-and-forget): auto-extract stable facts → episodic memory; summarize history if > 50 messages
 ```
 
 ## Data Flow: Scheduled Task / Reminder
@@ -385,6 +385,18 @@ See [graceful-degradation.md](graceful-degradation.md) for the full degradation 
 - Policy Gate prevents high-impact actions without explicit confirmation
 - No data sent to third parties except LLM API calls and Homey cloud MCP
 - Conversation content is sent to Anthropic/OpenAI as part of API calls — consider this when discussing sensitive topics
+
+---
+
+## Admin Dashboard
+
+A real-time control plane is available at `/admin`. It provides:
+
+- **Live event feed** — SSE stream showing every agent run, tool call, scheduler job, and memory event in real time, with colour-coded badges (RUN, TOOL, SCHED, MEM)
+- **Sidebar stats** — active users, recent runs, token usage, memory counts
+- **Controls** — reload agent/prompts, trigger manual reload of MCP connections
+
+Events are emitted via an in-process SSE bus (`app/control/events.py`) and displayed without polling. The admin page requires no separate process or database — it taps into the same event stream the application already generates.
 
 ---
 
