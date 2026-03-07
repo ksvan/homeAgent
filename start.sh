@@ -33,7 +33,8 @@ case "$MODE" in
     fi
 
     # Kill background services on exit (Ctrl+C or normal exit)
-    trap '[ -n "$PROM_PID" ] && kill "$PROM_PID" 2>/dev/null; exit 0' INT TERM EXIT
+    # Send SIGTERM and wait briefly so uvicorn can close active connections cleanly
+    trap '[ -n "$PROM_PID" ] && kill -TERM "$PROM_PID" 2>/dev/null && sleep 1; exit 0' INT TERM EXIT
 
     uv run python -m app
     ;;
