@@ -1,0 +1,152 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1700" height="1200" viewBox="0 0 1700 1200" role="img" aria-labelledby="title desc">
+  <title id="title">HomeAgent Main Path: Startup, Initialization, and One Message</title>
+  <desc id="desc">Flow showing startup sequence and one Telegram message processing path across main code files.</desc>
+  <defs>
+    <style>
+      .bg { fill: #f8fafc; }
+      .lane { fill: #eef2ff; stroke: #475569; stroke-width: 1.4; rx: 12; }
+      .box { fill: #ffffff; stroke: #0f172a; stroke-width: 1.6; rx: 10; }
+      .db { fill: #ecfeff; stroke: #155e75; stroke-width: 1.6; rx: 10; }
+      .decision { fill: #fef3c7; stroke: #92400e; stroke-width: 1.6; }
+      .title { font: 700 28px 'Segoe UI', Arial, sans-serif; fill: #0f172a; }
+      .h2 { font: 700 17px 'Segoe UI', Arial, sans-serif; fill: #0f172a; }
+      .txt { font: 13px 'Segoe UI', Arial, sans-serif; fill: #1e293b; }
+      .small { font: 12px 'Segoe UI', Arial, sans-serif; fill: #334155; }
+      .arrow { stroke: #1d4ed8; stroke-width: 2.2; fill: none; marker-end: url(#m); }
+      .arrowAlt { stroke: #0f766e; stroke-width: 2; fill: none; marker-end: url(#m2); }
+    </style>
+    <marker id="m" markerWidth="10" markerHeight="10" refX="9" refY="5" orient="auto" markerUnits="strokeWidth">
+      <path d="M0,0 L10,5 L0,10 z" fill="#1d4ed8" />
+    </marker>
+    <marker id="m2" markerWidth="10" markerHeight="10" refX="9" refY="5" orient="auto" markerUnits="strokeWidth">
+      <path d="M0,0 L10,5 L0,10 z" fill="#0f766e" />
+    </marker>
+  </defs>
+
+  <rect class="bg" x="0" y="0" width="1700" height="1200"/>
+  <text class="title" x="30" y="52">Main Path Across Code Files: Startup + One User Message</text>
+
+  <!-- Lanes -->
+  <rect class="lane" x="30" y="90" width="790" height="500"/>
+  <text class="h2" x="50" y="118">A) Startup + Initialization Path</text>
+
+  <rect class="lane" x="850" y="90" width="820" height="1080"/>
+  <text class="h2" x="870" y="118">B) One Incoming Telegram Message Path</text>
+
+  <!-- A: startup boxes -->
+  <rect class="box" x="60" y="150" width="320" height="70"/>
+  <text class="txt" x="85" y="178">`python -m app`</text>
+  <text class="txt" x="85" y="198">entrypoint: app/__main__.py::main()</text>
+
+  <rect class="box" x="430" y="150" width="360" height="70"/>
+  <text class="txt" x="455" y="178">Run Alembic migrations</text>
+  <text class="txt" x="455" y="198">_run_migrations() -> `alembic upgrade heads`</text>
+
+  <polygon class="decision" points="420,280 540,345 420,410 300,345"/>
+  <text class="txt" x="348" y="342">APP_ENV?</text>
+  <text class="txt" x="342" y="360">dev/test or prod</text>
+
+  <rect class="box" x="60" y="300" width="210" height="90"/>
+  <text class="txt" x="82" y="330">Dev/Test branch</text>
+  <text class="txt" x="82" y="350">_run_development()</text>
+  <text class="txt" x="82" y="370">Telegram polling</text>
+
+  <rect class="box" x="560" y="300" width="230" height="90"/>
+  <text class="txt" x="582" y="330">Prod branch</text>
+  <text class="txt" x="582" y="350">_run_production()</text>
+  <text class="txt" x="582" y="370">uvicorn + FastAPI</text>
+
+  <rect class="box" x="560" y="440" width="230" height="120"/>
+  <text class="txt" x="582" y="468">create_app()</text>
+  <text class="txt" x="582" y="488">app/api/server.py</text>
+  <text class="txt" x="582" y="508">register routes + lifespan</text>
+  <text class="txt" x="582" y="528">startup hook `_lifespan`</text>
+
+  <rect class="box" x="60" y="440" width="470" height="120"/>
+  <text class="txt" x="85" y="468">Lifespan startup sequence (server.py):</text>
+  <text class="txt" x="85" y="488">configure_logging -> seed_policies -> start Homey MCP + Prom MCP</text>
+  <text class="txt" x="85" y="508">reload_agent() -> start_scheduler() -> restore reminders -> cleanup jobs</text>
+  <text class="txt" x="85" y="528">create TelegramChannel, initialize(), set_channel(), app.state.telegram_channel</text>
+
+  <!-- startup arrows -->
+  <path class="arrow" d="M380 185 L430 185"/>
+  <path class="arrow" d="M610 220 L610 300"/>
+  <path class="arrow" d="M430 220 L420 280"/>
+  <path class="arrow" d="M300 345 L270 345"/>
+  <path class="arrow" d="M540 345 L560 345"/>
+  <path class="arrow" d="M675 390 L675 440"/>
+  <path class="arrow" d="M560 500 L530 500"/>
+
+  <!-- B: message path boxes -->
+  <rect class="box" x="880" y="150" width="320" height="80"/>
+  <text class="txt" x="905" y="180">Telegram sends update</text>
+  <text class="txt" x="905" y="200">POST /webhook/telegram</text>
+
+  <rect class="box" x="1240" y="150" width="390" height="80"/>
+  <text class="txt" x="1265" y="180">app/api/webhooks.py::telegram_webhook()</text>
+  <text class="txt" x="1265" y="200">validate secret header, call channel.process_update()</text>
+
+  <rect class="box" x="1240" y="270" width="390" height="80"/>
+  <text class="txt" x="1265" y="300">app/channels/telegram.py::process_update()</text>
+  <text class="txt" x="1265" y="320">routes to _handle_message()</text>
+
+  <rect class="box" x="1240" y="390" width="390" height="90"/>
+  <text class="txt" x="1265" y="420">_handle_message()</text>
+  <text class="txt" x="1265" y="440">allowlist check + invoke on_message callback</text>
+  <text class="txt" x="1265" y="460">-> app/bot.py::handle_incoming_message()</text>
+
+  <polygon class="decision" points="1435,525 1580,605 1435,685 1290,605"/>
+  <text class="txt" x="1378" y="600">Allowed + not rate</text>
+  <text class="txt" x="1408" y="618">limited?</text>
+
+  <rect class="box" x="1100" y="575" width="160" height="60"/>
+  <text class="txt" x="1130" y="610">Drop / throttle</text>
+
+  <rect class="box" x="1240" y="730" width="390" height="80"/>
+  <text class="txt" x="1265" y="760">_get_or_create_user() + assemble_context()</text>
+  <text class="txt" x="1265" y="780">loads profile/history/memories/snapshots</text>
+
+  <rect class="box" x="1240" y="850" width="390" height="90"/>
+  <text class="txt" x="1265" y="880">run_conversation() (app/agent/agent.py)</text>
+  <text class="txt" x="1265" y="900">build deps, get agent singleton, model/tool calls</text>
+  <text class="txt" x="1265" y="920">returns AgentRunResult(output + new_messages)</text>
+
+  <rect class="box" x="1240" y="980" width="390" height="90"/>
+  <text class="txt" x="1265" y="1010">Persist + update cache:</text>
+  <text class="txt" x="1265" y="1030">save_message_pair(), update_snapshots_from_tool_calls()</text>
+  <text class="txt" x="1265" y="1050">return response text</text>
+
+  <rect class="box" x="880" y="980" width="320" height="90"/>
+  <text class="txt" x="905" y="1010">TelegramChannel replies</text>
+  <text class="txt" x="905" y="1030">update.message.reply_text(response)</text>
+  <text class="txt" x="905" y="1050">1 turn complete</text>
+
+  <!-- B arrows -->
+  <path class="arrow" d="M1200 190 L1240 190"/>
+  <path class="arrow" d="M1435 230 L1435 270"/>
+  <path class="arrow" d="M1435 350 L1435 390"/>
+  <path class="arrow" d="M1435 480 L1435 525"/>
+  <path class="arrow" d="M1290 605 L1260 605"/>
+  <text class="txt" x="1275" y="590">No</text>
+  <path class="arrow" d="M1435 685 L1435 730"/>
+  <text class="txt" x="1450" y="710">Yes</text>
+  <path class="arrow" d="M1435 810 L1435 850"/>
+  <path class="arrow" d="M1435 940 L1435 980"/>
+  <path class="arrow" d="M1240 1025 L1200 1025"/>
+
+  <!-- Data/support boxes -->
+  <rect class="db" x="880" y="730" width="320" height="220"/>
+  <text class="h2" x="900" y="758">Support state loaded during this turn</text>
+  <text class="txt" x="905" y="788">users.db: User/Household records</text>
+  <text class="txt" x="905" y="812">memory.db: profiles + convo history + episodic</text>
+  <text class="txt" x="905" y="836">cache.db: device snapshots + run/event logs</text>
+  <text class="txt" x="905" y="860">MCP connections: Homey + Prometheus toolsets</text>
+  <text class="txt" x="905" y="884">prompts/persona.md + prompts/instructions.md</text>
+  <text class="txt" x="905" y="908">agent tools: reminders/actions/memory (+ optional)</text>
+
+  <path class="arrowAlt" d="M1240 770 L1200 770"/>
+  <path class="arrowAlt" d="M1240 895 L1200 860"/>
+  <path class="arrowAlt" d="M1240 1025 L1200 915"/>
+
+  <text class="small" x="30" y="1168">This reflects the primary production webhook path, with startup done in app/__main__.py + app/api/server.py lifespan.</text>
+</svg>

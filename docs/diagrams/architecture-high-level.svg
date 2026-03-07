@@ -1,0 +1,82 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1400" height="900" viewBox="0 0 1400 900" role="img" aria-labelledby="title desc">
+  <title id="title">HomeAgent High-Level Architecture</title>
+  <desc id="desc">High-level architecture showing channels, API server, orchestrator, models, tools, memory and scheduler.</desc>
+  <defs>
+    <style>
+      .bg { fill: #f8fafc; }
+      .panel { fill: #ffffff; stroke: #0f172a; stroke-width: 2; rx: 12; }
+      .sub { fill: #eef2ff; stroke: #334155; stroke-width: 1.5; rx: 10; }
+      .title { font: 700 26px 'Segoe UI', Arial, sans-serif; fill: #0f172a; }
+      .h2 { font: 700 18px 'Segoe UI', Arial, sans-serif; fill: #0f172a; }
+      .txt { font: 14px 'Segoe UI', Arial, sans-serif; fill: #1e293b; }
+      .small { font: 12px 'Segoe UI', Arial, sans-serif; fill: #334155; }
+      .arrow { stroke: #1d4ed8; stroke-width: 2.5; fill: none; marker-end: url(#m); }
+    </style>
+    <marker id="m" markerWidth="10" markerHeight="10" refX="9" refY="5" orient="auto" markerUnits="strokeWidth">
+      <path d="M0,0 L10,5 L0,10 z" fill="#1d4ed8" />
+    </marker>
+  </defs>
+
+  <rect class="bg" x="0" y="0" width="1400" height="900"/>
+  <text class="title" x="40" y="52">HomeAgent Architecture (High-Level View)</text>
+
+  <rect class="panel" x="70" y="100" width="1240" height="120"/>
+  <text class="h2" x="95" y="135">Channels</text>
+  <rect class="sub" x="95" y="150" width="220" height="45"/>
+  <text class="txt" x="160" y="178">Telegram</text>
+  <rect class="sub" x="345" y="150" width="220" height="45"/>
+  <text class="txt" x="410" y="178">WhatsApp (future)</text>
+  <rect class="sub" x="595" y="150" width="220" height="45"/>
+  <text class="txt" x="675" y="178">Web UI (future)</text>
+  <rect class="sub" x="845" y="150" width="220" height="45"/>
+  <text class="txt" x="930" y="178">Voice (future)</text>
+
+  <rect class="panel" x="510" y="260" width="380" height="90"/>
+  <text class="h2" x="620" y="295">FastAPI Server</text>
+  <text class="txt" x="568" y="325">/webhook/telegram, /webhook/homey, /health</text>
+
+  <rect class="panel" x="360" y="390" width="680" height="120"/>
+  <text class="h2" x="560" y="425">Agent Orchestrator (PydanticAI)</text>
+  <text class="txt" x="390" y="452">Identify user, assemble context, run model, call tools, apply policy, verify actions</text>
+  <text class="txt" x="390" y="476">persist logs/memory, send response</text>
+
+  <rect class="panel" x="120" y="560" width="330" height="240"/>
+  <text class="h2" x="220" y="595">LLM Router</text>
+  <rect class="sub" x="145" y="615" width="280" height="45"/>
+  <text class="txt" x="210" y="643">Anthropic Claude</text>
+  <rect class="sub" x="145" y="675" width="280" height="45"/>
+  <text class="txt" x="225" y="703">OpenAI GPT</text>
+  <rect class="sub" x="145" y="735" width="280" height="45"/>
+  <text class="txt" x="185" y="763">OpenAI Embeddings</text>
+
+  <rect class="panel" x="535" y="560" width="330" height="240"/>
+  <text class="h2" x="640" y="595">Tool Layer</text>
+  <text class="txt" x="560" y="625">Homey MCP + Action Verify</text>
+  <text class="txt" x="560" y="650">Policy Gate + Pending Confirmations</text>
+  <text class="txt" x="560" y="675">Reminders / Device actions</text>
+  <text class="txt" x="560" y="700">Search / Scrape / Python / Bash tools</text>
+
+  <rect class="panel" x="950" y="560" width="330" height="240"/>
+  <text class="h2" x="1020" y="595">Memory + Data</text>
+  <text class="txt" x="975" y="625">users.db (users, policies, tasks)</text>
+  <text class="txt" x="975" y="650">memory.db (profiles, history, episodic)</text>
+  <text class="txt" x="975" y="675">cache.db (snapshots, events, runs, pending)</text>
+  <text class="txt" x="975" y="700">sqlite-vec index (semantic recall)</text>
+
+  <rect class="panel" x="1070" y="260" width="240" height="220"/>
+  <text class="h2" x="1122" y="295">Scheduler</text>
+  <text class="txt" x="1090" y="325">APScheduler</text>
+  <text class="txt" x="1090" y="350">Reminder jobs</text>
+  <text class="txt" x="1090" y="375">Cleanup jobs</text>
+  <text class="txt" x="1090" y="400">Action jobs</text>
+
+  <path class="arrow" d="M690 220 L690 260"/>
+  <path class="arrow" d="M700 350 L700 390"/>
+  <path class="arrow" d="M500 510 L290 560"/>
+  <path class="arrow" d="M700 510 L700 560"/>
+  <path class="arrow" d="M900 510 L1115 560"/>
+  <path class="arrow" d="M1040 680 L865 680"/>
+  <path class="arrow" d="M1060 370 L1030 560"/>
+
+  <text class="small" x="40" y="860">Generated from current app/docs structure.</text>
+</svg>
