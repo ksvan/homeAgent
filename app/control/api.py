@@ -64,6 +64,20 @@ async def admin_stats() -> dict[str, Any]:
 
     avg_duration = int(sum(durations) / len(durations)) if durations else 0
 
+    # Memory stats from memory.db
+    from app.db import memory_session
+    from app.models.memory import ConversationMessage, ConversationSummary, EpisodicMemory
+
+    with memory_session() as msession:
+        episodic_total = len(msession.exec(select(EpisodicMemory.id)).all())
+        episodic_auto = len(
+            msession.exec(
+                select(EpisodicMemory.id).where(EpisodicMemory.source_run_id.isnot(None))
+            ).all()
+        )
+        messages_total = len(msession.exec(select(ConversationMessage.id)).all())
+        summaries_total = len(msession.exec(select(ConversationSummary.id)).all())
+
     return {
         "system": {
             "cpu_percent": round(proc.cpu_percent(interval=0.1), 1),
@@ -80,6 +94,13 @@ async def admin_stats() -> dict[str, Any]:
             "output": total_output_tokens,
         },
         "models": model_counts,
+        "memory": {
+            "episodic_total": episodic_total,
+            "episodic_auto": episodic_auto,
+            "episodic_manual": episodic_total - episodic_auto,
+            "messages_total": messages_total,
+            "summaries_total": summaries_total,
+        },
     }
 
 
@@ -134,7 +155,7 @@ _ADMIN_HTML = """<!DOCTYPE html>
 *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
 :root {
   --bg: #0d1117; --surface: #161b22; --border: #30363d;
-  --text: #c9d1d9; --dim: #484f58; --accent: #7c5cfc;
+  --text: #c9d1d9; --dim: #8b949e; --accent: #7c5cfc;
   --green: #3fb950; --blue: #58a6ff; --red: #f85149; --yellow: #d29922;
 }
 body { background: var(--bg); color: var(--text); font-family: ui-monospace, 'SF Mono', Menlo, monospace; font-size: 13px; line-height: 1.5; height: 100vh; display: flex; flex-direction: column; overflow: hidden; }
@@ -187,10 +208,12 @@ header { background: var(--surface); border-bottom: 1px solid var(--border); pad
 .b-tool   { background: #0d2614; color: var(--green); }
 .b-done   { background: #1a1240; color: #a78bfa; }
 .b-error  { background: #2d0f0f; color: var(--red); }
+.b-sched  { background: #2b1f00; color: var(--yellow); }
+.b-mem    { background: #0d2424; color: #2dd4bf; }
 .ev-body { flex: 1; color: var(--text); overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
 .ev-body .d { color: var(--dim); }
 .ev-body .err { color: var(--red); }
-.run-tag { font-size: 10px; color: #30363d; margin-left: 6px; }
+.run-tag { font-size: 10px; color: var(--dim); margin-left: 6px; }
 </style>
 </head>
 <body>
@@ -214,6 +237,14 @@ header { background: var(--surface); border-bottom: 1px solid var(--border); pad
       <div class="stat-row"><span class="stat-l">Avg duration</span><span class="stat-v" id="s-avg">—</span></div>
       <div class="stat-row"><span class="stat-l">Input tokens</span><span class="stat-v" id="s-tin">—</span></div>
       <div class="stat-row"><span class="stat-l">Output tokens</span><span class="stat-v" id="s-tout">—</span></div>
+    </div>
+    <div class="card">
+      <div class="card-title">Memory</div>
+      <div class="stat-row"><span class="stat-l">Episodic total</span><span class="stat-v hi" id="m-total">—</span></div>
+      <div class="stat-row"><span class="stat-l">Auto-extracted</span><span class="stat-v" id="m-auto">—</span></div>
+      <div class="stat-row"><span class="stat-l">Manual</span><span class="stat-v" id="m-manual">—</span></div>
+      <div class="stat-row"><span class="stat-l">Conv. messages</span><span class="stat-v" id="m-msgs">—</span></div>
+      <div class="stat-row"><span class="stat-l">Summaries</span><span class="stat-v" id="m-sums">—</span></div>
     </div>
     <div class="card">
       <div class="card-title">Models</div>
@@ -277,6 +308,11 @@ function addEvent(type, data) {
     'run.tool_call':['b-tool','TOOL'],
     'run.complete': ['b-done','DONE'],
     'run.error':    ['b-error','ERR'],
+    'job.fire':     ['b-sched','SCHED'],
+    'job.complete': ['b-sched','SCHED'],
+    'job.error':    ['b-error','SCHED'],
+    'mem.extract':  ['b-mem','MEM'],
+    'mem.summarize':['b-mem','MEM'],
   };
   const [cls, label] = badges[type] || ['b-start', type];
 
@@ -297,6 +333,26 @@ function addEvent(type, data) {
     body = '<strong>' + toolNames + '</strong> <span class="d">' + (data.duration_ms || 0) + 'ms' + tokStr + '</span>';
   } else if (type === 'run.error') {
     body = '<span class="err">' + (data.error || 'unknown error') + '</span>';
+  } else if (type === 'job.fire') {
+    const desc = data.job === 'reminder' ? (data.text || '') : (data.tool || '') + (data.description ? ' · ' + data.description : '');
+    body = '<span class="d">firing</span> <strong>' + (data.job || '?') + '</strong>' + (desc ? ' <span class="d">· ' + desc + '</span>' : '');
+  } else if (type === 'job.complete') {
+    const dur = data.duration_ms ? ' <span class="d">' + data.duration_ms + 'ms</span>' : '';
+    const desc = data.job === 'reminder' ? (data.text || '') : (data.tool || '');
+    body = '<strong>' + (data.job || '?') + '</strong> <span class="d">done</span>' + (desc ? ' · ' + desc : '') + dur;
+  } else if (type === 'job.error') {
+    const desc = data.description || data.tool || '';
+    body = '<strong>' + (data.job || '?') + '</strong> <span class="err">failed</span>' + (desc ? ' · ' + desc : '');
+  } else if (type === 'mem.extract') {
+    const facts = Array.isArray(data.facts) ? data.facts : [];
+    const lines = facts.map(f => '<span class="d">· </span>' + f).join(' ');
+    body = '<strong>stored ' + facts.length + ' fact' + (facts.length !== 1 ? 's' : '') + '</strong>'
+      + (lines ? ' <span class="d">— ' + lines + '</span>' : '');
+  } else if (type === 'mem.summarize') {
+    const n = data.messages_compressed || 0;
+    const snippet = data.summary ? data.summary.slice(0, 120) + (data.summary.length > 120 ? '…' : '') : '';
+    body = '<strong>compressed ' + n + ' msgs</strong>'
+      + (snippet ? ' <span class="d">— ' + snippet + '</span>' : '');
   }
 
   const runTag = data.run_id ? '<span class="run-tag">' + data.run_id.slice(0,8) + '</span>' : '';
@@ -335,6 +391,14 @@ async function fetchStats() {
     document.getElementById('s-avg').textContent = d.runs.avg_duration_ms + ' ms';
     document.getElementById('s-tin').textContent = (d.tokens.input || 0).toLocaleString();
     document.getElementById('s-tout').textContent = (d.tokens.output || 0).toLocaleString();
+
+    if (d.memory) {
+      document.getElementById('m-total').textContent = d.memory.episodic_total;
+      document.getElementById('m-auto').textContent = d.memory.episodic_auto;
+      document.getElementById('m-manual').textContent = d.memory.episodic_manual;
+      document.getElementById('m-msgs').textContent = d.memory.messages_total;
+      document.getElementById('m-sums').textContent = d.memory.summaries_total;
+    }
 
     const ml = document.getElementById('models-list');
     ml.innerHTML = '';
@@ -385,7 +449,7 @@ function connectSSE() {
     setTimeout(connectSSE, 3000);
   };
 
-  ['run.start','run.tool_call','run.complete','run.error'].forEach(type => {
+  ['run.start','run.tool_call','run.complete','run.error','job.fire','job.complete','job.error','mem.extract','mem.summarize'].forEach(type => {
     es.addEventListener(type, e => {
       try { addEvent(type, JSON.parse(e.data)); } catch(_) {}
     });

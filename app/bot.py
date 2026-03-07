@@ -4,13 +4,14 @@ Central message dispatch.
 Called by channel handlers when a new user message arrives. Responsible for:
   1. Allowlist gate (belt-and-suspenders; the channel handler also checks)
   2. User DB lookup / first-visit auto-create
-  3. Context assembly (profiles, conversation history, memories, device state)
+  3. Context assembly (profiles, conversation history, memories)
   4. Running the agent and returning the response
   5. Persisting the message pair after a successful run
   6. Updating the device state cache from any Homey tool calls made during the run
 """
 from __future__ import annotations
 
+import asyncio
 import json
 import logging
 import uuid
@@ -157,7 +158,6 @@ async def handle_incoming_message(telegram_id: int, text: str) -> str | None:
             household_profile_text=ctx.household_profile_text,
             conversation_summary=ctx.conversation_summary,
             relevant_memories=ctx.relevant_memories,
-            home_context_text=ctx.home_context_text,
             user_id=user.id,
             household_id=user.household_id,
             channel_user_id=str(telegram_id),
@@ -216,8 +216,23 @@ async def handle_incoming_message(telegram_id: int, text: str) -> str | None:
     )
 
     # Persist messages and update state cache from any Homey tool calls
+    new_messages = list(result.new_messages())
     save_message_pair(user.id, text, response)
-    update_snapshots_from_tool_calls(user.household_id, list(result.new_messages()))
+    update_snapshots_from_tool_calls(user.household_id, new_messages)
+
+    # Background memory tasks — fire-and-forget, never block the response
+    from app.memory.conversation import maybe_summarize_conversation
+    from app.memory.extraction import extract_and_store_memories
+
+    asyncio.ensure_future(
+        extract_and_store_memories(
+            household_id=user.household_id,
+            user_id=user.id,
+            run_id=run_id,
+            new_messages=new_messages,
+        )
+    )
+    asyncio.ensure_future(maybe_summarize_conversation(user.id))
 
     return response
 
@@ -266,7 +281,6 @@ def _estimate_context_chars(ctx: object) -> int:
         + len(ctx.household_profile_text)
         + len(ctx.conversation_summary or "")
         + sum(len(m) for m in ctx.relevant_memories)
-        + len(ctx.home_context_text)
     )
     for msg in ctx.recent_messages:
         for part in msg.parts:

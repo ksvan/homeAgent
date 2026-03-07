@@ -1,20 +1,15 @@
 # Home Context
 
 <!--
-  Optional template for describing your home layout, rooms, and device naming
-  conventions. This is injected into the system prompt when a query appears
-  home-related, supplementing live device state from Homey.
+  Template for describing your home layout, rooms, and device naming conventions.
+  This is injected into the system prompt as stable background knowledge.
 
-  Use this to give the agent stable background knowledge about your home
-  that does not change often — room names, which devices are in which rooms,
-  household routines, and any naming quirks.
+  Use this to give the agent context that does not change often — room names,
+  which devices are in which rooms, household routines, and naming quirks.
 
-  Template variables filled in at runtime:
-    {timestamp}   — time of the last Homey device state snapshot
-    {device_states} — current device states from the Homey state cache
+  Device states are NOT included here — the agent queries Homey live via MCP.
 
   Edit the static sections below to match your home.
-  Leave {device_states} in place — it is filled in dynamically.
 -->
 
 ## Set location
@@ -49,8 +44,8 @@ The home has three floors. Norwegian standard where ground floor equals first fl
 -->
 
 - Devices named "stue" refer to the living room (Norwegian name).
-- The "kontor" light is in the home office, first floor.
-- The thermostat labelled "hall-nede" is the ground floor hallway.
+- The "kontor" light is in the home office, second floor.
+- The thermostat labelled "hall-nede" is the first floor hallway.
 
 ## Routines and context
 
@@ -65,11 +60,3 @@ The home has three floors. Norwegian standard where ground floor equals first fl
   slightly later on weekends.
 - home from school around 14:00
 - "Night mode" means all lights off, heating is kept the same
-
----
-
-## Current device states
-
-Current home state (from Homey, as of {timestamp}):
-
-{device_states}

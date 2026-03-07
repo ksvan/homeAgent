@@ -27,8 +27,6 @@ class AgentDeps:
     household_profile_text: str = ""
     conversation_summary: str | None = None
     relevant_memories: list[str] = field(default_factory=list)
-    # M4: home context
-    home_context_text: str = ""
     # M5: for policy gate — available inside process_tool_call callback via ctx.deps
     user_id: str = ""
     household_id: str = ""
@@ -42,10 +40,10 @@ def _make_conversation_agent() -> Agent[AgentDeps, str]:
     model = LLMRouter(settings).get_model(TaskType.CONVERSATION)
 
     # Attach MCP toolsets for any connected services
-    from app.homey.mcp_client import get_mcp_server as get_homey_mcp
+    from app.homey.mcp_client import get_mcp_toolset
     from app.prometheus.mcp_client import get_mcp_server as get_prom_mcp
 
-    toolsets = [s for s in (get_homey_mcp(), get_prom_mcp()) if s is not None]
+    toolsets = [s for s in (get_mcp_toolset(advanced=False), get_prom_mcp()) if s is not None]
 
     a: Agent[AgentDeps, str] = Agent(
         model=model,
@@ -71,8 +69,6 @@ def _make_conversation_agent() -> Agent[AgentDeps, str]:
         base = "\n\n---\n\n".join(parts) if parts else "You are a helpful household assistant."
 
         extra_sections: list[str] = []
-        if d.home_context_text:
-            extra_sections.append(d.home_context_text)
         if d.user_profile_text:
             extra_sections.append(d.user_profile_text)
         if d.household_profile_text:
@@ -147,7 +143,6 @@ async def run_conversation(
     household_profile_text: str = "",
     conversation_summary: str | None = None,
     relevant_memories: list[str] | None = None,
-    home_context_text: str = "",
     user_id: str = "",
     household_id: str = "",
     channel_user_id: str = "",
@@ -179,7 +174,6 @@ async def run_conversation(
         household_profile_text=household_profile_text,
         conversation_summary=conversation_summary,
         relevant_memories=relevant_memories or [],
-        home_context_text=home_context_text,
         user_id=user_id,
         household_id=household_id,
         channel_user_id=channel_user_id,

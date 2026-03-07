@@ -56,6 +56,64 @@ def register_memory_tools(agent: Agent[AgentDeps, str]) -> None:
             return "Failed to store memory — please try again."
 
     @agent.tool
+    async def update_user_profile(
+        ctx: RunContext[AgentDeps],
+        key: str,
+        value: str,
+    ) -> str:
+        """Update a structured fact in the user's persistent profile.
+
+        Use this to store long-lived personal facts that should always be available
+        in future conversations — preferences, routines, identifiers.
+
+        The profile is always included in your context, unlike episodic memories
+        which are retrieved by relevance. Use profiles for facts you always need,
+        memories for facts that are situationally relevant.
+
+        Good examples:
+          key="preferred_language", value="Norwegian"
+          key="wake_time", value="07:00"
+          key="communication_style", value="concise, technical"
+          key="name", value="Kristian"
+
+        Args:
+            key: Short snake_case identifier (e.g. "preferred_language").
+            value: The value to store.
+        """
+        from app.memory.profiles import upsert_user_profile
+
+        upsert_user_profile(ctx.deps.user_id, {key: value})
+        logger.info("Updated user profile: %s = %.60r", key, value)
+        return f"User profile updated: {key} = {value!r}"
+
+    @agent.tool
+    async def update_household_profile(
+        ctx: RunContext[AgentDeps],
+        key: str,
+        value: str,
+    ) -> str:
+        """Update a structured fact in the household's persistent profile.
+
+        Same as update_user_profile but shared across all household members.
+        Use for household-wide facts: location, devices, layout, defaults.
+
+        Good examples:
+          key="location", value="Oslo, Norway"
+          key="timezone", value="Europe/Oslo"
+          key="guest_bedroom_default_temp", value="18°C"
+          key="front_door_lock", value="Yale Doorman v3"
+
+        Args:
+            key: Short snake_case identifier.
+            value: The value to store.
+        """
+        from app.memory.profiles import upsert_household_profile
+
+        upsert_household_profile(ctx.deps.household_id, {key: value})
+        logger.info("Updated household profile: %s = %.60r", key, value)
+        return f"Household profile updated: {key} = {value!r}"
+
+    @agent.tool
     async def forget_memory(
         ctx: RunContext[AgentDeps],
         content_substring: str,

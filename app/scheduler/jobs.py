@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import logging
+import time as _time
 
 logger = logging.getLogger(__name__)
 
@@ -18,8 +19,12 @@ async def send_reminder(
     the corresponding Task as COMPLETED.
     """
     from app.channels.registry import get_channel
+    from app.control.events import emit
     from app.db import users_session
     from app.models.tasks import Task
+
+    t0 = _time.monotonic()
+    emit("job.fire", {"job": "reminder", "text": text[:80]}, run_id=task_id)
 
     # Send the message
     channel = get_channel()
@@ -42,6 +47,8 @@ async def send_reminder(
             session.add(task)
             session.commit()
 
+    duration_ms = int((_time.monotonic() - t0) * 1000)
+    emit("job.complete", {"job": "reminder", "text": text[:80], "duration_ms": duration_ms, "success": True}, run_id=task_id)
     logger.info("Reminder fired: task_id=%s user_id=%s", task_id, user_id)
 
 
@@ -62,6 +69,7 @@ async def execute_homey_action(
     import json
 
     from app.channels.registry import get_channel
+    from app.control.events import emit
     from app.db import users_session
     from app.homey.mcp_client import get_mcp_server
     from app.models.tasks import Task
@@ -72,6 +80,9 @@ async def execute_homey_action(
 
     # Strip the homey_ prefix — direct_call_tool uses the raw MCP tool name
     raw_name = tool_name.removeprefix("homey_")
+
+    t0 = _time.monotonic()
+    emit("job.fire", {"job": "homey_action", "tool": raw_name, "description": description[:80]}, run_id=task_id)
 
     success = False
     if server is None:
@@ -88,6 +99,13 @@ async def execute_homey_action(
             logger.warning(
                 "Scheduled action failed: task_id=%s tool=%s", task_id, raw_name, exc_info=True
             )
+
+    duration_ms = int((_time.monotonic() - t0) * 1000)
+    emit(
+        "job.complete" if success else "job.error",
+        {"job": "homey_action", "tool": raw_name, "description": description[:80], "duration_ms": duration_ms, "success": success},
+        run_id=task_id,
+    )
 
     if channel and channel_user_id:
         try:

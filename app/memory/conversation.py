@@ -3,6 +3,7 @@ from __future__ import annotations
 import logging
 from datetime import datetime, timezone
 
+from pydantic_ai import Agent
 from pydantic_ai.messages import (
     ModelMessage,
     ModelRequest,
@@ -19,6 +20,29 @@ logger = logging.getLogger(__name__)
 
 # Keep this many message *pairs* in the rolling window passed to the agent
 _MAX_RECENT_PAIRS = 20
+
+# Summarize oldest _SUMMARY_BATCH messages once total exceeds _SUMMARY_THRESHOLD
+_SUMMARY_THRESHOLD = 50
+_SUMMARY_BATCH = 30
+
+_SUMMARIZER_PROMPT = (
+    "Summarize the following conversation into concise bullet points. "
+    "Capture key topics discussed, decisions made, user preferences revealed, "
+    "and any important context. This summary will be injected into future conversations "
+    "to provide continuity. Be concise — aim for 4–8 bullet points."
+)
+
+_summarizer: Agent[None, str] | None = None
+
+
+def _get_summarizer() -> Agent[None, str]:
+    global _summarizer
+    if _summarizer is None:
+        from app.agent.llm_router import LLMRouter, TaskType
+
+        model = LLMRouter().get_model(TaskType.SUMMARIZATION)
+        _summarizer = Agent(model=model, output_type=str, system_prompt=_SUMMARIZER_PROMPT)
+    return _summarizer
 
 
 def save_message_pair(user_id: str, user_text: str, assistant_text: str) -> None:
@@ -71,3 +95,94 @@ def get_conversation_summary(user_id: str) -> str | None:
             select(ConversationSummary).where(ConversationSummary.user_id == user_id)
         ).first()
         return summary.summary if summary else None
+
+
+async def maybe_summarize_conversation(user_id: str) -> None:
+    """
+    Background task: summarize and trim old messages when history grows too long.
+
+    When message count exceeds _SUMMARY_THRESHOLD, takes the oldest _SUMMARY_BATCH
+    messages, summarizes them (incorporating any existing summary as context), writes
+    the result to ConversationSummary, and deletes the summarized messages.
+
+    Silently swallows all errors — this must never crash the caller.
+    """
+    # Check count without loading all rows
+    with memory_session() as session:
+        all_ids = session.exec(
+            select(ConversationMessage.id)
+            .where(ConversationMessage.user_id == user_id)
+            .limit(_SUMMARY_THRESHOLD + 1)
+        ).all()
+        if len(all_ids) <= _SUMMARY_THRESHOLD:
+            return
+
+    with memory_session() as session:
+        old_msgs = session.exec(
+            select(ConversationMessage)
+            .where(ConversationMessage.user_id == user_id)
+            .order_by(col(ConversationMessage.created_at).asc())
+            .limit(_SUMMARY_BATCH)
+        ).all()
+        if not old_msgs:
+            return
+
+    conv_text = "\n".join(f"{m.role.capitalize()}: {m.content}" for m in old_msgs)
+
+    # Include existing summary so the new one is cumulative
+    existing_summary: str | None = get_conversation_summary(user_id)
+    if existing_summary:
+        prompt = (
+            f"Existing summary (context from earlier in the conversation):\n"
+            f"{existing_summary}\n\n---\n\n"
+            f"New conversation to incorporate:\n{conv_text}"
+        )
+    else:
+        prompt = conv_text
+
+    try:
+        result = await _get_summarizer().run(prompt)
+        summary_text = result.output
+    except Exception:
+        logger.warning("Conversation summarization failed for user %s", user_id[:8], exc_info=True)
+        return
+
+    last_msg_id = old_msgs[-1].id
+
+    with memory_session() as session:
+        existing = session.exec(
+            select(ConversationSummary).where(ConversationSummary.user_id == user_id)
+        ).first()
+        if existing:
+            existing.summary = summary_text
+            existing.covers_through_message_id = last_msg_id
+            existing.created_at = datetime.now(timezone.utc)
+        else:
+            session.add(
+                ConversationSummary(
+                    user_id=user_id,
+                    summary=summary_text,
+                    covers_through_message_id=last_msg_id,
+                )
+            )
+
+        # Remove the summarized messages
+        msg_ids = {m.id for m in old_msgs}
+        msgs_to_delete = session.exec(
+            select(ConversationMessage).where(
+                col(ConversationMessage.id).in_(msg_ids)
+            )
+        ).all()
+        for msg in msgs_to_delete:
+            session.delete(msg)
+
+        session.commit()
+
+    from app.control.events import emit
+
+    emit(
+        "mem.summarize",
+        {"messages_compressed": len(old_msgs), "summary": summary_text},
+        run_id="",
+    )
+    logger.info("Summarized %d messages for user %s", len(old_msgs), user_id[:8])

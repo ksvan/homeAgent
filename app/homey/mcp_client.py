@@ -15,6 +15,20 @@ logger = logging.getLogger(__name__)
 
 _mcp_server: MCPServerStreamableHTTP | None = None
 
+# Tools included in the "simple" schema — high-frequency, day-to-day actions.
+# The remaining tools (flow creation/editing, device management) form the "advanced" schema.
+_SIMPLE_TOOLS: frozenset[str] = frozenset(
+    {
+        "homey_list_devices",
+        "homey_list_zones",
+        "homey_list_flows",
+        "homey_start_flow",
+        "homey_set_devices_capabilities_values",
+        "homey_list_moods",
+        "homey_set_mood",
+    }
+)
+
 # Type alias for the inner call_tool callable passed to process_tool_call
 _DirectCallFn = Callable[[str, dict[str, Any], Any], Awaitable[Any]]
 
@@ -22,6 +36,19 @@ _DirectCallFn = Callable[[str, dict[str, Any], Any], Awaitable[Any]]
 def get_mcp_server() -> MCPServerStreamableHTTP | None:
     """Return the running Homey MCP server instance, or None if not configured."""
     return _mcp_server
+
+
+def get_mcp_toolset(advanced: bool = False):
+    """Return a Homey toolset for the agent.
+
+    By default returns the simple schema (7 tools for everyday actions).
+    Pass advanced=True to expose all tools including flow creation and device management.
+    """
+    if _mcp_server is None:
+        return None
+    if advanced:
+        return _mcp_server
+    return _mcp_server.filtered(lambda _ctx, tool: tool.name in _SIMPLE_TOOLS)
 
 
 async def _policy_process_tool_call(
