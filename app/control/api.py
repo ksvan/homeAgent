@@ -155,7 +155,7 @@ _ADMIN_HTML = """<!DOCTYPE html>
 *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
 :root {
   --bg: #0d1117; --surface: #161b22; --border: #30363d;
-  --text: #c9d1d9; --dim: #8b949e; --accent: #7c5cfc;
+  --text: #c9d1d9; --dim: #adbac7; --accent: #7c5cfc;
   --green: #3fb950; --blue: #58a6ff; --red: #f85149; --yellow: #d29922;
 }
 body { background: var(--bg); color: var(--text); font-family: ui-monospace, 'SF Mono', Menlo, monospace; font-size: 13px; line-height: 1.5; height: 100vh; display: flex; flex-direction: column; overflow: hidden; }
