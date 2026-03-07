@@ -197,6 +197,7 @@ async def handle_incoming_message(telegram_id: int, text: str) -> str | None:
             "input_tokens": input_tokens,
             "output_tokens": output_tokens,
             "tool_count": len(tools_called_list),
+            "tools": [str(t["tool"]) for t in tools_called_list],
         },
         run_id=run_id,
     )

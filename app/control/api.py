@@ -291,8 +291,10 @@ function addEvent(type, data) {
   } else if (type === 'run.complete') {
     const tok = (data.input_tokens || 0) + (data.output_tokens || 0);
     const tokStr = tok ? ' · ' + tok + ' tok' : '';
-    const tools = data.tool_count != null ? data.tool_count + ' tool' + (data.tool_count !== 1 ? 's' : '') : '';
-    body = tools + ' <span class="d">' + (data.duration_ms || 0) + 'ms' + tokStr + '</span>';
+    const toolNames = Array.isArray(data.tools) && data.tools.length
+      ? data.tools.join(', ')
+      : (data.tool_count === 0 ? 'no tools' : '');
+    body = '<strong>' + toolNames + '</strong> <span class="d">' + (data.duration_ms || 0) + 'ms' + tokStr + '</span>';
   } else if (type === 'run.error') {
     body = '<span class="err">' + (data.error || 'unknown error') + '</span>';
   }
