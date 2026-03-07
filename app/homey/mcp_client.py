@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import time
 from collections.abc import Awaitable, Callable
 from typing import Any
 
@@ -43,7 +44,18 @@ async def _policy_process_tool_call(
     decision = evaluate_policy(tool_name, tool_args)
 
     if not decision.requires_confirm:
-        result = await call_tool(tool_name, tool_args, None)
+        run_id: str = getattr(ctx.deps, "run_id", "")
+        t0 = time.monotonic()
+        try:
+            result = await call_tool(tool_name, tool_args, None)
+            duration_ms = int((time.monotonic() - t0) * 1000)
+            from app.control.events import emit
+            emit("run.tool_call", {"tool": tool_name, "duration_ms": duration_ms, "success": True}, run_id=run_id)
+        except Exception as exc:
+            duration_ms = int((time.monotonic() - t0) * 1000)
+            from app.control.events import emit
+            emit("run.tool_call", {"tool": tool_name, "duration_ms": duration_ms, "success": False, "error": str(exc)}, run_id=run_id)
+            raise
 
         # Schedule a non-blocking state verification for write tool calls
         if _is_write_tool(tool_name):

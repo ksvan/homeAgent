@@ -1,6 +1,6 @@
 [project]
 name = "homeagent"
-version = "0.5.1"
+version = "0.6.0"
 description = "Locally-orchestrated household AI agent"
 requires-python = ">=3.12"
 
@@ -24,6 +24,7 @@ dependencies = [
     "numpy",
     "beautifulsoup4",
     "tavily-python",
+    "psutil",
 ]
 
 [dependency-groups]

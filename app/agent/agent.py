@@ -33,6 +33,8 @@ class AgentDeps:
     user_id: str = ""
     household_id: str = ""
     channel_user_id: str = ""
+    # control plane — run identifier threaded through tool callbacks
+    run_id: str = ""
 
 
 def _make_conversation_agent() -> Agent[AgentDeps, str]:
@@ -149,6 +151,7 @@ async def run_conversation(
     user_id: str = "",
     household_id: str = "",
     channel_user_id: str = "",
+    run_id: str = "",
 ) -> AgentRunResult[str]:
     """
     Run the conversation agent and return the full AgentRunResult.
@@ -180,6 +183,7 @@ async def run_conversation(
         user_id=user_id,
         household_id=household_id,
         channel_user_id=channel_user_id,
+        run_id=run_id,
     )
 
     agent = get_conversation_agent()

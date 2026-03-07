@@ -17,6 +17,32 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 
 ---
 
+## [0.6.0] - 2026-03-07
+
+### Added
+
+#### Control plane — `/admin` dashboard
+
+- **`app/control/events.py`** — lightweight in-process event bus. `emit(event_type, payload, run_id)` writes to an in-memory ring buffer (last 150 events) and fans out to all active SSE subscriber queues. No external dependencies.
+- **`app/control/api.py`** — FastAPI router mounted at `/admin`:
+  - `GET /admin` — self-contained HTML dashboard (dark theme, no build step)
+  - `GET /admin/stats` — JSON: process CPU/memory/uptime (psutil), aggregate run counts, token usage by model, tool usage counts (last 500 runs from `AgentRunLog`)
+  - `GET /admin/stream` — SSE live event stream; replays last 150 events to new subscribers then streams new ones with 30s heartbeat
+- **Dashboard UI**: two-panel layout — sidebar with system stats + tool usage bar chart; right panel with live activity feed (`START` / `TOOL` / `DONE` / `ERR` badges, auto-scroll, clear)
+
+#### Instrumentation
+
+- **`app/bot.py`** — `handle_incoming_message` now emits `run.start`, `run.complete`, and `run.error` events; generates `run_id` (UUID) threaded through the entire run; writes `AgentRunLog` to `cache.db` after each successful run (was previously unimplemented)
+- **`app/homey/mcp_client.py`** — `_policy_process_tool_call` emits `run.tool_call` (with timing and success/error) in real time for every Homey tool call, including confirmation-bypassed calls
+- **`app/prometheus/mcp_client.py`** — added `_instrument_process_tool_call` callback (same pattern as Homey) so Prometheus tool calls also appear in the live stream
+- **`app/agent/agent.py`** — `AgentDeps` has a new `run_id: str` field; `run_conversation` accepts and forwards `run_id` so tool callbacks can tag their events to the correct run
+
+#### Dependencies
+
+- Added `psutil` to project dependencies (used by `/admin/stats` for process metrics)
+
+---
+
 ## [0.5.1] - 2026-03-06
 
 ### Fixed
@@ -221,6 +247,7 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 
 <!-- New entries go above this line -->
 
+[0.6.0]: https://github.com/your-org/homeAgent/releases/tag/v0.6.0
 [0.5.1]: https://github.com/your-org/homeAgent/releases/tag/v0.5.1
 [0.5.0]: https://github.com/your-org/homeAgent/releases/tag/v0.5.0
 [0.4.0]: https://github.com/your-org/homeAgent/releases/tag/v0.4.0

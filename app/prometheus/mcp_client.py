@@ -1,12 +1,40 @@
 from __future__ import annotations
 
 import logging
+import time
+from collections.abc import Awaitable, Callable
+from typing import Any
 
+from pydantic_ai import RunContext
 from pydantic_ai.mcp import MCPServerStreamableHTTP
 
 from app.config import get_settings
 
 logger = logging.getLogger(__name__)
+
+_DirectCallFn = Callable[[str, dict[str, Any], Any], Awaitable[Any]]
+
+
+async def _instrument_process_tool_call(
+    ctx: RunContext[Any],
+    call_tool: _DirectCallFn,
+    tool_name: str,
+    tool_args: dict[str, Any],
+) -> Any:
+    """Pass-through process_tool_call that emits control events for Prometheus tool calls."""
+    run_id: str = getattr(ctx.deps, "run_id", "")
+    t0 = time.monotonic()
+    try:
+        result = await call_tool(tool_name, tool_args, None)
+        duration_ms = int((time.monotonic() - t0) * 1000)
+        from app.control.events import emit
+        emit("run.tool_call", {"tool": tool_name, "duration_ms": duration_ms, "success": True}, run_id=run_id)
+        return result
+    except Exception as exc:
+        duration_ms = int((time.monotonic() - t0) * 1000)
+        from app.control.events import emit
+        emit("run.tool_call", {"tool": tool_name, "duration_ms": duration_ms, "success": False, "error": str(exc)}, run_id=run_id)
+        raise
 
 _mcp_server: MCPServerStreamableHTTP | None = None
 
@@ -23,6 +51,7 @@ def _create_mcp_server() -> MCPServerStreamableHTTP | None:
         return None
     return MCPServerStreamableHTTP(
         url=settings.prometheus_mcp_url,
+        process_tool_call=_instrument_process_tool_call,
     )
 
 
