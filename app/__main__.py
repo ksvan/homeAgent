@@ -72,6 +72,20 @@ async def _run_development() -> None:
         on_message=handle_incoming_message,
     )
     set_channel(channel)
+
+    # Start admin UI in the background (same process → shares the event bus)
+    import uvicorn
+    from fastapi import FastAPI
+    from app.control.api import router as admin_router
+
+    admin_app = FastAPI(docs_url=None, redoc_url=None)
+    admin_app.include_router(admin_router)
+    admin_server = uvicorn.Server(
+        uvicorn.Config(admin_app, host="0.0.0.0", port=settings.port, log_level="warning")
+    )
+    asyncio.ensure_future(admin_server.serve())
+    logger.info("Admin UI available at http://localhost:%d/admin", settings.port)
+
     logger.info("HomeAgent starting in development mode (Telegram polling)")
     await channel.start_polling()
 
