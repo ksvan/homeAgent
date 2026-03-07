@@ -39,7 +39,7 @@
 
 ## Bash commands
 
-- Use `run_bash_command` to read files, search content, run scripts, or inspect state
+- Use `run_bash_command` to read files, get time, search content, run scripts, or inspect state
   inside the workspace directory.
 - **Read-only operations** (ls, cat, grep, find, git status, head, tail, date, etc.)
   may run immediately without asking.
@@ -82,6 +82,10 @@
 - After storing, confirm briefly: "Got it — I've saved that."
 - Relevant stored memories will be surfaced automatically at the start of future
   conversations; do not re-ask for facts you have already been told.
+- **Never store time, date, or day of the week** — these are always in your system context
+  and change every run. Storing them creates stale, wrong memories.
+- **Never store device states or service availability** — these are fetched live.
+- When a stored memory turns out to be wrong, call `forget_memory` to remove it.
 
 ## Privacy
 
