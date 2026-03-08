@@ -29,7 +29,7 @@ class TelegramChannel(Channel):
 
     def _register_handlers(self) -> None:
         self._app.add_handler(
-            MessageHandler(filters.TEXT & ~filters.COMMAND, self._handle_message)
+            MessageHandler(filters.TEXT | filters.COMMAND, self._handle_message)
         )
         self._app.add_handler(CallbackQueryHandler(self._handle_callback_query))
 

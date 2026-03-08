@@ -294,6 +294,7 @@ header { background: var(--surface); border-bottom: 1px solid var(--border); pad
 .b-error  { background: #2d0f0f; color: var(--red); }
 .b-sched  { background: #2b1f00; color: var(--yellow); }
 .b-mem    { background: #0d2424; color: #2dd4bf; }
+.b-cmd    { background: #1f1430; color: #c084fc; }
 .ev-body { flex: 1; color: var(--text); overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
 .ev-body .d { color: var(--dim); }
 .ev-body .err { color: var(--red); }
@@ -463,6 +464,7 @@ function addEvent(type, data) {
     'job.error':    ['b-error','SCHED'],
     'mem.extract':  ['b-mem','MEM'],
     'mem.summarize':['b-mem','MEM'],
+    'cmd.dispatch': ['b-cmd','CMD'],
   };
   const [cls, label] = badges[type] || ['b-start', type];
 
@@ -503,6 +505,11 @@ function addEvent(type, data) {
     const snippet = data.summary ? data.summary.slice(0, 120) + (data.summary.length > 120 ? '…' : '') : '';
     body = '<strong>compressed ' + n + ' msgs</strong>'
       + (snippet ? ' <span class="d">— ' + snippet + '</span>' : '');
+  } else if (type === 'cmd.dispatch') {
+    const dur = data.duration_ms ? ' <span class="d">' + data.duration_ms + 'ms</span>' : '';
+    const who = data.user_id ? ' <span class="d">by ' + data.user_id.slice(0, 8) + '</span>' : '';
+    const status = data.success === false ? ' <span class="err">failed</span>' : '';
+    body = '<strong>/' + (data.command || '?') + '</strong>' + who + dur + status;
   }
 
   const runTag = data.run_id ? '<span class="run-tag">' + data.run_id.slice(0,8) + '</span>' : '';
@@ -679,7 +686,7 @@ function connectSSE() {
     setTimeout(connectSSE, 3000);
   };
 
-  ['run.start','run.tool_call','run.complete','run.error','job.fire','job.complete','job.error','mem.extract','mem.summarize'].forEach(type => {
+  ['run.start','run.tool_call','run.complete','run.error','job.fire','job.complete','job.error','mem.extract','mem.summarize','cmd.dispatch'].forEach(type => {
     es.addEventListener(type, e => {
       try { addEvent(type, JSON.parse(e.data)); } catch(_) {}
     });
