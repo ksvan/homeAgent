@@ -56,7 +56,7 @@ case "$MODE" in
       echo "Error: 'docker' not found. Install Docker Desktop."
       exit 1
     fi
-    docker compose up --build -d
+    docker compose build && docker compose up -d
     echo ""
     echo "Stack is up. Follow logs with:  ./start.sh logs"
     echo "Stop with:                      ./start.sh stop"
@@ -74,7 +74,7 @@ case "$MODE" in
   restart)
     echo "Rebuilding and restarting HomeAgent..."
     docker compose down
-    docker compose up --build -d
+    docker compose build && docker compose up -d
     echo "Restarted. Follow logs with: ./start.sh logs"
     ;;
 
