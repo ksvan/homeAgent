@@ -17,6 +17,18 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 
 ---
 
+## [0.7.1] - 2026-03-08
+
+### Security
+
+- **`app/control/auth.py`** — new `require_admin_auth` FastAPI dependency; optional bearer token protecting all `/admin/*` routes using the existing `APP_SECRET_KEY` config value; open when key is unset (dev mode unchanged)
+- **`app/api/server.py`** — admin router mounted with `require_admin_auth` dependency; `openapi_url=None` suppresses schema discovery endpoint
+- **`app/api/webhooks.py`** — webhook token validation switched to `secrets.compare_digest()` to eliminate timing side-channel
+
+Deferred (LAN-compensated or feature-gated): SSRF guards in scrape tool, TrustedHostMiddleware, webhook body-size/rate caps, pending token replay telemetry, prompt-injection content tagging.
+
+---
+
 ## [0.7.0] - 2026-03-08
 
 ### Added
@@ -298,6 +310,7 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 
 <!-- New entries go above this line -->
 
+[0.7.1]: https://github.com/your-org/homeAgent/releases/tag/v0.7.1
 [0.7.0]: https://github.com/your-org/homeAgent/releases/tag/v0.7.0
 [0.6.5]: https://github.com/your-org/homeAgent/releases/tag/v0.6.5
 [0.6.0]: https://github.com/your-org/homeAgent/releases/tag/v0.6.0

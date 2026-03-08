@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import logging
+import secrets
 
 from fastapi import APIRouter, Header, HTTPException, Request
 
@@ -17,8 +18,11 @@ async def telegram_webhook(
 ) -> dict:  # type: ignore[type-arg]
     settings = get_settings()
 
-    # Validate Telegram's secret token header
-    if x_telegram_bot_api_secret_token != settings.telegram_webhook_secret:
+    # Constant-time comparison to avoid timing side-channels
+    if not secrets.compare_digest(
+        x_telegram_bot_api_secret_token or "",
+        settings.telegram_webhook_secret or "",
+    ):
         logger.warning("Webhook rejected: invalid secret token")
         raise HTTPException(status_code=403, detail="Invalid secret token")
 
