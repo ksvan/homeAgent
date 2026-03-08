@@ -12,6 +12,8 @@ services:
       # Allow prompt overrides without rebuilding the image
       - ./prompts:/app/prompts
     ports:
+      # Bound to LAN interfaces only — not needed from the internet (cloudflared handles that).
+      # Admin dashboard is intentionally LAN-accessible on this port.
       - "8080:8080"
     healthcheck:
       test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8080/health')"]
@@ -19,3 +21,16 @@ services:
       timeout: 10s
       retries: 3
       start_period: 15s
+
+  cloudflared:
+    image: cloudflare/cloudflared:latest
+    restart: unless-stopped
+    # TUNNEL_TOKEN is read natively by cloudflared — no --token flag needed.
+    # The ingress rule (domain → http://homeagent:8080) is configured in the
+    # Cloudflare Zero Trust dashboard under the tunnel's Public Hostname tab.
+    command: tunnel --no-autoupdate run
+    environment:
+      TUNNEL_TOKEN: ${CLOUDFLARE_TUNNEL_TOKEN}
+    depends_on:
+      homeagent:
+        condition: service_healthy
