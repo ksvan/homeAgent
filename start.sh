@@ -13,6 +13,15 @@ set -euo pipefail
 
 MODE="${1:-dev}"
 
+# Detect docker compose invocation style (v2 plugin vs v1 standalone)
+if docker compose version &>/dev/null 2>&1; then
+  DC="docker compose"
+elif command -v docker-compose &>/dev/null; then
+  DC="docker-compose"
+else
+  DC="docker compose"  # fallback — will error with a clear message
+fi
+
 case "$MODE" in
   dev)
     echo "Starting HomeAgent in development mode (Telegram long polling)..."
@@ -32,6 +41,17 @@ case "$MODE" in
       echo "  Prometheus MCP running (PID $PROM_PID) → http://localhost:9000/mcp"
     fi
 
+    TOOLS_DIR="services/tools-mcp"
+    TOOLS_PID=""
+
+    # Start Tools MCP if the venv has been set up
+    if [ -f "$TOOLS_DIR/.venv/bin/python" ]; then
+      echo "Starting Tools MCP server..."
+      (cd "$TOOLS_DIR" && PYTHONPATH=. .venv/bin/python app/main.py) &
+      TOOLS_PID=$!
+      echo "  Tools MCP running (PID $TOOLS_PID) → http://localhost:9001/mcp"
+    fi
+
     # Run app in background so we can track its PID and ensure it is killed on exit.
     uv run python -m app &
     APP_PID=$!
@@ -39,11 +59,13 @@ case "$MODE" in
     # On Ctrl+C / SIGTERM / normal exit: stop both background processes, then wait.
     # If the app doesn't exit within 5 s after SIGTERM, send SIGKILL.
     trap '
-      [ -n "$PROM_PID" ] && kill -TERM "$PROM_PID" 2>/dev/null
-      [ -n "$APP_PID"  ] && kill -TERM "$APP_PID"  2>/dev/null
+      [ -n "$PROM_PID"  ] && kill -TERM "$PROM_PID"  2>/dev/null
+      [ -n "$TOOLS_PID" ] && kill -TERM "$TOOLS_PID" 2>/dev/null
+      [ -n "$APP_PID"   ] && kill -TERM "$APP_PID"   2>/dev/null
       sleep 5
-      [ -n "$PROM_PID" ] && kill -9 "$PROM_PID" 2>/dev/null
-      [ -n "$APP_PID"  ] && kill -9 "$APP_PID"  2>/dev/null
+      [ -n "$PROM_PID"  ] && kill -9 "$PROM_PID"  2>/dev/null
+      [ -n "$TOOLS_PID" ] && kill -9 "$TOOLS_PID" 2>/dev/null
+      [ -n "$APP_PID"   ] && kill -9 "$APP_PID"   2>/dev/null
       exit 0
     ' INT TERM EXIT
 
@@ -56,25 +78,25 @@ case "$MODE" in
       echo "Error: 'docker' not found. Install Docker Desktop."
       exit 1
     fi
-    docker compose build && docker compose up -d
+    $DC build && $DC up -d
     echo ""
     echo "Stack is up. Follow logs with:  ./start.sh logs"
     echo "Stop with:                      ./start.sh stop"
     ;;
 
   logs)
-    docker compose logs -f
+    $DC logs -f
     ;;
 
   stop)
     echo "Stopping HomeAgent..."
-    docker compose down
+    $DC down
     ;;
 
   restart)
     echo "Rebuilding and restarting HomeAgent..."
-    docker compose down
-    docker compose build && docker compose up -d
+    $DC down
+    $DC build && $DC up -d
     echo "Restarted. Follow logs with: ./start.sh logs"
     ;;
 

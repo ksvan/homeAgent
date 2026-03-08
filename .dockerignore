@@ -10,6 +10,7 @@ docs/
 *.egg-info/
 .git/
 .github/
+.claude/
 .mypy_cache/
 .ruff_cache/
 .pytest_cache/

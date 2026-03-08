@@ -42,8 +42,12 @@ def _make_conversation_agent() -> Agent[AgentDeps, str]:
     # Attach MCP toolsets for any connected services
     from app.homey.mcp_client import get_mcp_toolset
     from app.prometheus.mcp_client import get_mcp_server as get_prom_mcp
+    from app.tools.mcp_client import get_mcp_server as get_tools_mcp
 
-    toolsets = [s for s in (get_mcp_toolset(advanced=False), get_prom_mcp()) if s is not None]
+    toolsets = [
+        s for s in (get_mcp_toolset(advanced=False), get_prom_mcp(), get_tools_mcp())
+        if s is not None
+    ]
 
     a: Agent[AgentDeps, str] = Agent(
         model=model,
@@ -90,26 +94,6 @@ def _make_conversation_agent() -> Agent[AgentDeps, str]:
     register_reminder_tools(a)
     register_action_tools(a)
     register_memory_tools(a)
-
-    if settings.feature_bash:
-        from app.agent.tools.bash import register_bash_tools
-
-        register_bash_tools(a)
-
-    if settings.feature_python:
-        from app.agent.tools.python_exec import register_python_tools
-
-        register_python_tools(a)
-
-    if settings.feature_scrape:
-        from app.agent.tools.scrape import register_scrape_tools
-
-        register_scrape_tools(a)
-
-    if settings.feature_search:
-        from app.agent.tools.search import register_search_tools
-
-        register_search_tools(a)
 
     return a
 

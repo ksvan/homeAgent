@@ -1,4 +1,20 @@
 services:
+  tools:
+    build: services/tools-mcp
+    restart: unless-stopped
+    env_file: .env
+    environment:
+      MCP_PORT: "9001"
+    volumes:
+      # Isolated workspace — tools can read/write here but NOT /app/data
+      - ./data/workspace:/workspace
+    healthcheck:
+      test: ["CMD", "python", "-c", "import socket; s=socket.create_connection(('localhost',9001),5); s.close()"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 15s
+
   homeagent:
     build: .
     restart: unless-stopped
@@ -21,6 +37,9 @@ services:
       timeout: 10s
       retries: 3
       start_period: 15s
+    depends_on:
+      tools:
+        condition: service_healthy
 
   cloudflared:
     image: cloudflare/cloudflared:latest

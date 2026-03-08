@@ -17,9 +17,6 @@ class FeatureFlags(BaseModel):
     voice: bool = False
     multi_home: bool = False
     local_model: bool = False
-    bash: bool = False
-    python: bool = False
-    scrape: bool = False
 
 
 class Settings(BaseSettings):
@@ -68,10 +65,6 @@ class Settings(BaseSettings):
     feature_voice: bool = False
     feature_multi_home: bool = False
     feature_local_model: bool = False
-    feature_bash: bool = False
-    feature_python: bool = False
-    feature_scrape: bool = False
-    feature_search: bool = False
 
     @property
     def features(self) -> FeatureFlags:
@@ -84,9 +77,6 @@ class Settings(BaseSettings):
             voice=self.feature_voice,
             multi_home=self.feature_multi_home,
             local_model=self.feature_local_model,
-            bash=self.feature_bash,
-            python=self.feature_python,
-            scrape=self.feature_scrape,
         )
 
     # ------------------------------------------------------------------
@@ -108,6 +98,11 @@ class Settings(BaseSettings):
     # Prometheus MCP  (services/prometheus-mcp/ — read-only metrics)
     # ------------------------------------------------------------------
     prometheus_mcp_url: str = ""  # e.g. http://192.168.1.x:9000/mcp
+
+    # ------------------------------------------------------------------
+    # Tools MCP  (services/tools-mcp/ — sandboxed execution tools)
+    # ------------------------------------------------------------------
+    tools_mcp_url: str = ""  # e.g. http://tools:9001/mcp in Docker
 
     # ------------------------------------------------------------------
     # Application
@@ -142,43 +137,6 @@ class Settings(BaseSettings):
         if isinstance(v, int):
             return [v]
         return v
-
-    # ------------------------------------------------------------------
-    # Bash tool  (requires feature_bash=true)
-    # ------------------------------------------------------------------
-    bash_workspace_dir: str = "data/workspace"
-    # Empty = use built-in DEFAULT_ALLOWED set; set in .env to override completely.
-    bash_allowed_commands: list[str] = []
-    bash_max_timeout_seconds: int = 60
-    bash_max_output_bytes: int = 200_000
-
-    @field_validator("bash_allowed_commands", mode="before")
-    @classmethod
-    def parse_str_list(cls, v: object) -> object:
-        """Accept comma-separated string from env, as well as a real list."""
-        if isinstance(v, str):
-            return [x.strip() for x in v.split(",") if x.strip()]
-        return v
-
-    # ------------------------------------------------------------------
-    # Python exec tool  (requires feature_python=true)
-    # Uses the same bash_workspace_dir as the bash tool.
-    # ------------------------------------------------------------------
-    python_max_timeout_seconds: int = 60
-    python_max_output_bytes: int = 200_000
-
-    # ------------------------------------------------------------------
-    # Web scraping tool  (requires feature_scrape=true)
-    # ------------------------------------------------------------------
-    scrape_timeout_seconds: int = 30
-    scrape_max_content_bytes: int = 100_000
-
-    # ------------------------------------------------------------------
-    # Web search tool  (requires feature_search=true)
-    # ------------------------------------------------------------------
-    search_provider: str = "tavily"   # currently only "tavily" supported
-    tavily_api_key: str = ""
-    search_max_results: int = 5
 
     # ------------------------------------------------------------------
     # Storage
