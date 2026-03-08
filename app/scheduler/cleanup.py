@@ -6,6 +6,7 @@ from datetime import datetime, timedelta, timezone
 logger = logging.getLogger(__name__)
 
 _CLEANUP_JOB_ID = "cleanup_old_logs"
+_MEMORY_PURGE_JOB_ID = "cleanup_stale_memories"
 
 
 async def purge_old_logs() -> None:
@@ -40,9 +41,74 @@ async def purge_old_logs() -> None:
     )
 
 
+async def purge_stale_memories() -> None:
+    """
+    Delete episodic memories that have not been used within their importance tier's TTL.
+
+    Freshness is determined by last_used_at when set, falling back to created_at.
+    'critical' memories are never purged.
+    Runs daily via APScheduler.
+    """
+    from sqlalchemy import and_, or_
+    from sqlmodel import col, select
+
+    from app.config import get_settings
+    from app.db import memory_session
+    from app.memory.episodic import _delete_from_vec
+    from app.models.memory import EpisodicMemory
+
+    settings = get_settings()
+    now = datetime.now(timezone.utc)
+    total_deleted = 0
+
+    tiers = [
+        ("ephemeral", settings.memory_ttl_ephemeral_days),
+        ("normal", settings.memory_ttl_normal_days),
+        ("important", settings.memory_ttl_important_days),
+    ]
+
+    for importance, days in tiers:
+        cutoff = now - timedelta(days=days)
+
+        with memory_session() as session:
+            stale = session.exec(
+                select(EpisodicMemory).where(
+                    col(EpisodicMemory.importance) == importance,
+                    or_(
+                        and_(
+                            col(EpisodicMemory.last_used_at).is_not(None),
+                            col(EpisodicMemory.last_used_at) < cutoff,
+                        ),
+                        and_(
+                            col(EpisodicMemory.last_used_at).is_(None),
+                            col(EpisodicMemory.created_at) < cutoff,
+                        ),
+                    ),
+                )
+            ).all()
+
+            for m in stale:
+                _delete_from_vec(m.embedding_id)
+                session.delete(m)
+            session.commit()
+
+        if stale:
+            logger.info(
+                "Memory purge: removed %d '%s' memor%s (idle > %d days)",
+                len(stale),
+                importance,
+                "ies" if len(stale) != 1 else "y",
+                days,
+            )
+        total_deleted += len(stale)
+
+    if total_deleted == 0:
+        logger.debug("Memory purge: nothing to remove")
+
+
 async def register_cleanup_jobs() -> None:
-    """Schedule the daily log-retention job. Safe to call even if the scheduler
-    already has the job registered (conflicts are silently ignored)."""
+    """Schedule the daily log-retention and memory-purge jobs. Safe to call even if the
+    scheduler already has the jobs registered (conflicts are silently ignored)."""
     from apscheduler.triggers.interval import IntervalTrigger
 
     from app.scheduler.engine import get_scheduler
@@ -52,13 +118,12 @@ async def register_cleanup_jobs() -> None:
         logger.warning("Scheduler not running — cleanup jobs will not be registered")
         return
 
-    try:
-        await scheduler.add_schedule(
-            purge_old_logs,
-            IntervalTrigger(hours=24),
-            id=_CLEANUP_JOB_ID,
-        )
-        logger.debug("Cleanup job registered (id=%s)", _CLEANUP_JOB_ID)
-    except Exception:
-        # Job already exists from a previous run with a persistent data store, ignore.
-        logger.debug("Cleanup job already registered (id=%s)", _CLEANUP_JOB_ID, exc_info=True)
+    for fn, job_id in [
+        (purge_old_logs, _CLEANUP_JOB_ID),
+        (purge_stale_memories, _MEMORY_PURGE_JOB_ID),
+    ]:
+        try:
+            await scheduler.add_schedule(fn, IntervalTrigger(hours=24), id=job_id)
+            logger.debug("Cleanup job registered (id=%s)", job_id)
+        except Exception:
+            logger.debug("Cleanup job already registered (id=%s)", job_id, exc_info=True)

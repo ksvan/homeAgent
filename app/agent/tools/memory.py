@@ -15,6 +15,7 @@ def register_memory_tools(agent: Agent[AgentDeps, str]) -> None:
         ctx: RunContext[AgentDeps],
         content: str,
         scope: str = "household",
+        importance: str = "normal",
     ) -> str:
         """Store a stable fact in long-term memory so it can be recalled in future conversations.
 
@@ -36,6 +37,11 @@ def register_memory_tools(agent: Agent[AgentDeps, str]) -> None:
             content: The fact to remember, written as a complete, standalone sentence.
             scope: "household" to share with all household members (default),
                    or "personal" for facts private to this user only.
+            importance: How long this memory should be retained when not actively used.
+                - "critical"  — never expires (safety, medical, permanent household facts)
+                - "important" — retained for ~1 year (strong preferences, recurring patterns)
+                - "normal"    — retained for ~3 months (general observations, situational facts)
+                - "ephemeral" — retained for ~1 month (short-lived context, one-off details)
         """
         from app.memory.episodic import store_memory as _store_memory
 
@@ -47,10 +53,11 @@ def register_memory_tools(agent: Agent[AgentDeps, str]) -> None:
                 household_id=household_id,
                 content=content,
                 user_id=user_id,
+                importance=importance,
             )
             scope_label = "personal memory" if scope == "personal" else "household memory"
-            logger.info("Stored %s: %.80s", scope_label, content)
-            return f"Stored as {scope_label}."
+            logger.info("Stored %s (%s): %.80s", scope_label, importance, content)
+            return f"Stored as {scope_label} (importance: {importance})."
         except Exception:
             logger.exception("Failed to store memory")
             return "Failed to store memory — please try again."
@@ -155,6 +162,11 @@ def register_memory_tools(agent: Agent[AgentDeps, str]) -> None:
             for m in to_delete:
                 session.delete(m)
             session.commit()
+
+        from app.memory.episodic import _delete_from_vec
+
+        for m in to_delete:
+            _delete_from_vec(m.embedding_id)
 
         count = len(to_delete)
         logger.info("Deleted %d memory/memories matching %r", count, content_substring)

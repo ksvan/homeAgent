@@ -196,7 +196,9 @@ async def admin_memory() -> dict[str, Any]:
                 "scope": (
                     user_names.get(m.user_id, m.user_id[:8]) if m.user_id else "household"
                 ),
+                "importance": m.importance,
                 "created_at": m.created_at.isoformat() if m.created_at else None,
+                "last_used_at": m.last_used_at.isoformat() if m.last_used_at else None,
             }
             for m in memories
         ],
@@ -394,7 +396,7 @@ header { background: var(--surface); border-bottom: 1px solid var(--border); pad
     <section class="details-section">
       <h3>Episodic Memories <span id="mem-count" style="font-size:10px;color:var(--dim)"></span></h3>
       <table class="mem-table">
-        <thead><tr><th style="width:100px">Scope</th><th>Memory</th><th style="width:80px">Stored</th></tr></thead>
+        <thead><tr><th style="width:90px">Scope</th><th>Memory</th><th style="width:72px">Tier</th><th style="width:72px">Last used</th><th style="width:72px">Stored</th></tr></thead>
         <tbody id="mem-tbody"></tbody>
       </table>
     </section>
@@ -608,14 +610,18 @@ async function loadMemory() {
     if (!r.ok) return;
     const d = await r.json();
 
+    const tierColor = {critical:'#e05252',important:'#e09a32',normal:'var(--dim)',ephemeral:'#6a7a8a'};
     document.getElementById('mem-count').textContent = '(' + d.episodic.length + ')';
     document.getElementById('mem-tbody').innerHTML = d.episodic.length
-      ? d.episodic.map(m =>
-          '<tr><td class="scope-tag">' + esc(m.scope) + '</td>' +
-          '<td>' + esc(m.content) + '</td>' +
-          '<td class="time-tag">' + relTime(m.created_at) + '</td></tr>'
-        ).join('')
-      : '<tr><td colspan="3" style="color:var(--dim);padding:12px 10px">No memories yet</td></tr>';
+      ? d.episodic.map(m => {
+          const color = tierColor[m.importance] || 'var(--dim)';
+          return '<tr><td class="scope-tag">' + esc(m.scope) + '</td>' +
+            '<td>' + esc(m.content) + '</td>' +
+            '<td class="time-tag" style="color:' + color + '">' + esc(m.importance) + '</td>' +
+            '<td class="time-tag">' + (m.last_used_at ? relTime(m.last_used_at) : '—') + '</td>' +
+            '<td class="time-tag">' + relTime(m.created_at) + '</td></tr>';
+        }).join('')
+      : '<tr><td colspan="5" style="color:var(--dim);padding:12px 10px">No memories yet</td></tr>';
 
     document.getElementById('user-profiles').innerHTML = d.user_profiles.length
       ? d.user_profiles.map(p =>

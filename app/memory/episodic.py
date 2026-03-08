@@ -4,6 +4,7 @@ import logging
 import sqlite3
 import struct
 from contextlib import contextmanager
+from datetime import datetime, timezone
 from typing import Generator
 
 from sqlmodel import col, select
@@ -14,6 +15,10 @@ from app.models.memory import EpisodicMemory
 logger = logging.getLogger(__name__)
 
 _MAX_RESULTS = 5
+
+
+def _now() -> datetime:
+    return datetime.now(timezone.utc)
 
 
 @contextmanager
@@ -48,19 +53,103 @@ def _pack_embedding(floats: list[float]) -> bytes:
     return struct.pack(f"{EMBEDDING_DIM}f", *floats)
 
 
+def _delete_from_vec(embedding_id: str | None) -> None:
+    """Remove a row from the sqlite-vec virtual table. No-op if embedding_id is None."""
+    if embedding_id is None:
+        return
+    try:
+        with _raw_memory_conn() as raw:
+            raw.execute(
+                "DELETE FROM episodic_memory_vec WHERE rowid = ?",
+                [int(embedding_id)],
+            )
+            raw.commit()
+    except Exception:
+        logger.warning("Failed to delete vec entry rowid=%s", embedding_id, exc_info=True)
+
+
+def _find_duplicate(
+    household_id: str,
+    user_id: str | None,
+    embedding: list[float],
+) -> EpisodicMemory | None:
+    """
+    Return an existing memory whose embedding is within the dedup distance threshold,
+    scoped to the same household + user_id visibility. Returns None if not found.
+    """
+    from app.config import get_settings
+
+    threshold = get_settings().memory_dedup_distance_threshold
+    try:
+        vec_bytes = _pack_embedding(embedding)
+        with _raw_memory_conn() as raw:
+            rows = raw.execute(
+                "SELECT rowid, distance FROM episodic_memory_vec "
+                "WHERE embedding MATCH ? ORDER BY distance LIMIT 1",
+                [vec_bytes],
+            ).fetchall()
+
+        if not rows:
+            return None
+
+        rowid, distance = rows[0]
+        if distance >= threshold:
+            return None
+
+        with memory_session() as session:
+            scope_filter = (
+                col(EpisodicMemory.user_id).is_(None)
+                if user_id is None
+                else col(EpisodicMemory.user_id) == user_id
+            )
+            return session.exec(
+                select(EpisodicMemory).where(
+                    col(EpisodicMemory.embedding_id) == str(rowid),
+                    col(EpisodicMemory.household_id) == household_id,
+                    scope_filter,
+                )
+            ).first()
+    except Exception:
+        logger.warning("Dedup check failed — proceeding with insert", exc_info=True)
+        return None
+
+
 def store_memory(
     household_id: str,
     content: str,
     user_id: str | None = None,
     source_run_id: str | None = None,
+    importance: str = "normal",
 ) -> str:
     """
     Persist an episodic memory.
 
-    Generates an embedding (if possible) and stores it in the sqlite-vec
-    virtual table.  Returns the EpisodicMemory.id of the new record.
+    Checks for a near-duplicate first (vector similarity); if one exists in the
+    same scope, touches its last_used_at and returns its ID without inserting.
+
+    Otherwise generates an embedding (if possible) and stores the new record in
+    both the SQLite table and the sqlite-vec virtual table.
+
+    Returns the EpisodicMemory.id of the stored (or existing) record.
     """
     embedding = _get_embedding(content)
+
+    # Dedup: skip insert if a sufficiently similar memory already exists in scope
+    if embedding is not None:
+        duplicate = _find_duplicate(household_id, user_id, embedding)
+        if duplicate is not None:
+            with memory_session() as session:
+                record = session.exec(
+                    select(EpisodicMemory).where(EpisodicMemory.id == duplicate.id)
+                ).first()
+                if record:
+                    record.last_used_at = _now()
+                    session.add(record)
+                    session.commit()
+            logger.debug(
+                "Dedup: skipped near-duplicate memory, refreshed id=%s", duplicate.id[:8]
+            )
+            return duplicate.id
 
     with memory_session() as session:
         record = EpisodicMemory(
@@ -68,6 +157,7 @@ def store_memory(
             user_id=user_id,
             content=content,
             source_run_id=source_run_id,
+            importance=importance,
         )
         session.add(record)
         session.commit()
@@ -118,6 +208,7 @@ def search_memories(
     - Personal memories belonging to this user only
 
     Personal memories of other household members are never returned.
+    Updates last_used_at on retrieved memories.
     Falls back to recency-based retrieval when embeddings aren't available.
     """
     embedding = _get_embedding(query)
@@ -166,7 +257,14 @@ def _vec_search(
                 .where(col(EpisodicMemory.embedding_id).in_(rowids))
                 .limit(limit)
             ).all()
-        return [m.content for m in memories]
+
+            now = _now()
+            for m in memories:
+                m.last_used_at = now
+                session.add(m)
+            session.commit()
+
+            return [m.content for m in memories]
     except Exception:
         logger.warning("Vec search failed — falling back to recency", exc_info=True)
         return []
@@ -180,4 +278,11 @@ def _recency_fallback(household_id: str, user_id: str, limit: int) -> list[str]:
             .order_by(col(EpisodicMemory.created_at).desc())
             .limit(limit)
         ).all()
-    return [m.content for m in memories]
+
+        now = _now()
+        for m in memories:
+            m.last_used_at = now
+            session.add(m)
+        session.commit()
+
+        return [m.content for m in memories]

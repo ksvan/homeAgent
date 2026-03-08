@@ -38,11 +38,14 @@ class EpisodicMemory(SQLModel, table=True):
     household_id: str = Field(index=True)
     user_id: Optional[str] = Field(default=None, index=True)
     content: str
-    # ID of the corresponding document in the Chroma vector store
+    # Rowid in the sqlite-vec virtual table (None if embedding failed)
     embedding_id: Optional[str] = None
     created_at: datetime = Field(default_factory=_now)
     # FK to agentrunlog.id — which run produced this memory
     source_run_id: Optional[str] = None
+    # Lifecycle fields
+    importance: str = Field(default="normal")  # critical | important | normal | ephemeral
+    last_used_at: Optional[datetime] = None    # updated each time the memory is retrieved
 
 
 class ConversationMessage(SQLModel, table=True):

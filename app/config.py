@@ -187,6 +187,12 @@ class Settings(BaseSettings):
     chroma_dir: str = "data/chroma"
     event_log_retention_days: int = 90
     run_log_retention_days: int = 90
+    # Episodic memory lifecycle — idle TTL per importance tier (0 = never purge)
+    memory_ttl_ephemeral_days: int = 30
+    memory_ttl_normal_days: int = 90
+    memory_ttl_important_days: int = 365
+    # Near-duplicate suppression — L2 distance threshold in sqlite-vec space
+    memory_dedup_distance_threshold: float = 0.15
 
     # ------------------------------------------------------------------
     # Competing action detection

@@ -34,11 +34,22 @@ DO NOT extract:
 
 Return an empty facts list if nothing qualifies.
 Write each fact as a complete, standalone sentence.
+
+For each fact also set an importance level:
+- "critical"  — safety/medical facts, permanent household config that must never be forgotten
+- "important" — strong recurring preferences, long-term patterns worth keeping for at least a year
+- "normal"    — general observations or situational preferences (default)
+- "ephemeral" — short-lived context unlikely to matter beyond the next few weeks
 """
 
 
+class _Fact(BaseModel):
+    content: str
+    importance: str = "normal"
+
+
 class _Facts(BaseModel):
-    facts: list[str]
+    facts: list[_Fact]
 
 
 _extractor: Agent[None, _Facts] | None = None
@@ -99,14 +110,22 @@ async def extract_and_store_memories(
 
     stored_facts: list[str] = []
     for fact in facts:
-        fact = fact.strip()
-        if not fact:
+        content = fact.content.strip()
+        importance = fact.importance if fact.importance in {
+            "critical", "important", "normal", "ephemeral"
+        } else "normal"
+        if not content:
             continue
         try:
-            store_memory(household_id=household_id, content=fact, source_run_id=run_id)
-            stored_facts.append(fact)
+            store_memory(
+                household_id=household_id,
+                content=content,
+                source_run_id=run_id,
+                importance=importance,
+            )
+            stored_facts.append(content)
         except Exception:
-            logger.warning("Failed to auto-store memory: %.80s", fact, exc_info=True)
+            logger.warning("Failed to auto-store memory: %.80s", content, exc_info=True)
 
     if stored_facts:
         emit(
