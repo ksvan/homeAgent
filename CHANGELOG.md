@@ -17,6 +17,25 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 
 ---
 
+## [0.7.0] - 2026-03-08
+
+### Added
+
+#### Slash command layer
+
+- **`app/commands/registry.py`** — `SlashCommandContext`, `SlashCommand` ABC, `SlashCommandRegistry`; provides the contract all command handlers implement
+- **`app/commands/dispatcher.py`** — `try_dispatch()` intercepts `/command` messages before the LLM is invoked; handles permission checks, emits `cmd.dispatch` events with duration and success flag
+- **`app/commands/handlers.py`** — six built-in commands registered at import time:
+  - `/help` — lists all commands visible to the caller (admin commands hidden from non-admins)
+  - `/contextstats` — assembles and measures the full context (messages, summary, profiles, memories) and returns a char/token breakdown
+  - `/history [n]` — shows the last n messages (default 10, max 40) from conversation history; notes if a summary exists
+  - `/schedule` — lists active reminders and scheduled Homey actions for the current user
+  - `/status` *(admin)* — reports scheduler, Homey MCP, and Prometheus MCP availability
+  - `/users` *(admin)* — lists household members with admin flags
+- **`app/bot.py`** — intercept added after user lookup, before `assemble_context()`; unknown `/commands` return an error without touching the LLM; non-admin callers of admin commands receive a denial message
+
+---
+
 ## [0.6.5] - 2026-03-08
 
 ### Added
@@ -279,6 +298,7 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 
 <!-- New entries go above this line -->
 
+[0.7.0]: https://github.com/your-org/homeAgent/releases/tag/v0.7.0
 [0.6.5]: https://github.com/your-org/homeAgent/releases/tag/v0.6.5
 [0.6.0]: https://github.com/your-org/homeAgent/releases/tag/v0.6.0
 [0.5.1]: https://github.com/your-org/homeAgent/releases/tag/v0.5.1

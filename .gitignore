@@ -79,6 +79,12 @@ htmlcov/
 .ruff_cache/
 
 # ------------------------------------------------------------
+# Security reports — generated analyses, not for version control
+# ------------------------------------------------------------
+security_best_practices_report.md
+homeAgent-threat-model.md
+
+# ------------------------------------------------------------
 # Secrets / certs / backups
 # ------------------------------------------------------------
 *.pem

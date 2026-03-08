@@ -116,6 +116,19 @@ async def handle_incoming_message(telegram_id: int, text: str) -> str | None:
 
     user = _get_or_create_user(telegram_id)
 
+    if text.startswith("/"):
+        from app.commands.dispatcher import try_dispatch
+        cmd_response = await try_dispatch(
+            text,
+            user_id=user.id,
+            user_name=user.name,
+            telegram_id=telegram_id,
+            is_admin=user.is_admin,
+            household_id=user.household_id,
+        )
+        if cmd_response is not None:
+            return cmd_response
+
     from app.agent.agent import run_conversation
     from app.agent.context import assemble_context
     from app.control.events import emit
