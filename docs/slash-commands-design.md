@@ -1,130 +1,134 @@
-# Slash Commands Design (Pre-LLM Command Layer)
+# Slash Commands
 
-## Purpose
+A lightweight pre-LLM command layer for deterministic, low-cost operational tasks. Commands are triggered by a leading `/` and return a response without invoking the model.
 
-Add a lightweight command layer for user/admin actions that should run in chat **without invoking the LLM**.
-
-Commands are triggered by a leading `/` (for example `/contextstats`), and are intended for deterministic, low-cost operational tasks.
+---
 
 ## Placement in Flow
 
-Intercept slash commands at the latest point before LLM execution:
+The intercept lives in `app/bot.py`, after user lookup and **before** context assembly:
 
-1. Message received
-2. Access/rate-limit checks
-3. User lookup/create
-4. Context assembly (`assemble_context`)
-5. Agent/toolset initialization (if needed by command handlers)
-6. **Slash command dispatch**
-7. If command handled: return response directly (no `run_conversation`)
-8. Else: continue normal LLM flow
+```text
+Message received
+  → Rate-limit check
+  → User lookup / create
+  → *** Slash command dispatch ***   ← here
+  → assemble_context()               (embedding API — skipped for most commands)
+  → run_conversation()               (LLM call — skipped for all commands)
+```
 
-This preserves full runtime context while avoiding model cost for command operations.
+Commands that need context (e.g. `/contextstats`) call `assemble_context()` themselves inside the handler. This avoids the embedding API cost for commands that don't need it.
+
+---
+
+## Module Structure
+
+```text
+app/commands/
+├── __init__.py      (empty)
+├── registry.py      SlashCommandContext, SlashCommand ABC, SlashCommandRegistry
+├── dispatcher.py    try_dispatch() — parse, permission check, emit event
+└── handlers.py      All built-in command implementations + module-level registry
+```
+
+---
 
 ## Command Contract
 
-Implement a small command framework:
+### `SlashCommandContext` (dataclass)
 
-- `SlashCommandContext`
-  - `raw_text: str`
-  - `user_id: str`
-  - `telegram_id: int`
-  - `is_admin: bool`
-  - `household_id: str`
-  - `agent_context: AgentContext`
-  - `settings: Settings`
-  - Optional service handles (scheduler/channel/agent metadata) as needed
+```python
+raw_text: str        # full original message
+args: list[str]      # tokens after the command name
+user_id: str
+user_name: str
+telegram_id: int
+is_admin: bool
+household_id: str
+```
 
-- `SlashCommand` interface
-  - `name: str` (without `/`)
-  - `help: str`
-  - `admin_only: bool = False`
-  - `async run(ctx: SlashCommandContext, args: list[str]) -> str`
+`AgentContext` and `Settings` are **not** included — handlers import what they need directly to keep the interface minimal and avoid the embedding API cost for commands that don't require context.
 
-- `SlashCommandRegistry`
-  - Register command handlers in one place
-  - Lookup by command name
-  - Provide list for `/help`
+### `SlashCommand` (ABC)
 
-- Parser rules
-  - Syntax: `/command [args...]`
-  - First token = command name, remaining = args
-  - Unknown command returns short error + hint to `/help`
+```python
+name: str           # command name without /
+help: str           # one-line description shown in /help
+admin_only: bool    # default False
 
-## Permission Model
+async def run(self, ctx: SlashCommandContext) -> str
+```
 
-- Default: commands are available to any allowed user.
-- Admin-only commands require `user.is_admin == True`.
-- If non-admin invokes admin command:
-  - Return concise denial message.
-  - Do not invoke LLM fallback.
-- Mark command visibility in `/help`:
-  - Show all user commands.
-  - Show admin commands only to admins.
+### `SlashCommandRegistry`
 
-## Initial Command List (v1)
+```python
+def register(cmd: SlashCommand) -> None
+def get(name: str) -> SlashCommand | None
+def list_visible(is_admin: bool) -> list[SlashCommand]
+```
+
+---
+
+## Dispatcher
+
+`try_dispatch(text, user_id, user_name, telegram_id, is_admin, household_id)` in `app/commands/dispatcher.py`:
+
+1. If text does not start with `/` → return `None` (caller falls through to LLM)
+2. Parse: first token = command name, remainder = args
+3. Lookup in registry → unknown command returns error string (no LLM fallback)
+4. Permission check → non-admin calling admin command returns denial string (no LLM fallback)
+5. Build `SlashCommandContext`, call `cmd.run(ctx)`
+6. Emit `cmd.dispatch` event: `{command, user_id, duration_ms, success}`
+
+---
+
+## Built-in Commands
 
 ### User commands
 
-- `/help`
-  - List available slash commands with one-line descriptions.
-
-- `/contextstats`
-  - Show context size breakdown used for LLM call preparation:
-    - conversation history chars/messages
-    - conversation summary chars
-    - user profile chars
-    - household profile chars
-    - relevant memories count/chars
-    - estimated total chars/tokens
-
-- `/history [n]`
-  - Show what recent conversation history is currently passed to the LLM.
-  - Default window summary with optional `n` limit for displayed entries.
-  - Include note whether a conversation summary exists.
-
-- `/schedule`
-  - Unified list of active reminders and scheduled Homey actions for current user.
-  - Return compact lines: type, title/description, scheduled time, task ID.
+| Command | Description |
+| --- | --- |
+| `/help` | List all commands visible to the caller (admin commands hidden from non-admins) |
+| `/contextstats` | Assemble context and show char/token breakdown per component |
+| `/history [n]` | Show last n messages from conversation history (default 10, max 40) |
+| `/schedule` | List active reminders and scheduled Homey actions for the current user |
 
 ### Admin commands
 
-- `/status`
-  - Short operational status snapshot:
-    - scheduler running/stopped
-    - Homey MCP connected/disconnected
-    - Prometheus MCP connected/disconnected
-    - basic DB health summary (existing health helpers acceptable)
+| Command | Description |
+| --- | --- |
+| `/status` | Operational status — scheduler, Homey MCP, Prometheus MCP |
+| `/users` | List household members with admin flags |
 
-- `/users`
-  - List known users in household with admin flag.
-
-## Response Guidelines
-
-- Deterministic, concise, text-first output.
-- No tool-calling language in output.
-- No LLM-style suggestions unless explicitly requested.
-- Safe failure messages for invalid args and unavailable components.
+---
 
 ## Observability
 
-Log slash command execution separately from LLM runs:
+A single `cmd.dispatch` event is emitted after each command completes:
 
-- Emit control/event entries for:
-  - command start
-  - command success
-  - command failure
-- Include command name, user_id, duration_ms, success flag.
+```json
+{
+  "command": "history",
+  "user_id": "...",
+  "duration_ms": 12,
+  "success": true
+}
+```
 
-## Extensibility Rules
+Visible in the `/admin` SSE stream and event log. Command errors are caught, logged, and returned to the user as a plain error message — the event is still emitted with `"success": false`.
 
-- New commands should be added as isolated handlers and registered in the registry.
-- Keep business logic inside command modules, not in the dispatcher.
-- Keep parser and permission checks centralized in dispatcher.
-- Command handlers may reuse existing services (scheduler, memory, context, DB sessions) but should avoid side effects unless explicitly intended.
+---
+
+## Extensibility
+
+- Add a new class extending `SlashCommand`, implement `run()`, call `registry.register()` at the bottom of `handlers.py`.
+- Keep business logic inside command classes, not in the dispatcher.
+- The dispatcher owns parsing and permission checks — commands receive a fully-validated context.
+
+---
 
 ## Non-Goals (v1)
 
-- No nested subcommand framework.
-- No shell-like quoting/escaping parser beyond simple whitespace split.
-- No replacement of existing Telegram native command handlers yet; this layer is chat-message based and pre-LLM.
+- No nested subcommands.
+- No shell-style quoting beyond whitespace split.
+- No replacement of Telegram native command handlers — this layer is message-text based and pre-LLM.

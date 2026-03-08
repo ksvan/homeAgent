@@ -146,14 +146,15 @@ To find a Telegram user ID: message `@userinfobot` on Telegram.
 
 User commands:
 
-- `/me` — view your profile
-- `/family` — view household members
-- `/forget` — ask the agent to clear your personal memories
+- `/help` — list available commands
+- `/contextstats` — show context size breakdown for the next LLM call
+- `/history [n]` — show recent conversation history (default 10 messages)
+- `/schedule` — list active reminders and scheduled Homey actions
 
 Admin commands:
 
-- `/users` — list all registered users
-- `/remove @username` — remove a user
+- `/status` — operational status (scheduler, Homey MCP, Prometheus MCP)
+- `/users` — list household members with admin flags
 
 ---
 
@@ -222,6 +223,7 @@ docker buildx build \
 - [Architecture Diagrams](docs/architecture-diagrams.md)
 - [Agent Design](docs/agent-design.md)
 - [Memory Design](docs/memory-design.md)
+- [Slash Commands](docs/slash-commands-design.md)
 - [Tech Stack](docs/tech-stack.md)
 - [Telegram Integration](docs/integrations/telegram.md)
 - [Homey MCP Integration](docs/integrations/homey-mcp.md)
