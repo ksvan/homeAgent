@@ -23,8 +23,18 @@ def get_user_profile(user_id: str) -> dict[str, object]:
         return json.loads(profile.summary)  # type: ignore[no-any-return]
 
 
+def _filter_pii_from_dict(data: dict[str, object]) -> dict[str, object]:
+    """Drop any key whose string value is flagged by the PII guard."""
+    from app.memory.pii import contains_pii
+
+    return {k: v for k, v in data.items() if not contains_pii(str(v))}
+
+
 def upsert_user_profile(user_id: str, data: dict[str, object]) -> None:
     """Merge data into the user profile, creating it if absent."""
+    data = _filter_pii_from_dict(data)
+    if not data:
+        return
     with memory_session() as session:
         profile = session.exec(
             select(UserProfile).where(UserProfile.user_id == user_id)
@@ -53,6 +63,9 @@ def get_household_profile(household_id: str) -> dict[str, object]:
 
 def upsert_household_profile(household_id: str, data: dict[str, object]) -> None:
     """Merge data into the household profile, creating it if absent."""
+    data = _filter_pii_from_dict(data)
+    if not data:
+        return
     with memory_session() as session:
         profile = session.exec(
             select(HouseholdProfile).where(HouseholdProfile.household_id == household_id)

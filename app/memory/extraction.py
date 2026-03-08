@@ -31,6 +31,11 @@ DO NOT extract:
 - Temporary situations mentioned in passing
 - Greetings, thanks, or conversational filler
 - Anything that will likely be wrong or irrelevant tomorrow
+- Medical diagnoses, specific conditions, medications, or treatment details
+- Any financial account details: card numbers, account numbers, IBANs, PINs
+- Government ID numbers: social security numbers, national ID numbers, passport numbers
+- Passwords, passphrases, API keys, or authentication tokens
+- IP addresses, MAC addresses, or other network identifiers
 
 Return an empty facts list if nothing qualifies.
 Write each fact as a complete, standalone sentence.

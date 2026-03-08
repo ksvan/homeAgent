@@ -130,8 +130,14 @@ def store_memory(
     Otherwise generates an embedding (if possible) and stores the new record in
     both the SQLite table and the sqlite-vec virtual table.
 
-    Returns the EpisodicMemory.id of the stored (or existing) record.
+    Returns the EpisodicMemory.id of the stored (or existing) record,
+    or an empty string if the content was rejected by the PII guard.
     """
+    from app.memory.pii import contains_pii
+
+    if contains_pii(content):
+        return ""
+
     embedding = _get_embedding(content)
 
     # Dedup: skip insert if a sufficiently similar memory already exists in scope
