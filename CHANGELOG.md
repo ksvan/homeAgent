@@ -17,6 +17,38 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 
 ---
 
+## [0.6.5] - 2026-03-08
+
+### Added
+
+#### Episodic memory lifecycle
+
+- **Importance tiering** (`app/models/memory.py`, `alembic/versions/0002_memory_db_lifecycle.py`) — `EpisodicMemory` gains two new columns: `importance` (`critical` / `important` / `normal` / `ephemeral`, default `normal`) and `last_used_at` (nullable datetime, updated on every retrieval)
+- **Near-duplicate suppression** (`app/memory/episodic.py`) — `store_memory()` runs a vector similarity check before inserting; if an existing memory in the same scope is within the configured distance threshold, the new memory is discarded and the existing one's `last_used_at` is refreshed. Threshold configurable via `MEMORY_DEDUP_DISTANCE_THRESHOLD` (default 0.15)
+- **Access tracking** (`app/memory/episodic.py`) — `search_memories()` and `_recency_fallback()` write `last_used_at` on every retrieval so idle TTL reflects actual usage rather than insertion time
+- **Daily memory purge** (`app/scheduler/cleanup.py`) — `purge_stale_memories()` removes memories idle beyond their tier's TTL (ephemeral: 30 d, normal: 90 d, important: 365 d; critical: never); uses `last_used_at` with `created_at` as fallback; vec table kept in sync via `_delete_from_vec()` helper
+- **`forget_memory` vec cleanup** (`app/agent/tools/memory.py`) — deleting a memory via the agent tool now also removes its embedding from the sqlite-vec table
+- **`store_memory` importance param** (`app/agent/tools/memory.py`) — new `importance` argument with docstring describing each tier; agent selects tier at call time
+- **Auto-extraction importance** (`app/memory/extraction.py`) — extraction prompt teaches the LLM the four tiers; output changed from `list[str]` to `list[{content, importance}]`; validated and passed through to `store_memory()`
+- **Admin Details tab** (`app/control/api.py`) — episodic memory table now shows Tier (colour-coded) and Last used columns; `GET /admin/memory` includes `importance` and `last_used_at` per entry
+
+### Fixed
+
+#### Graceful shutdown (dev and prod)
+
+- **`start.sh`** — app runs as a tracked background job (`APP_PID`); trap sends SIGTERM to both prometheus and app, SIGKILL after 5 s; `wait $APP_PID` keeps the shell alive
+- **`app/__main__.py`** — own `loop.add_signal_handler` replaces asyncio's default SIGINT handler; polling runs as a background task; SSE streams signalled before uvicorn stops, preventing force-cancel tracebacks
+- **`app/channels/telegram.py`** — each PTB cleanup coroutine wrapped in its own `try/except (CancelledError, Exception)` so `_must_cancel` doesn't abort the cleanup chain
+- **`app/control/api.py`** — `signal_stream_shutdown()` exits SSE generators within 1 s, allowing uvicorn to drain cleanly
+- **`app/api/server.py`** — calls `signal_stream_shutdown()` at start of lifespan teardown for clean prod container shutdown
+
+### Changed
+
+- `app/config.py` — added `MEMORY_TTL_EPHEMERAL_DAYS` (30), `MEMORY_TTL_NORMAL_DAYS` (90), `MEMORY_TTL_IMPORTANT_DAYS` (365), `MEMORY_DEDUP_DISTANCE_THRESHOLD` (0.15)
+- `docs/memory-design.md` — updated EpisodicMemory schema, tool signature, added Memory Lifecycle section
+
+---
+
 ## [0.6.0] - 2026-03-07
 
 ### Added
@@ -247,6 +279,7 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 
 <!-- New entries go above this line -->
 
+[0.6.5]: https://github.com/your-org/homeAgent/releases/tag/v0.6.5
 [0.6.0]: https://github.com/your-org/homeAgent/releases/tag/v0.6.0
 [0.5.1]: https://github.com/your-org/homeAgent/releases/tag/v0.5.1
 [0.5.0]: https://github.com/your-org/homeAgent/releases/tag/v0.5.0

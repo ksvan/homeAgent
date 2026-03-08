@@ -50,15 +50,17 @@ EpisodicMemory
 ├── household_id      scoping key
 ├── user_id           nullable — null means household-level fact
 ├── content           "Sarah prefers the bedroom lights at 20% when watching TV"
-├── embedding_id      ID of the corresponding vector in sqlite-vec
+├── embedding_id      rowid of the corresponding vector in sqlite-vec
 ├── source_run_id     which agent run produced this memory
-└── created_at
+├── created_at
+├── importance        "critical" | "important" | "normal" | "ephemeral"
+└── last_used_at      nullable — updated every time the memory is retrieved
 ```
 
 **How memories get in:**
 
-- **Auto-extraction** (default): after every agent run, a background Haiku call analyses the exchange and extracts any stable facts worth remembering. This runs fire-and-forget — it never blocks the response.
-- **Explicit store**: the agent calls `store_memory(content, scope)` when the user directly asks it to remember something.
+- **Auto-extraction** (default): after every agent run, a background Haiku call analyses the exchange and extracts any stable facts worth remembering. The extractor also assigns an importance level to each fact. This runs fire-and-forget — it never blocks the response.
+- **Explicit store**: the agent calls `store_memory(content, scope, importance)` when the user directly asks it to remember something. The agent selects the importance tier based on the nature of the fact.
 
 **What is extracted (and what is not):**
 
@@ -177,7 +179,7 @@ The agent has four memory tools available:
 
 | Tool | When to use |
 | ---- | ----------- |
-| `store_memory(content, scope)` | User explicitly asks to remember something |
+| `store_memory(content, scope, importance)` | User explicitly asks to remember something |
 | `update_user_profile(key, value)` | Stable personal fact (name, preference, routine) |
 | `update_household_profile(key, value)` | Stable household fact (location, device nicknames) |
 | `forget_memory(content_substring)` | User asks to forget something, or fact is wrong |
@@ -208,9 +210,25 @@ Users can correct memories:
 
 ---
 
+## Memory Lifecycle
+
+Episodic memories are managed by a daily background job that prunes idle entries based on their importance tier.
+
+**Importance tiers:**
+
+| Tier | Idle TTL | Intended for |
+| ---- | -------- | ------------ |
+| `critical` | Never expires | Safety, medical, permanent household facts |
+| `important` | 365 days | Strong recurring preferences, long-term patterns |
+| `normal` | 90 days | General observations, situational facts |
+| `ephemeral` | 30 days | Short-lived context, one-off details |
+
+Freshness is measured by `last_used_at` (updated on every retrieval). If a memory has never been retrieved, `created_at` is used as the fallback. TTL values are configurable via environment variables (`MEMORY_TTL_*_DAYS`).
+
+**Near-duplicate suppression:** before inserting a new memory, a vector similarity check compares the embedding against existing memories in the same scope. If a match falls within the configured distance threshold (`MEMORY_DEDUP_DISTANCE_THRESHOLD`, default 0.15), the new memory is discarded and the existing one's `last_used_at` is refreshed instead.
+
 ## Future Considerations
 
-- **Memory aging**: Rarely-recalled memories decay in relevance score over time
-- **Contradiction detection**: New memories checked against existing ones for conflicts
+- **Contradiction detection**: New memories checked against existing ones for semantic conflicts
 - **Vector DB migration**: The `store_memory` / `search_memories` interface is the clean boundary — sqlite-vec can be swapped for a full vector DB without touching callers
 - **Graph memory**: A separate memory type for relationship graphs (person ↔ device ↔ room) is planned as a future layer alongside episodic
