@@ -44,10 +44,17 @@ def _make_conversation_agent() -> Agent[AgentDeps, str]:
     from app.prometheus.mcp_client import get_mcp_server as get_prom_mcp
     from app.tools.mcp_client import get_mcp_server as get_tools_mcp
 
-    toolsets = [
-        s for s in (get_mcp_toolset(advanced=False), get_prom_mcp(), get_tools_mcp())
-        if s is not None
-    ]
+    homey_ts = get_mcp_toolset(advanced=False)
+    prom_ts = get_prom_mcp()
+    tools_ts = get_tools_mcp()
+    toolsets = [s for s in (homey_ts, prom_ts, tools_ts) if s is not None]
+    logger.info(
+        "Building agent: homey=%s prom=%s tools=%s total_toolsets=%d",
+        "ok" if homey_ts is not None else "MISSING",
+        "ok" if prom_ts is not None else "missing",
+        "ok" if tools_ts is not None else "missing",
+        len(toolsets),
+    )
 
     a: Agent[AgentDeps, str] = Agent(
         model=model,
@@ -165,6 +172,16 @@ async def run_conversation(
     )
 
     agent = get_conversation_agent()
+
+    from app.homey.mcp_client import get_mcp_server as _get_homey
+    _homey = _get_homey()
+    logger.info(
+        "run_conversation: homey_mcp=%s running_count=%s agent_toolsets=%d",
+        "connected" if _homey is not None else "DISCONNECTED",
+        getattr(_homey, "_running_count", "N/A"),
+        len(list(agent.toolsets)),
+    )
+
     return await agent.run(
         text,
         deps=deps,

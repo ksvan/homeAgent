@@ -15,17 +15,16 @@ logger = logging.getLogger(__name__)
 
 _mcp_server: MCPServerStreamableHTTP | None = None
 
-# Tools included in the "simple" schema — high-frequency, day-to-day actions.
-# The remaining tools (flow creation/editing, device management) form the "advanced" schema.
+# Tools included in the "simple" schema — day-to-day home control.
+# Homey AI Chat Control uses a meta-tool pattern: search_tools + use_tool for
+# all device actions, plus three read-only structural tools.
 _SIMPLE_TOOLS: frozenset[str] = frozenset(
     {
-        "homey_list_devices",
-        "homey_list_zones",
-        "homey_list_flows",
-        "homey_start_flow",
-        "homey_set_devices_capabilities_values",
-        "homey_list_moods",
-        "homey_set_mood",
+        "homey_search_tools",
+        "homey_use_tool",
+        "homey_get_home_structure",
+        "homey_get_states",
+        "homey_get_flow_overview",
     }
 )
 

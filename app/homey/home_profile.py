@@ -46,8 +46,8 @@ async def refresh_home_profile(household_id: str) -> None:
 
 async def _try_discover_devices(server: object, household_id: str) -> None:
     """
-    Attempt to call Homey discovery tools (get_zones, get_devices) and store
-    the results in the household profile.  Fails silently if tools aren't found.
+    Call get_home_structure to populate the household profile with zones, devices,
+    and moods.  Fails silently if the tool isn't available.
     """
     from pydantic_ai.mcp import MCPServerStreamableHTTP
 
@@ -56,24 +56,10 @@ async def _try_discover_devices(server: object, household_id: str) -> None:
     if not isinstance(server, MCPServerStreamableHTTP):
         return
 
-    # Try to get zones — Homey uses 'get_zones' or similar
-    for zone_tool in ("homey_get_zones", "get_zones"):
-        try:
-            result = await server.direct_call_tool(zone_tool, {}, None)
-            if result:
-                upsert_household_profile(household_id, {"homey_zones_raw": str(result)[:2000]})
-                logger.info("Discovered Homey zones via %s", zone_tool)
-            break
-        except Exception:
-            continue
-
-    # Try to get devices
-    for device_tool in ("homey_get_devices", "get_devices"):
-        try:
-            result = await server.direct_call_tool(device_tool, {}, None)
-            if result:
-                upsert_household_profile(household_id, {"homey_devices_raw": str(result)[:2000]})
-                logger.info("Discovered Homey devices via %s", device_tool)
-            break
-        except Exception:
-            continue
+    try:
+        result = await server.direct_call_tool("get_home_structure", {}, None)
+        if result:
+            upsert_household_profile(household_id, {"homey_home_structure": str(result)[:4000]})
+            logger.info("Discovered Homey home structure")
+    except Exception:
+        logger.debug("Could not fetch home structure from Homey MCP", exc_info=True)

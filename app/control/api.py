@@ -419,6 +419,10 @@ header { background: var(--surface); border-bottom: 1px solid var(--border); pad
 </div>
 
 <script>
+// Propagate ?token= from the page URL to all API sub-requests
+const _tok = new URLSearchParams(window.location.search).get('token');
+const _authQ = _tok ? '?token=' + encodeURIComponent(_tok) : '';
+
 let autoScroll = true;
 let evCount = 0;
 const MAX_EVENTS = 300;
@@ -538,7 +542,7 @@ function fmtK(n) {
 // Stats
 async function fetchStats() {
   try {
-    const r = await fetch('/admin/stats');
+    const r = await fetch('/admin/stats' + _authQ);
     if (!r.ok) return;
     const d = await r.json();
     document.getElementById('v-cpu').textContent = d.system.cpu_percent + '%';
@@ -613,7 +617,7 @@ document.querySelectorAll('.tab').forEach(btn => {
 // Memory details loader
 async function loadMemory() {
   try {
-    const r = await fetch('/admin/memory');
+    const r = await fetch('/admin/memory' + _authQ);
     if (!r.ok) return;
     const d = await r.json();
 
@@ -669,7 +673,7 @@ setInterval(fetchStats, 10000);
 
 // SSE
 function connectSSE() {
-  const es = new EventSource('/admin/stream');
+  const es = new EventSource('/admin/stream' + _authQ);
   const pulse = document.getElementById('pulse');
   const label = document.getElementById('conn-label');
 

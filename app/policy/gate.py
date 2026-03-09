@@ -11,7 +11,7 @@ from app.db import users_session
 from app.models.users import ActionPolicy
 
 # Tool name prefixes that are clearly read-only — safe to allow when no policy matches.
-_READ_PREFIXES = ("get_", "list_")
+_READ_PREFIXES = ("get_", "list_", "search_")
 
 logger = logging.getLogger(__name__)
 
@@ -75,22 +75,37 @@ def evaluate_policy(tool_name: str, tool_args: dict[str, object]) -> PolicyDecis
                 logger.warning("Malformed arg_conditions in policy '%s'", policy.name)
                 continue
 
+        # For use_tool (meta-tool), build a dynamic message showing the inner action.
+        # For other tools, use the policy's configured message.
+        if tool_name == "use_tool":
+            msg = _build_confirm_message(tool_name, tool_args)
+        else:
+            msg = policy.confirm_message or f"Execute '{tool_name}' on your Homey?"
+
         return PolicyDecision(
             requires_confirm=policy.requires_confirm,
             policy_name=policy.name,
-            confirm_message=policy.confirm_message
-            or f"Execute '{tool_name}' on your Homey?",
+            confirm_message=msg,
             impact_level=policy.impact_level,
         )
 
     # No policy matched.
-    # Read-only tools (get_*, list_*) are safe to execute without confirmation.
+    # Read-only tools (get_*, list_*, search_*) are safe to execute without confirmation.
     # Any other unrecognised tool requires confirmation to be conservative.
     if tool_name.startswith(_READ_PREFIXES):
         return PolicyDecision()
     return PolicyDecision(
         requires_confirm=True,
         policy_name="<unmatched>",
-        confirm_message=f"Execute '{tool_name}' on your Homey?",
+        confirm_message=_build_confirm_message(tool_name, tool_args),
         impact_level="unknown",
     )
+
+
+def _build_confirm_message(tool_name: str, tool_args: dict[str, object]) -> str:
+    """Build a human-readable confirmation message for the given tool call."""
+    if tool_name == "use_tool":
+        inner = str(tool_args.get("name", ""))
+        if inner:
+            return f"Execute Homey action '{inner}'?"
+    return f"Execute '{tool_name}' on your Homey?"

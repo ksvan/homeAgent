@@ -13,22 +13,31 @@ logger = logging.getLogger(__name__)
 
 def seed_policies() -> None:
     """
-    Insert missing default policies into the DB.
+    Upsert default policies into the DB.
 
-    Existing policies (by name) are never overwritten, so user edits survive
-    application upgrades.
+    Policies are matched by name. Existing records are updated to match the
+    current defaults so that changes to default_policies.py take effect on
+    the next startup without manual DB edits.
     """
     with users_session() as session:
-        existing_names = {p.name for p in session.exec(select(ActionPolicy)).all()}
+        existing = {p.name: p for p in session.exec(select(ActionPolicy)).all()}
 
-    missing = [p for p in DEFAULT_POLICIES if p["name"] not in existing_names]
-    if not missing:
-        logger.debug("All default policies already present — nothing to seed")
-        return
-
+    inserted = updated = 0
     with users_session() as session:
-        for policy_data in missing:
-            session.add(ActionPolicy(**policy_data))
+        for policy_data in DEFAULT_POLICIES:
+            name = str(policy_data["name"])
+            if name in existing:
+                p = existing[name]
+                for k, v in policy_data.items():
+                    setattr(p, k, v)
+                session.add(p)
+                updated += 1
+            else:
+                session.add(ActionPolicy(**policy_data))
+                inserted += 1
         session.commit()
 
-    logger.info("Seeded %d default polic%s", len(missing), "y" if len(missing) == 1 else "ies")
+    if inserted or updated:
+        logger.info("Policies: %d inserted, %d updated", inserted, updated)
+    else:
+        logger.debug("Policies already up to date — nothing to seed")

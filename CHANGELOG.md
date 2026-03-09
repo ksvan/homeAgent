@@ -17,6 +17,53 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 
 ---
 
+## [0.8.0] - 2026-03-09
+
+### Added
+
+#### Scheduled device actions
+
+- **`app/agent/tools/actions.py`** (new) — three agent tools: `schedule_homey_action` (persist + schedule a future Homey action), `list_scheduled_actions` (show pending actions for the current user), `cancel_scheduled_action` (cancel by ID)
+- **`app/scheduler/actions.py`** (new) — `schedule_action()` creates a `Task` record and registers an APScheduler `DateTrigger` job; `restore_pending_actions()` re-registers future actions from DB on startup (overdue tasks are marked FAILED)
+
+### Fixed
+
+#### Homey tools not being called by the agent
+
+- **`app/homey/mcp_client.py`** — `_SIMPLE_TOOLS` updated from old direct-API tool names (`list_devices`, `set_devices_capabilities_values`, etc.) to the Homey AI Chat Control meta-tool pattern: `homey_search_tools`, `homey_use_tool`, `homey_get_home_structure`, `homey_get_states`, `homey_get_flow_overview`. This was the root cause of the agent silently ignoring home-control requests.
+
+#### Telegram confirmation double-press race condition
+
+- **`app/channels/telegram.py`** — `delete_pending_action(token)` moved to immediately after the ownership check, *before* `query.answer()` and `direct_call_tool`. Any subsequent press on the same token now gets "expired or already handled" immediately, preventing double-execution when the user pressed again while waiting for a slow Homey response.
+
+#### Policy gate seeder not updating existing rows
+
+- **`app/policy/seeder.py`** — changed from insert-only to upsert: existing rows are updated to match `default_policies.py` on every startup. `default_policies.py` is now the source of truth.
+
+### Changed
+
+#### Policy: no confirmation for individual device operations
+
+- **`app/policy/default_policies.py`** — `use_tool` policy changed to `requires_confirm=False`. Individual device actions (turn on/off a single light, set temperature, etc.) now execute immediately without a confirmation prompt.
+- **`app/policy/gate.py`** — confirmation message for `use_tool` is now built dynamically from the inner tool name (e.g. `"Execute Homey action 'set_light_bedroom'?"`) rather than using the generic policy message.
+- **`prompts/instructions.md`** — agent asks conversationally before: bulk zone/floor/whole-house operations, alarm arm/disarm, door lock/unlock, or any change involving 3+ devices. Single-device operations execute immediately; agent does not announce it is sending a confirmation.
+
+#### Home profile discovery updated for AI Chat Control
+
+- **`app/homey/home_profile.py`** — profile discovery now calls `get_home_structure` (single call returning zones + devices + moods) instead of the removed `get_zones` / `get_devices` tools.
+
+#### Admin panel auth accepts query-param token
+
+- **`app/control/auth.py`** — `require_admin_auth` now accepts `?token=<key>` query param in addition to `Authorization: Bearer` header, enabling plain browser navigation to protected admin routes.
+- **`app/control/api.py`** — admin UI propagates `?token=` to all sub-requests (stats, memory, SSE stream) so the panel works end-to-end when opened via URL with token.
+
+### Removed
+
+- **`app/agent/tools/bash.py`**, **`python_exec.py`**, **`scrape.py`**, **`search.py`** — dead files; these tools were moved to the `services/tools-mcp/` container in v0.7.0 but not deleted from the main app.
+- **`app/shell.py`** — bash runner implementation, now lives in `services/tools-mcp/app/shell.py`.
+
+---
+
 ## [0.7.1] - 2026-03-08
 
 ### Security

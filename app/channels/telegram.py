@@ -90,12 +90,14 @@ class TelegramChannel(Channel):
             await query.answer("This action doesn't belong to you.")
             return
 
+        # Delete first — any subsequent press on the same token gets "expired" immediately,
+        # preventing double-execution when the user presses while waiting for the response.
+        delete_pending_action(token)
         await query.answer("Executing…")
 
         server = get_mcp_server()
         if server is None:
             await query.edit_message_text("⚠️ Homey is not connected — cannot execute.")
-            delete_pending_action(token)
             return
 
         from app.memory.conversation import save_message_pair
@@ -103,7 +105,6 @@ class TelegramChannel(Channel):
         try:
             tool_args: dict[str, object] = json.loads(action.tool_args)
             result = await server.direct_call_tool(action.tool_name, tool_args, None)
-            delete_pending_action(token)
 
             await query.edit_message_text(f"✅ Done: {result}")
             logger.info(
@@ -127,7 +128,6 @@ class TelegramChannel(Channel):
             )
         except Exception:
             logger.exception("Failed to execute confirmed action (token=%s)", token)
-            delete_pending_action(token)
             await query.edit_message_text(
                 "❌ Action failed — please check the device and try again."
             )

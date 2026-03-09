@@ -1,6 +1,6 @@
 # Policy Gate
 
-The Policy Gate is a middleware layer that sits between the agent deciding to call a tool and that tool actually executing. It intercepts high-impact actions and requires explicit user confirmation before proceeding.
+The Policy Gate is a middleware layer that sits between the agent deciding to call a tool and that tool actually executing. It intercepts high-impact actions and may require explicit user confirmation before proceeding.
 
 The goal is **low-risk autonomy**: the agent can act freely on safe operations, but slows down on anything consequential.
 
@@ -9,8 +9,8 @@ The goal is **low-risk autonomy**: the agent can act freely on safe operations, 
 ## Design Principles
 
 - **Declarative** — policies are data, not code. Adding a new policy does not require changing agent logic.
-- **Conservative by default** — if a tool call matches a high-impact pattern and the policy is ambiguous, require confirmation.
-- **Audited** — all gate decisions (pass, blocked, confirmed, denied) are logged to `agent_run_log`.
+- **Conservative by default** — if a tool call matches no policy, read-only tools (`get_*`, `list_*`, `search_*`) pass through; any other unrecognised tool requires confirmation.
+- **Audited** — all gate decisions (pass, blocked, confirmed, denied) are logged.
 - **Channel-agnostic** — confirmation is sent via whatever channel the user is on. Telegram uses inline keyboard buttons.
 
 ---
@@ -21,87 +21,103 @@ The goal is **low-risk autonomy**: the agent can act freely on safe operations, 
 Agent proposes tool call
          │
          ▼
-PolicyGate.evaluate(tool_name, args, user, context)
+evaluate_policy(tool_name, args)
          │
     ┌────┴─────┐
     │          │
   PASS       CONFIRM
     │          │
     ▼          ▼
- Execute    Send confirmation prompt to user
- tool       (inline Yes/No button in Telegram)
+ Execute    Save PendingAction
+ tool       Send inline Yes/No to Telegram
                 │
           ┌─────┴──────┐
           │            │
         YES            NO
           │            │
           ▼            ▼
-      Execute       Cancel + notify
-      tool          user of cancellation
-          │
-          ▼
-      Log outcome
+      Execute       Cancel +
+      tool          notify user
 ```
 
-Confirmation has a **timeout** (default: 60 seconds). If the user does not respond, the action is cancelled and the user is notified.
+When a confirmation is required:
+1. The policy gate saves a `PendingAction` record and sends a Telegram inline keyboard prompt.
+2. The pending action is **deleted before** the tool executes (on Yes), so a second press on the same token returns "expired or already handled" immediately — preventing double-execution.
+3. If the user does not respond, the pending action expires (no automatic cancellation; the prompt remains but the agent run has already returned).
+
+---
+
+## Homey Tool Pattern
+
+Homey AI Chat Control uses a **meta-tool pattern**:
+
+- `search_tools` — discover which Homey tool handles a given capability
+- `use_tool` — execute the discovered tool by name
+- `get_home_structure` — read-only: zones, devices, moods
+- `get_states` — read-only: current device values
+- `get_flow_overview` — read-only: available automations
+
+The policy gate evaluates the **unprefixed** tool name (e.g. `use_tool`, not `homey_use_tool`).
+
+For `use_tool` calls, the confirmation message is built dynamically from the inner tool name (e.g. `"Execute Homey action 'set_light_bedroom'?"`).
 
 ---
 
 ## Policy Table
 
-Policies are stored in SQLite (`users.db`, table `action_policy`) and can be updated at runtime without restart.
+Policies are stored in SQLite (`users.db`, table `action_policy`) and seeded from `app/policy/default_policies.py` on every startup. Existing rows are **upserted** — changing `default_policies.py` takes effect on the next restart without manual DB edits.
 
 ### Schema
 
 ```text
 action_policy
 ├── id
-├── name              human-readable label
-├── tool_pattern      glob/regex matched against tool name, e.g. "homey_*"
-├── arg_conditions    JSON — optional conditions on args, e.g. {"capability": "alarm_*"}
+├── name              human-readable label (unique key for upsert)
+├── tool_pattern      fnmatch glob matched against unprefixed tool name, e.g. "use_tool"
+├── arg_conditions    JSON dict — optional fnmatch patterns on arg values, e.g. {"capability": "alarm_*"}
 ├── impact_level      "low" | "medium" | "high"
 ├── requires_confirm  bool
-├── confirm_message   template string shown to user, e.g. "Turn off all lights?"
-├── cooldown_seconds  min time between same action (0 = no cooldown)
+├── confirm_message   shown in the Telegram prompt (overridden dynamically for use_tool)
+├── cooldown_seconds  min time between same action (0 = no cooldown; not yet enforced)
 ├── enabled           bool
 └── created_at
 ```
 
-### Default Policies (shipped with the app)
+### Default Policies
 
-| Name | Pattern | Condition | Requires confirm |
-| --- | --- | --- | --- |
-| Whole-home lights off | `homey_device_set_capability` | zone=all, onoff=false | Yes |
-| Whole-home heating off | `homey_device_set_capability` | capability=target_temperature, zone=all | Yes |
-| Water shutoff | `homey_device_set_capability` | capability=water_* | Yes |
-| Alarm/security device | `homey_device_set_capability` | capability=alarm_* | Yes |
-| Door unlock | `homey_device_set_capability` | capability=lock_mode, value=unlocked | Yes |
-| Share info with family | `send_message` | target=other_user | Yes |
-| Trigger whole-home flow | `homey_flow_trigger` | scope=global | Yes |
-| Single light control | `homey_device_set_capability` | capability=onoff, zone=single | No |
-| Brightness / colour | `homey_device_set_capability` | capability=dim or light_* | No |
-| Read device state | `homey_device_get_state` | — | No |
-| Set reminder (self) | `set_reminder` | target=self | No |
-| Set reminder (other) | `set_reminder` | target=other_user | Yes |
-| Web search | `search_web` | — | No |
+| Name | Pattern | Requires confirm |
+| --- | --- | --- |
+| Homey use_tool | `use_tool` | No |
+| Homey search_tools (read-only) | `search_tools` | No |
 
-All default policies can be overridden or disabled via admin commands or directly in the DB.
+All other tools that start with `get_`, `list_`, or `search_` pass through without confirmation. Any other unrecognised tool defaults to requiring confirmation.
 
 ---
 
 ## Confirmation UX (Telegram)
 
-When a confirmation is required, the agent sends a message like:
+When a confirmation is required, the agent sends an inline prompt:
 
-> **Action requires confirmation**
-> I'm about to: *Turn off all lights in the house*
-> This was requested by: Kristian
+> Execute Homey action 'set_thermostat_living_room'?
 >
-> [✅ Yes, do it]  [❌ Cancel]
+> [✅ Yes]  [❌ No]
 
-The inline buttons capture the response. The token ties the button press back to the pending action.
+The token in the button payload ties the press back to the pending action. The pending action is atomically deleted on the first Yes press — any subsequent press returns "expired or already handled".
 
-If the requester is not the household admin and the action affects the whole home, the confirmation is sent to both the requester and the admin (configurable).
+---
+
+## Conversational Confirmation (Agent-level)
+
+For high-impact operations that involve many devices, the agent itself asks in chat **before** calling any tools. This is configured in `prompts/instructions.md`:
+
+- Operations affecting all devices in a zone, a floor, or the whole house
+- Arming, disarming, or triggering an alarm
+- Locking or unlocking a door
+- Any change involving 3 or more separate device actions at once
+
+Example: *"I'm going to turn off all 6 lights in the house. Should I go ahead?"*
+
+For single-device operations the agent executes immediately without announcing confirmation.
 
 ---
 
@@ -115,30 +131,10 @@ If the requester is not the household admin and the action affects the whole hom
 
 ---
 
-## Cooldowns
-
-A cooldown prevents the same action from being triggered repeatedly in a short window. Example: if the whole-home heating-off policy has a 5-minute cooldown, and someone triggers it, a second request within 5 minutes will be blocked and the user told when it can next be triggered.
-
-Cooldowns are tracked in the `agent_run_log`.
-
----
-
-## Admin Management
-
-Household admins can manage policies via agent commands:
-
-- "Show me all policies" — lists active policies and their confirm status
-- "Disable confirmation for single-room light control" — updates policy in DB
-- "Add a confirmation requirement for turning on the outdoor lights" — creates new policy
-
-Policy changes are logged to `event_log`.
-
----
-
 ## Extending Policies
 
-To add a new policy in code (for policies that must always ship with the app):
+To add a new policy that ships with the app, add an entry to `app/policy/default_policies.py`. It will be upserted on the next startup.
 
-Add an entry to `app/agent/policy_gate/default_policies.py`. Policies defined here are seeded into the DB on first run and on upgrade if missing. User-modified policies are not overwritten.
+To add a policy at runtime, update the `action_policy` table directly or via a future admin command.
 
-To add a policy at runtime, use the admin agent command or update the `action_policy` table directly.
+Policy evaluation order: confirmation-required policies first, then alphabetical by name. First matching enabled policy wins.
