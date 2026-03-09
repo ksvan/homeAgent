@@ -111,6 +111,7 @@ class Settings(BaseSettings):
     log_level: str = "INFO"
     log_format: str = "console"
     port: int = 8080
+    admin_port: int = 9090
     app_secret_key: str = ""
     agent_name: str = "Home"
     household_timezone: str = "UTC"  # e.g. Europe/Oslo — used in agent time context

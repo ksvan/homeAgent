@@ -17,6 +17,28 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 
 ---
 
+## [0.9.0] - 2026-03-09
+
+### Changed
+
+#### Docker-only runtime — dev mode removed
+
+- **`app/__main__.py`** — removed `_run_development()` (Telegram long-polling mode) and the `APP_ENV` branch. Entry point is now ~80 lines: run migrations, start two uvicorn servers (main + admin), shut down cleanly on SIGTERM.
+- **`start.sh`** — removed `dev` mode (uv subprocess runner). Script is now Docker-only: `./start.sh` builds and starts the stack, with `logs`, `stop`, and `restart` subcommands.
+- **`docs/development.md`** — updated local setup to reflect Docker-only workflow.
+
+#### Admin panel isolated to LAN-only port
+
+- **`app/config.py`** — added `admin_port: int = 9090` (`ADMIN_PORT` in `.env`).
+- **`app/__main__.py`** — admin FastAPI app now runs on `settings.admin_port` (default 9090) as a second uvicorn server in the same process. Shares in-process state (event bus, scheduler) with the main app.
+- **`app/api/server.py`** — admin router removed from `create_app()`. Port 8080 now serves only `/health` and `/webhook/telegram`.
+- **`docker-compose.yml`** — added `"9090:9090"` port binding. Port 8080 is what cloudflared proxies; port 9090 is LAN-only and never reaches the internet.
+- **`.env.example`** — documented `ADMIN_PORT=9090`.
+
+The admin panel is now reachable at `http://<lan-ip>:9090/admin`. Auth (APP_SECRET_KEY) is unchanged.
+
+---
+
 ## [0.8.0] - 2026-03-09
 
 ### Added

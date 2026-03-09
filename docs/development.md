@@ -8,9 +8,8 @@ Local setup, testing strategy, mock patterns, and database migrations.
 
 ### Prerequisites
 
-- Python 3.12+
-- [uv](https://docs.astral.sh/uv/) (`curl -LsSf https://astral.sh/uv/install.sh | sh`)
-- Docker Desktop (for running the full stack)
+- Python 3.12+ and [uv](https://docs.astral.sh/uv/) (`curl -LsSf https://astral.sh/uv/install.sh | sh`) — for running tests and migrations locally
+- Docker Desktop — for running the full stack
 - A Telegram bot token (from @BotFather)
 
 ### First run
@@ -18,17 +17,15 @@ Local setup, testing strategy, mock patterns, and database migrations.
 ```bash
 git clone <repo> homeAgent && cd homeAgent
 cp .env.example .env
-# Edit .env — minimum required: ANTHROPIC_API_KEY, TELEGRAM_BOT_TOKEN, ALLOWED_TELEGRAM_IDS
+# Edit .env — minimum required: ANTHROPIC_API_KEY, TELEGRAM_BOT_TOKEN, ALLOWED_TELEGRAM_IDS, TELEGRAM_WEBHOOK_URL
 
-uv sync                          # install all dependencies
-uv run alembic upgrade heads     # create DB schema (note: heads, plural)
-./start.sh dev                   # start in polling mode
+./start.sh          # docker compose build + up -d
+./start.sh logs     # tail logs
 ```
 
-> **Tip:** `start.sh` is a convenience wrapper. In dev mode it runs `uv run python -m app`.
-> In production it wraps `docker compose up --build -d`.
+The app runs entirely in Docker. The Cloudflare tunnel container handles the public webhook URL automatically.
 
-In `development` mode the bot uses Telegram long polling — no public URL or webhook setup required.
+> **Tip:** `uv sync` is still useful locally for running tests, migrations, and linting — but the app itself runs in Docker.
 
 ---
 
@@ -36,7 +33,7 @@ In `development` mode the bot uses Telegram long polling — no public URL or we
 
 | `APP_ENV` | LLM calls | Telegram | Homey | Rate limit |
 | --- | --- | --- | --- | --- |
-| `development` | Live (real cost) | Polling | Live (use test device) | Disabled |
+| `development` | Live (real cost) | Webhook | Live (use test device) | Disabled |
 | `test` | Mocked | Mocked | Mocked | Disabled |
 | `production` | Live | Webhook | Live | Enabled |
 
@@ -139,6 +136,8 @@ INTEGRATION_TEST_MAX_LLM_CALLS=10
 ### Running all tests
 
 ```bash
+uv sync                          # install dependencies (local, not Docker)
+
 # Unit only (fast, no credentials needed)
 uv run pytest tests/unit/
 
@@ -226,7 +225,7 @@ homeAgent/
 ├── docs/
 ├── docker-compose.yml
 ├── pyproject.toml
-├── start.sh                    # Dev/prod launcher
+├── start.sh                    # Docker launcher (up/logs/stop/restart)
 └── .env.example
 ```
 

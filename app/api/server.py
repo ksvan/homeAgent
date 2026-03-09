@@ -93,15 +93,10 @@ def create_app() -> FastAPI:
         openapi_url=None,   # suppress schema discovery
     )
 
-    from fastapi import Depends
-
     from app.api.health import router as health_router
     from app.api.webhooks import router as webhook_router
-    from app.control.api import router as admin_router
-    from app.control.auth import require_admin_auth
 
     app.include_router(health_router)
     app.include_router(webhook_router)
-    app.include_router(admin_router, dependencies=[Depends(require_admin_auth)])
 
     return app

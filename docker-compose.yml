@@ -28,9 +28,8 @@ services:
       # Allow prompt overrides without rebuilding the image
       - ./prompts:/app/prompts
     ports:
-      # Bound to LAN interfaces only — not needed from the internet (cloudflared handles that).
-      # Admin dashboard is intentionally LAN-accessible on this port.
-      - "8080:8080"
+      - "8080:8080"   # webhook endpoint (cloudflared proxies this to the internet)
+      - "9090:9090"   # admin dashboard — LAN only, not in cloudflared ingress
     healthcheck:
       test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8080/health')"]
       interval: 30s
