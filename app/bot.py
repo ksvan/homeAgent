@@ -169,7 +169,7 @@ async def handle_incoming_message(telegram_id: int, text: str) -> str | None:
     from app.channels.registry import get_channel
 
     _MAX_RETRIES = 2
-    _RETRYABLE_STATUS = {429, 500, 502, 503, 504}
+    _RETRYABLE_STATUS = {429, 500, 502, 503, 504, 529}
     channel_user_id = str(telegram_id)
     result = None
     for attempt in range(_MAX_RETRIES + 1):
