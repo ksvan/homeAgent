@@ -95,12 +95,16 @@ def _make_conversation_agent() -> Agent[AgentDeps, str]:
         return base
 
     from app.agent.tools.actions import register_action_tools
+    from app.agent.tools.calendar import register_calendar_tools
     from app.agent.tools.memory import register_memory_tools
     from app.agent.tools.reminders import register_reminder_tools
+    from app.agent.tools.scheduled_prompts import register_scheduled_prompt_tools
 
     register_reminder_tools(a)
     register_action_tools(a)
     register_memory_tools(a)
+    register_calendar_tools(a)
+    register_scheduled_prompt_tools(a)
 
     return a
 
@@ -159,7 +163,7 @@ async def run_conversation(
         agent_name=settings.agent_name,
         household_name=household_name,
         current_date=now.strftime("%A, %d %B %Y"),
-        current_time=now.strftime("%H:%M"),
+        current_time=now.strftime("%H:%M") + " (UTC" + now.strftime("%z")[:3] + ":" + now.strftime("%z")[3:] + ")",
         timezone=settings.household_timezone,
         user_profile_text=user_profile_text,
         household_profile_text=household_profile_text,

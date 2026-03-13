@@ -36,7 +36,7 @@ class Settings(BaseSettings):
     # ------------------------------------------------------------------
     # Model selection
     # ------------------------------------------------------------------
-    model_primary: str = "claude-sonnet-4-5"
+    model_primary: str = "claude-sonnet-4-6"
     model_background: str = "claude-haiku-4-5-20251001"
     model_fallback: str = "gpt-4o"
     model_background_fallback: str = "gpt-4o-mini"

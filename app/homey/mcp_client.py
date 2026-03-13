@@ -15,6 +15,12 @@ logger = logging.getLogger(__name__)
 
 _mcp_server: MCPServerStreamableHTTP | None = None
 
+# Cap MCP tool responses to prevent token budget blowout.
+# homey_get_home_structure can return 20k+ chars for large homes; capping at
+# 12,000 chars (~3,000 tokens) keeps multi-tool runs within rate limits while
+# still giving the model enough context to work with.
+_MAX_TOOL_RESULT_CHARS = 12_000
+
 # Tools included in the "simple" schema — day-to-day home control.
 # Homey AI Chat Control uses a meta-tool pattern: search_tools + use_tool for
 # all device actions, plus three read-only structural tools.
@@ -93,6 +99,10 @@ async def _policy_process_tool_call(
                 asyncio.ensure_future(
                     verify_after_write(household_id, channel_user_id, tool_name, tool_args)
                 )
+
+        # Truncate large tool results to stay within per-minute token rate limits
+        if isinstance(result, str) and len(result) > _MAX_TOOL_RESULT_CHARS:
+            result = result[:_MAX_TOOL_RESULT_CHARS] + "\n[...truncated]"
 
         return result
 

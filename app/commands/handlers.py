@@ -28,7 +28,10 @@ class _ContextStats(SlashCommand):
     help = "Show context size breakdown for the next LLM call"
 
     async def run(self, ctx: SlashCommandContext) -> str:
+        from datetime import datetime, timezone as _utc
+
         from app.agent.context import assemble_context
+        from app.config import get_settings
 
         assembled = assemble_context(ctx.user_id, ctx.household_id, ctx.raw_text)
 
@@ -47,8 +50,21 @@ class _ContextStats(SlashCommand):
         )
         approx_tokens = total_chars // 4
 
+        settings = get_settings()
+        try:
+            from zoneinfo import ZoneInfo
+            tz = ZoneInfo(settings.household_timezone)
+        except Exception:
+            tz = _utc.utc
+        now = datetime.now(tz)
+        offset = now.strftime("%z")
+        utc_offset = f"{offset[:3]}:{offset[3:]}"
+        date_str = now.strftime("%A, %d %B %Y")
+        time_str = now.strftime("%H:%M") + f" (UTC{utc_offset})"
+
         return (
             f"Context breakdown:\n\n"
+            f"  Date/time in ctx : {date_str}, {time_str}\n"
             f"  Recent messages  : {len(assembled.recent_messages)} ({msg_chars:,} chars)\n"
             f"  Summary          : {summary_chars:,} chars\n"
             f"  User profile     : {user_profile_chars:,} chars\n"

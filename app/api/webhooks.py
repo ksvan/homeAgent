@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import logging
 import secrets
 
@@ -28,5 +29,5 @@ async def telegram_webhook(
 
     data = await request.json()
     channel = request.app.state.telegram_channel
-    await channel.process_update(data)
+    asyncio.create_task(channel.process_update(data))
     return {"ok": True}

@@ -225,6 +225,61 @@ async def admin_memory() -> dict[str, Any]:
     }
 
 
+@router.get("/scheduler")
+async def admin_scheduler() -> dict[str, Any]:
+    import json as _json
+
+    from sqlmodel import select
+
+    from app.db import users_session
+    from app.models.scheduled_prompts import ScheduledPrompt
+    from app.models.tasks import Task
+    from app.scheduler.scheduled_prompts import recurrence_label
+
+    with users_session() as session:
+        tasks = session.exec(
+            select(Task).where(Task.status == "ACTIVE").order_by(Task.created_at)
+        ).all()
+        sps = session.exec(
+            select(ScheduledPrompt)
+            .where(ScheduledPrompt.enabled == True)  # noqa: E712
+            .order_by(ScheduledPrompt.created_at)
+        ).all()
+
+    reminders = []
+    actions = []
+    for t in tasks:
+        ctx = _json.loads(t.context)
+        if "reminder_text" in ctx:
+            reminders.append({
+                "id": t.id,
+                "user_id": t.user_id,
+                "text": ctx.get("reminder_text", ""),
+                "scheduled_at": ctx.get("scheduled_at", ""),
+            })
+        elif "action_tool" in ctx:
+            actions.append({
+                "id": t.id,
+                "user_id": t.user_id,
+                "description": ctx.get("action_description", t.title),
+                "tool": ctx.get("action_tool", ""),
+                "scheduled_at": ctx.get("scheduled_at", ""),
+            })
+
+    scheduled_prompts = [
+        {
+            "id": sp.id,
+            "user_id": sp.user_id,
+            "name": sp.name,
+            "recurrence": recurrence_label(sp.recurrence, sp.time_of_day),
+            "prompt": sp.prompt[:120] + ("…" if len(sp.prompt) > 120 else ""),
+        }
+        for sp in sps
+    ]
+
+    return {"reminders": reminders, "actions": actions, "scheduled_prompts": scheduled_prompts}
+
+
 # ---------------------------------------------------------------------------
 # Embedded admin UI
 # ---------------------------------------------------------------------------
@@ -346,6 +401,7 @@ header { background: var(--surface); border-bottom: 1px solid var(--border); pad
 <div class="tab-bar">
   <button class="tab active" data-tab="live">Live</button>
   <button class="tab" data-tab="details">Details</button>
+  <button class="tab" data-tab="scheduler">Scheduler</button>
 </div>
 
 <div id="tab-live" class="tab-panel active">
@@ -414,6 +470,35 @@ header { background: var(--surface); border-bottom: 1px solid var(--border); pad
     <section class="details-section">
       <h3>Conversation Summaries</h3>
       <div id="conv-summaries"><span style="color:var(--dim)">—</span></div>
+    </section>
+  </div>
+</div>
+
+<div id="tab-scheduler" class="tab-panel">
+  <div class="details-body">
+    <div class="details-toolbar">
+      <button class="details-btn" id="refresh-scheduler">&#8635; Refresh</button>
+    </div>
+    <section class="details-section">
+      <h3>Reminders</h3>
+      <table class="mem-table">
+        <thead><tr><th>Due</th><th>Text</th><th style="width:80px">User</th><th style="width:72px">ID</th></tr></thead>
+        <tbody id="sched-reminders"><tr><td colspan="4" style="color:var(--dim);padding:12px 10px">—</td></tr></tbody>
+      </table>
+    </section>
+    <section class="details-section">
+      <h3>Device Actions</h3>
+      <table class="mem-table">
+        <thead><tr><th>Due</th><th>Description</th><th>Tool</th><th style="width:80px">User</th><th style="width:72px">ID</th></tr></thead>
+        <tbody id="sched-actions"><tr><td colspan="5" style="color:var(--dim);padding:12px 10px">—</td></tr></tbody>
+      </table>
+    </section>
+    <section class="details-section">
+      <h3>Scheduled Prompts</h3>
+      <table class="mem-table">
+        <thead><tr><th style="width:180px">Name</th><th style="width:160px">Schedule</th><th>Prompt</th><th style="width:72px">ID</th></tr></thead>
+        <tbody id="sched-prompts"><tr><td colspan="4" style="color:var(--dim);padding:12px 10px">—</td></tr></tbody>
+      </table>
     </section>
   </div>
 </div>
@@ -611,6 +696,7 @@ document.querySelectorAll('.tab').forEach(btn => {
     btn.classList.add('active');
     document.getElementById('tab-' + btn.dataset.tab).classList.add('active');
     if (btn.dataset.tab === 'details') loadMemory();
+    if (btn.dataset.tab === 'scheduler') loadScheduler();
   });
 });
 
@@ -667,6 +753,44 @@ async function loadMemory() {
 }
 
 document.getElementById('refresh-memory').addEventListener('click', loadMemory);
+
+// Scheduler tab loader
+async function loadScheduler() {
+  try {
+    const r = await fetch('/admin/scheduler' + _authQ);
+    if (!r.ok) return;
+    const d = await r.json();
+
+    document.getElementById('sched-reminders').innerHTML = d.reminders.length
+      ? d.reminders.map(r =>
+          '<tr><td class="time-tag">' + esc(r.scheduled_at) + '</td><td>' + esc(r.text) +
+          '</td><td class="mem-id">' + esc(r.user_id.slice(0,8)) +
+          '</td><td class="mem-id">' + esc(r.id.slice(0,8)) + '</td></tr>'
+        ).join('')
+      : '<tr><td colspan="4" style="color:var(--dim);padding:12px 10px">No active reminders</td></tr>';
+
+    document.getElementById('sched-actions').innerHTML = d.actions.length
+      ? d.actions.map(a =>
+          '<tr><td class="time-tag">' + esc(a.scheduled_at) + '</td><td>' + esc(a.description) +
+          '</td><td class="mem-id">' + esc(a.tool) +
+          '</td><td class="mem-id">' + esc(a.user_id.slice(0,8)) +
+          '</td><td class="mem-id">' + esc(a.id.slice(0,8)) + '</td></tr>'
+        ).join('')
+      : '<tr><td colspan="5" style="color:var(--dim);padding:12px 10px">No active actions</td></tr>';
+
+    const sp = d.scheduled_prompts || [];
+    document.getElementById('sched-prompts').innerHTML = sp.length
+      ? sp.map(p =>
+          '<tr><td>' + esc(p.name) + '</td>' +
+          '<td class="time-tag">' + esc(p.recurrence) + '</td>' +
+          '<td style="color:var(--dim)">' + esc(p.prompt) + '</td>' +
+          '<td class="mem-id">' + esc(p.id.slice(0,8)) + '</td></tr>'
+        ).join('')
+      : '<tr><td colspan="4" style="color:var(--dim);padding:12px 10px">No scheduled prompts</td></tr>';
+  } catch(e) {}
+}
+
+document.getElementById('refresh-scheduler').addEventListener('click', loadScheduler);
 
 fetchStats();
 setInterval(fetchStats, 10000);

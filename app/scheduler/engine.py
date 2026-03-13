@@ -17,6 +17,7 @@ async def start_scheduler() -> None:
         return
     _scheduler = AsyncScheduler()
     await _scheduler.__aenter__()
+    await _scheduler.start_in_background()
     logger.info("Scheduler started")
 
 

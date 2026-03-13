@@ -1,6 +1,6 @@
-<svg xmlns="http://www.w3.org/2000/svg" width="1720" height="1180" viewBox="0 0 1720 1180" role="img" aria-labelledby="title desc">
+<svg xmlns="http://www.w3.org/2000/svg" width="1740" height="1180" viewBox="0 0 1740 1180" role="img" aria-labelledby="title desc">
   <title id="title">Main Path: Startup and One Message</title>
-  <desc id="desc">Primary production path from process start through initialization and processing one Telegram message.</desc>
+  <desc id="desc">Primary deployed path from start.sh launch through initialization and one Telegram message run.</desc>
   <defs>
     <style>
       .bg{fill:#f8fafc}.sec{fill:#eef2ff;stroke:#475569;stroke-width:1.4;rx:12}.box{fill:#fff;stroke:#0f172a;stroke-width:1.6;rx:10}.db{fill:#ecfeff;stroke:#155e75;stroke-width:1.5;rx:10}.dec{fill:#fef3c7;stroke:#92400e;stroke-width:1.5}
@@ -11,82 +11,80 @@
     <marker id="m2" markerWidth="10" markerHeight="10" refX="9" refY="5" orient="auto" markerUnits="strokeWidth"><path d="M0,0 L10,5 L0,10 z" fill="#0f766e"/></marker>
   </defs>
 
-  <rect class="bg" x="0" y="0" width="1720" height="1180"/>
-  <text class="title" x="30" y="54">Main Code Path: Startup -> Initialize -> Process One User Message</text>
+  <rect class="bg" x="0" y="0" width="1740" height="1180"/>
+  <text class="title" x="30" y="54">Main Code Path: start.sh -> Initialization -> One User Message</text>
 
-  <rect class="sec" x="30" y="90" width="760" height="500"/>
-  <text class="h" x="50" y="118">1) Process Start + Startup Initialization</text>
+  <rect class="sec" x="30" y="90" width="780" height="500"/>
+  <text class="h" x="50" y="118">1) Startup Path (Current Deployment)</text>
 
-  <rect class="box" x="60" y="150" width="300" height="72"/>
-  <text class="t" x="86" y="180">`python -m app`</text><text class="t" x="86" y="200">app/__main__.py::main()</text>
+  <rect class="box" x="60" y="150" width="330" height="80"/>
+  <text class="t" x="86" y="182">`bash start.sh up`</text><text class="t" x="86" y="204">`docker compose build && up -d`</text>
 
-  <rect class="box" x="410" y="150" width="350" height="72"/>
-  <text class="t" x="435" y="180">_run_migrations()</text><text class="t" x="435" y="200">Alembic `upgrade heads`</text>
+  <rect class="box" x="430" y="150" width="350" height="80"/>
+  <text class="t" x="455" y="182">homeagent container starts</text><text class="t" x="455" y="204">entry: `python -m app`</text>
 
-  <rect class="box" x="410" y="260" width="350" height="90"/>
-  <text class="t" x="435" y="290">APP_ENV=production -> _run_production()</text>
-  <text class="t" x="435" y="312">create_app() (app/api/server.py)</text>
-  <text class="t" x="435" y="334">uvicorn serves FastAPI</text>
+  <rect class="box" x="430" y="260" width="350" height="88"/>
+  <text class="t" x="455" y="290">`app/__main__.py`</text>
+  <text class="t" x="455" y="312">_run_migrations() -> Alembic upgrade heads</text>
+  <text class="t" x="455" y="334">_run() starts main + admin uvicorn servers</text>
 
-  <rect class="box" x="60" y="260" width="320" height="90"/>
-  <text class="t" x="86" y="290">FastAPI lifespan `_lifespan` startup:</text>
-  <text class="t" x="86" y="312">logging + policy seed + MCP start (Homey+Prom)</text>
-  <text class="t" x="86" y="334">reload_agent + scheduler + restore reminders + cleanup jobs</text>
+  <rect class="box" x="60" y="260" width="330" height="88"/>
+  <text class="t" x="86" y="290">FastAPI lifespan startup:</text>
+  <text class="t" x="86" y="312">configure logging + seed policies + start MCP clients</text>
+  <text class="t" x="86" y="334">start scheduler + restore tasks + cleanup jobs</text>
 
-  <rect class="box" x="60" y="390" width="700" height="160"/>
-  <text class="t" x="86" y="420">Channel init in lifespan:</text>
-  <text class="t" x="86" y="442">create TelegramChannel(on_message=handle_incoming_message)</text>
-  <text class="t" x="86" y="464">await channel.initialize(); set channel registry; store in app.state.telegram_channel</text>
-  <text class="t" x="86" y="486">system is now ready to receive webhook updates</text>
+  <rect class="box" x="60" y="385" width="720" height="165"/>
+  <text class="t" x="86" y="415">Initialize webhook channel:</text>
+  <text class="t" x="86" y="437">TelegramChannel(on_message=handle_incoming_message)</text>
+  <text class="t" x="86" y="459">await channel.initialize(); request.app.state.telegram_channel set</text>
+  <text class="t" x="86" y="481">admin sidecar serves `/admin*` on admin_port in same process</text>
+  <text class="t" x="86" y="503">service now ready for Telegram webhook updates</text>
 
-  <path class="a" d="M360 186 L410 186"/><path class="a" d="M585 222 L585 260"/><path class="a" d="M410 305 L380 305"/><path class="a" d="M220 350 L220 390"/><path class="a" d="M585 350 L585 390"/>
+  <path class="a" d="M390 190 L430 190"/><path class="a" d="M605 230 L605 260"/><path class="a" d="M430 304 L390 304"/><path class="a" d="M225 348 L225 385"/><path class="a" d="M605 348 L605 385"/>
 
-  <rect class="sec" x="820" y="90" width="870" height="1030"/>
-  <text class="h" x="840" y="118">2) One Incoming Telegram Message (Webhook Path)</text>
+  <rect class="sec" x="840" y="90" width="870" height="1010"/>
+  <text class="h" x="860" y="118">2) One Incoming Telegram Message</text>
 
-  <rect class="box" x="850" y="150" width="320" height="70"/>
-  <text class="t" x="874" y="180">Telegram -> POST `/webhook/telegram`</text><text class="t" x="874" y="200">(with secret header)</text>
+  <rect class="box" x="870" y="150" width="330" height="72"/>
+  <text class="t" x="894" y="180">Telegram sends webhook update</text><text class="t" x="894" y="200">POST `/webhook/telegram` + secret header</text>
 
-  <rect class="box" x="1210" y="150" width="450" height="70"/>
-  <text class="t" x="1235" y="180">app/api/webhooks.py::telegram_webhook()</text><text class="t" x="1235" y="200">validate secret -> channel.process_update(json)</text>
+  <rect class="box" x="1240" y="150" width="440" height="72"/>
+  <text class="t" x="1265" y="180">webhooks.telegram_webhook()</text><text class="t" x="1265" y="200">compare_digest secret, then process_update()</text>
 
-  <rect class="box" x="1210" y="255" width="450" height="70"/>
-  <text class="t" x="1235" y="285">TelegramChannel.process_update() -> _handle_message()</text><text class="t" x="1235" y="305">allowlist check -> on_message callback</text>
+  <rect class="box" x="1240" y="255" width="440" height="72"/>
+  <text class="t" x="1265" y="285">TelegramChannel handlers</text><text class="t" x="1265" y="305">TEXT or COMMAND -> on_message callback</text>
 
-  <rect class="box" x="1210" y="360" width="450" height="90"/>
-  <text class="t" x="1235" y="390">app/bot.py::handle_incoming_message()</text>
-  <text class="t" x="1235" y="412">_get_or_create_user() -> assemble_context()</text>
-  <text class="t" x="1235" y="434">run_conversation(...deps...)</text>
+  <rect class="box" x="1240" y="360" width="440" height="96"/>
+  <text class="t" x="1265" y="390">bot.handle_incoming_message()</text>
+  <text class="t" x="1265" y="412">allowlist/rate limit + user lookup/create</text>
+  <text class="t" x="1265" y="434">if slash command: commands.dispatcher path</text>
 
-  <polygon class="dec" points="1435,480 1580,560 1435,640 1290,560"/>
-  <text class="t" x="1382" y="556">allowed +</text><text class="t" x="1370" y="576">not rate-limited?</text>
+  <polygon class="dec" points="1460,486 1605,566 1460,646 1315,566"/>
+  <text class="t" x="1398" y="562">slash command</text><text class="t" x="1420" y="582">handled?</text>
 
-  <rect class="box" x="1110" y="530" width="150" height="60"/>
-  <text class="t" x="1140" y="565">drop/deny</text>
+  <rect class="box" x="1120" y="536" width="160" height="60"/>
+  <text class="t" x="1148" y="570">command reply</text>
 
-  <rect class="box" x="1210" y="680" width="450" height="90"/>
-  <text class="t" x="1235" y="710">Agent run details (app/agent/agent.py):</text>
-  <text class="t" x="1235" y="732">LLMRouter + prompts + toolsets (Homey/Prom MCP)</text>
-  <text class="t" x="1235" y="754">policy-gated Homey calls, optional confirmations</text>
+  <rect class="box" x="1240" y="686" width="440" height="130"/>
+  <text class="t" x="1265" y="716">LLM run path:</text>
+  <text class="t" x="1265" y="738">assemble_context -> run_conversation(run_id,...)</text>
+  <text class="t" x="1265" y="760">LLM router + prompts + Homey/Prom/Tools MCP</text>
+  <text class="t" x="1265" y="782">Homey writes may require pending-action confirmation</text>
+  <text class="t" x="1265" y="804">returns AgentRunResult(output,new_messages)</text>
 
-  <rect class="box" x="1210" y="800" width="450" height="90"/>
-  <text class="t" x="1235" y="830">Post-run persistence:</text>
-  <text class="t" x="1235" y="852">save_message_pair(); update_snapshots_from_tool_calls()</text>
-  <text class="t" x="1235" y="874">return response text</text>
+  <rect class="box" x="1240" y="846" width="440" height="120"/>
+  <text class="t" x="1265" y="876">Post-run:</text>
+  <text class="t" x="1265" y="898">emit run events + save_message_pair + update snapshots</text>
+  <text class="t" x="1265" y="920">schedule async memory extraction/summarization</text>
+  <text class="t" x="1265" y="942">send reply text back via Telegram SDK</text>
 
-  <rect class="box" x="850" y="800" width="320" height="90"/>
-  <text class="t" x="874" y="830">TelegramChannel sends reply:</text>
-  <text class="t" x="874" y="852">update.message.reply_text(response)</text>
-  <text class="t" x="874" y="874">turn complete</text>
+  <rect class="db" x="870" y="996" width="810" height="96"/>
+  <text class="t" x="894" y="1026">State touched in this turn: users.db, memory.db, cache.db, sqlite-vec, MCP backends</text>
+  <text class="t" x="894" y="1048">Admin stream observes run/cmd/job/background events in near real time</text>
 
-  <rect class="db" x="850" y="930" width="810" height="160"/>
-  <text class="h" x="872" y="958">Support state loaded/updated during the turn</text>
-  <text class="t" x="874" y="984">users.db: users/households/tasks/policies | memory.db: profiles/history/episodic | cache.db: snapshots/events/runs/pending</text>
-  <text class="t" x="874" y="1008">MCPs: Homey + Prometheus | Background tasks: extraction/summarization scheduled asynchronously after response</text>
+  <path class="a" d="M1200 186 L1240 186"/><path class="a" d="M1460 222 L1460 255"/><path class="a" d="M1460 327 L1460 360"/><path class="a" d="M1460 456 L1460 486"/>
+  <path class="a" d="M1315 566 L1280 566"/><path class="a" d="M1460 646 L1460 686"/><path class="a" d="M1460 816 L1460 846"/>
+  <path class="a2" d="M1240 906 L1170 1026"/><path class="a2" d="M1240 930 L1170 1048"/>
 
-  <path class="a" d="M1170 186 L1210 186"/><path class="a" d="M1435 220 L1435 255"/><path class="a" d="M1435 325 L1435 360"/><path class="a" d="M1435 450 L1435 480"/>
-  <path class="a" d="M1290 560 L1260 560"/><path class="a" d="M1435 640 L1435 680"/><path class="a" d="M1435 770 L1435 800"/><path class="a" d="M1210 845 L1170 845"/>
-  <path class="a2" d="M1210 730 L1170 980"/><path class="a2" d="M1210 845 L1170 1008"/>
-
-  <text class="s" x="30" y="1148">Focuses on primary production path. Dev differs mainly at launch mode (polling + local admin server).</text>
+  <text class="s" x="30" y="1152">Reflects current launcher and webhook runtime; previous dev/prod split in start.sh has been removed.</text>
 </svg>

@@ -161,25 +161,59 @@ async def handle_incoming_message(telegram_id: int, text: str) -> str | None:
         run_id=run_id,
     )
 
-    try:
-        result = await run_conversation(
-            text,
-            user_name=user.name,
-            household_name=user.household_name,
-            message_history=ctx.recent_messages,
-            user_profile_text=ctx.user_profile_text,
-            household_profile_text=ctx.household_profile_text,
-            conversation_summary=ctx.conversation_summary,
-            relevant_memories=ctx.relevant_memories,
-            user_id=user.id,
-            household_id=user.household_id,
-            channel_user_id=str(telegram_id),
-            run_id=run_id,
-        )
-    except Exception:
-        duration_ms = int((monotonic() - t_start) * 1000)
-        logger.exception("Agent run failed for telegram_id=%d", telegram_id)
-        emit("run.error", {"error": "Agent run failed", "duration_ms": duration_ms}, run_id=run_id)
+    from pydantic_ai.exceptions import ModelHTTPError
+
+    from app.channels.registry import get_channel
+
+    _MAX_RETRIES = 2
+    _BACKOFF_SECS = [5, 15]
+    channel_user_id = str(telegram_id)
+    result = None
+    for attempt in range(_MAX_RETRIES + 1):
+        try:
+            result = await run_conversation(
+                text,
+                user_name=user.name,
+                household_name=user.household_name,
+                message_history=ctx.recent_messages,
+                user_profile_text=ctx.user_profile_text,
+                household_profile_text=ctx.household_profile_text,
+                conversation_summary=ctx.conversation_summary,
+                relevant_memories=ctx.relevant_memories,
+                user_id=user.id,
+                household_id=user.household_id,
+                channel_user_id=channel_user_id,
+                run_id=run_id,
+            )
+            break
+        except ModelHTTPError as exc:
+            if exc.status_code == 429 and attempt < _MAX_RETRIES:
+                logger.warning(
+                    "Rate limited (429) on attempt %d for telegram_id=%d — retrying in %ds",
+                    attempt + 1,
+                    telegram_id,
+                    _BACKOFF_SECS[attempt],
+                )
+                if attempt == 0:
+                    ch = get_channel()
+                    if ch:
+                        try:
+                            await ch.send_message(channel_user_id, "One moment, I'm being rate limited — retrying shortly.")
+                        except Exception:
+                            pass
+                await asyncio.sleep(_BACKOFF_SECS[attempt])
+                continue
+            duration_ms = int((monotonic() - t_start) * 1000)
+            logger.exception("Agent run failed for telegram_id=%d", telegram_id)
+            emit("run.error", {"error": "Agent run failed", "duration_ms": duration_ms}, run_id=run_id)
+            return "Sorry, something went wrong. Please try again in a moment."
+        except Exception:
+            duration_ms = int((monotonic() - t_start) * 1000)
+            logger.exception("Agent run failed for telegram_id=%d", telegram_id)
+            emit("run.error", {"error": "Agent run failed", "duration_ms": duration_ms}, run_id=run_id)
+            return "Sorry, something went wrong. Please try again in a moment."
+
+    if result is None:
         return "Sorry, something went wrong. Please try again in a moment."
 
     duration_ms = int((monotonic() - t_start) * 1000)

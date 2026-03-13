@@ -6,6 +6,7 @@
 #   ./start.sh logs      # tail Docker Compose logs
 #   ./start.sh stop      # stop Docker Compose stack
 #   ./start.sh restart   # rebuild and restart Docker Compose stack
+#   ./start.sh clean     # prune dangling images and volumes (frees disk space)
 
 set -euo pipefail
 
@@ -49,8 +50,15 @@ case "$MODE" in
     echo "Restarted. Follow logs with: ./start.sh logs"
     ;;
 
+  clean)
+    echo "Pruning dangling Docker images and volumes..."
+    docker image prune -f
+    docker volume prune -f
+    echo "Done."
+    ;;
+
   *)
-    echo "Usage: $0 [up|logs|stop|restart]"
+    echo "Usage: $0 [up|logs|stop|restart|clean]"
     exit 1
     ;;
 esac

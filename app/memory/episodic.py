@@ -9,7 +9,7 @@ from typing import Generator
 
 from sqlmodel import col, select
 
-from app.db import EMBEDDING_DIM, memory_engine, memory_session
+from app.db import EMBEDDING_DIM, is_vec_available, memory_engine, memory_session
 from app.models.memory import EpisodicMemory
 
 logger = logging.getLogger(__name__)
@@ -138,7 +138,7 @@ def store_memory(
     if contains_pii(content):
         return ""
 
-    embedding = _get_embedding(content)
+    embedding = _get_embedding(content) if is_vec_available() else None
 
     # Dedup: skip insert if a sufficiently similar memory already exists in scope
     if embedding is not None:
@@ -217,12 +217,12 @@ def search_memories(
     Updates last_used_at on retrieved memories.
     Falls back to recency-based retrieval when embeddings aren't available.
     """
-    embedding = _get_embedding(query)
-
-    if embedding is not None:
-        texts = _vec_search(household_id, user_id, embedding, limit)
-        if texts:
-            return texts
+    if is_vec_available():
+        embedding = _get_embedding(query)
+        if embedding is not None:
+            texts = _vec_search(household_id, user_id, embedding, limit)
+            if texts:
+                return texts
 
     return _recency_fallback(household_id, user_id, limit)
 

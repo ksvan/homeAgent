@@ -1,71 +1,110 @@
-<svg xmlns="http://www.w3.org/2000/svg" width="1500" height="980" viewBox="0 0 1500 980" role="img" aria-labelledby="title desc">
+<svg xmlns="http://www.w3.org/2000/svg" width="1600" height="1040" viewBox="0 0 1600 1040" role="img" aria-labelledby="title desc">
   <title id="title">HomeAgent High-Level Architecture</title>
-  <desc id="desc">High-level architecture with API, agent runtime, tool layer, memory, scheduler and control plane.</desc>
+  <desc id="desc">High-level runtime view of ingress, agent orchestration, model and tool layers, persistence, scheduler, admin plane, and external integrations.</desc>
   <defs>
     <style>
-      .bg{fill:#f8fafc}.panel{fill:#fff;stroke:#0f172a;stroke-width:2;rx:12}.sub{fill:#eef2ff;stroke:#334155;stroke-width:1.5;rx:10}
-      .title{font:700 28px 'Segoe UI',Arial,sans-serif;fill:#0f172a}.h{font:700 18px 'Segoe UI',Arial,sans-serif;fill:#0f172a}
-      .t{font:14px 'Segoe UI',Arial,sans-serif;fill:#1e293b}.s{font:12px 'Segoe UI',Arial,sans-serif;fill:#334155}
-      .a{stroke:#1d4ed8;stroke-width:2.4;fill:none;marker-end:url(#m)}.a2{stroke:#0f766e;stroke-width:2.2;fill:none;marker-end:url(#m2)}
+      .bg{fill:#f8fafc}
+      .panel{fill:#fff;stroke:#0f172a;stroke-width:2;rx:14}
+      .sub{fill:#eef2ff;stroke:#334155;stroke-width:1.4;rx:10}
+      .ext{fill:#ecfeff;stroke:#155e75;stroke-width:1.4;rx:10}
+      .title{font:700 30px 'Segoe UI',Arial,sans-serif;fill:#0f172a}
+      .h{font:700 19px 'Segoe UI',Arial,sans-serif;fill:#0f172a}
+      .t{font:14px 'Segoe UI',Arial,sans-serif;fill:#1e293b}
+      .s{font:12px 'Segoe UI',Arial,sans-serif;fill:#334155}
+      .a{stroke:#1d4ed8;stroke-width:2.3;fill:none;marker-end:url(#m)}
+      .a2{stroke:#0f766e;stroke-width:2.1;fill:none;marker-end:url(#m2)}
     </style>
-    <marker id="m" markerWidth="10" markerHeight="10" refX="9" refY="5" orient="auto" markerUnits="strokeWidth"><path d="M0,0 L10,5 L0,10 z" fill="#1d4ed8"/></marker>
-    <marker id="m2" markerWidth="10" markerHeight="10" refX="9" refY="5" orient="auto" markerUnits="strokeWidth"><path d="M0,0 L10,5 L0,10 z" fill="#0f766e"/></marker>
+    <marker id="m" markerWidth="10" markerHeight="10" refX="9" refY="5" orient="auto" markerUnits="strokeWidth">
+      <path d="M0,0 L10,5 L0,10 z" fill="#1d4ed8"/>
+    </marker>
+    <marker id="m2" markerWidth="10" markerHeight="10" refX="9" refY="5" orient="auto" markerUnits="strokeWidth">
+      <path d="M0,0 L10,5 L0,10 z" fill="#0f766e"/>
+    </marker>
   </defs>
 
-  <rect class="bg" x="0" y="0" width="1500" height="980"/>
-  <text class="title" x="36" y="52">HomeAgent Architecture (High-Level)</text>
+  <rect class="bg" x="0" y="0" width="1600" height="1040"/>
+  <text class="title" x="38" y="56">HomeAgent Architecture (High-Level)</text>
 
-  <rect class="panel" x="60" y="90" width="1380" height="120"/>
-  <text class="h" x="84" y="125">Ingress + Interfaces</text>
-  <rect class="sub" x="84" y="142" width="220" height="46"/><text class="t" x="146" y="171">Telegram Users</text>
-  <rect class="sub" x="330" y="142" width="260" height="46"/><text class="t" x="402" y="171">FastAPI (`/webhook`, `/health`)</text>
-  <rect class="sub" x="616" y="142" width="260" height="46"/><text class="t" x="679" y="171">Admin UI (`/admin`, SSE)</text>
-  <rect class="sub" x="902" y="142" width="240" height="46"/><text class="t" x="962" y="171">WhatsApp / Voice (future)</text>
+  <rect class="panel" x="70" y="92" width="1460" height="170"/>
+  <text class="h" x="94" y="128">Interfaces + Delivery</text>
+  <rect class="sub" x="94" y="152" width="240" height="58"/>
+  <text class="t" x="163" y="186">Telegram Users</text>
+  <rect class="sub" x="364" y="152" width="330" height="58"/>
+  <text class="t" x="421" y="186">FastAPI Webhook (`/webhook`, `/health`)</text>
+  <rect class="sub" x="724" y="152" width="300" height="58"/>
+  <text class="t" x="805" y="186">Agent Replies + Callbacks</text>
+  <rect class="sub" x="1054" y="152" width="250" height="58"/>
+  <text class="t" x="1108" y="186">Admin API (`/admin`)</text>
+  <rect class="sub" x="1334" y="152" width="170" height="58"/>
+  <text class="t" x="1368" y="186">SSE Stream</text>
 
-  <rect class="panel" x="400" y="250" width="700" height="120"/>
-  <text class="h" x="600" y="285">Agent Runtime</text>
-  <text class="t" x="430" y="314">Message dispatcher -> context assembly -> prompt/deps -> LLM/tool execution -> response</text>
-  <text class="t" x="430" y="338">Policy-gated Homey actions + callback confirmations + post-write verification</text>
+  <rect class="panel" x="390" y="302" width="820" height="150"/>
+  <text class="h" x="667" y="338">Agent Runtime (PydanticAI)</text>
+  <text class="t" x="424" y="372">dispatch, slash-command handling, context assembly, LLM routing, tool calls, policy checks, confirmations</text>
+  <text class="t" x="424" y="398">post-run persistence, run/event logging, memory extraction, async summarization, scheduled prompt execution</text>
 
-  <rect class="panel" x="70" y="430" width="300" height="300"/>
-  <text class="h" x="135" y="463">LLM Layer</text>
-  <text class="t" x="92" y="500">LLM Router (`app/agent/llm_router.py`)</text>
-  <text class="t" x="92" y="530">- Claude Sonnet/Haiku</text>
-  <text class="t" x="92" y="555">- OpenAI GPT + embeddings</text>
-  <text class="t" x="92" y="580">- Task-based model selection</text>
+  <rect class="panel" x="70" y="512" width="330" height="290"/>
+  <text class="h" x="162" y="548">Model Layer</text>
+  <text class="t" x="94" y="586">LLM Router (`app/agent/llm_router.py`)</text>
+  <text class="t" x="94" y="614">Anthropic Claude (chat + utility)</text>
+  <text class="t" x="94" y="642">OpenAI chat models</text>
+  <text class="t" x="94" y="670">OpenAI embeddings for episodic recall</text>
 
-  <rect class="panel" x="410" y="430" width="340" height="300"/>
-  <text class="h" x="498" y="463">Tool + Policy Layer</text>
-  <text class="t" x="432" y="500">- Homey MCP (simple schema tools)</text>
-  <text class="t" x="432" y="525">- Prometheus MCP (read-only)</text>
-  <text class="t" x="432" y="550">- Policy gate + pending confirmations</text>
-  <text class="t" x="432" y="575">- Reminder/action/memory tools</text>
-  <text class="t" x="432" y="600">- Optional bash/python/search/scrape</text>
+  <rect class="panel" x="430" y="512" width="360" height="290"/>
+  <text class="h" x="533" y="548">Toolset Layer</text>
+  <text class="t" x="454" y="586">Homey MCP (simple schema)</text>
+  <text class="t" x="454" y="614">Prometheus MCP</text>
+  <text class="t" x="454" y="642">Tools MCP</text>
+  <text class="t" x="454" y="670">Built-in reminders, actions, memory</text>
+  <text class="t" x="454" y="698">Calendar tools (ICS add/list/query/remove)</text>
+  <text class="t" x="454" y="726">Scheduled prompt tools + confirmation flow</text>
 
-  <rect class="panel" x="790" y="430" width="300" height="300"/>
-  <text class="h" x="855" y="463">Data + Memory</text>
-  <text class="t" x="812" y="500">users.db (users, tasks, policies)</text>
-  <text class="t" x="812" y="525">memory.db (profiles, convo, episodic)</text>
-  <text class="t" x="812" y="550">cache.db (events, runs, snapshots)</text>
-  <text class="t" x="812" y="575">sqlite-vec index (semantic recall)</text>
+  <rect class="panel" x="820" y="512" width="350" height="290"/>
+  <text class="h" x="917" y="548">Data + Memory</text>
+  <text class="t" x="844" y="586">`users.db` users, tasks, policies</text>
+  <text class="t" x="844" y="614">`users.db` calendars, scheduled prompts</text>
+  <text class="t" x="844" y="642">`memory.db` profiles, conversation, episodic</text>
+  <text class="t" x="844" y="670">`cache.db` snapshots, events, runs, pending</text>
+  <text class="t" x="844" y="698">`sqlite-vec` episodic vector index</text>
 
-  <rect class="panel" x="1130" y="430" width="300" height="300"/>
-  <text class="h" x="1206" y="463">Background Subsystems</text>
-  <text class="t" x="1152" y="500">APScheduler (reminders/cleanup)</text>
-  <text class="t" x="1152" y="525">Memory extraction + summarization</text>
-  <text class="t" x="1152" y="550">Control plane event bus (SSE)</text>
-  <text class="t" x="1152" y="575">Home profile refresh + cache upkeep</text>
+  <rect class="panel" x="1200" y="512" width="330" height="290"/>
+  <text class="h" x="1288" y="548">Background + Ops</text>
+  <text class="t" x="1224" y="586">APScheduler restore reminders/actions</text>
+  <text class="t" x="1224" y="614">Restore scheduled prompts on startup</text>
+  <text class="t" x="1224" y="642">Cleanup jobs for logs, memories, tasks</text>
+  <text class="t" x="1224" y="670">Control plane, stats, memory, scheduler</text>
+  <text class="t" x="1224" y="698">Live event bus for admin dashboard</text>
 
-  <path class="a" d="M304 165 L330 165"/>
-  <path class="a" d="M590 165 L680 165"/>
-  <path class="a" d="M460 188 L740 250"/>
-  <path class="a" d="M750 370 L220 430"/>
-  <path class="a" d="M750 370 L580 430"/>
-  <path class="a" d="M750 370 L940 430"/>
-  <path class="a" d="M750 370 L1280 430"/>
-  <path class="a2" d="M580 730 L940 730"/>
-  <path class="a2" d="M1280 730 L940 730"/>
-  <path class="a2" d="M1280 660 L746 660"/>
+  <rect class="panel" x="70" y="842" width="1460" height="140"/>
+  <text class="h" x="94" y="878">External Systems</text>
+  <rect class="ext" x="94" y="900" width="240" height="50"/>
+  <text class="t" x="164" y="931">Telegram Bot API</text>
+  <rect class="ext" x="374" y="900" width="240" height="50"/>
+  <text class="t" x="454" y="931">Homey MCP Server</text>
+  <rect class="ext" x="654" y="900" width="240" height="50"/>
+  <text class="t" x="706" y="931">Prometheus MCP Server</text>
+  <rect class="ext" x="934" y="900" width="240" height="50"/>
+  <text class="t" x="999" y="931">Tools MCP Server</text>
+  <rect class="ext" x="1214" y="900" width="290" height="50"/>
+  <text class="t" x="1270" y="931">Remote ICS Calendar Feeds</text>
 
-  <text class="s" x="36" y="950">Updated export aligned to current app + docs architecture flow.</text>
+  <path class="a" d="M334 181 L364 181"/>
+  <path class="a" d="M694 181 L724 181"/>
+  <path class="a" d="M1024 181 L1054 181"/>
+  <path class="a" d="M1304 181 L1334 181"/>
+  <path class="a" d="M874 210 L800 302"/>
+  <path class="a" d="M800 452 L235 512"/>
+  <path class="a" d="M800 452 L610 512"/>
+  <path class="a" d="M800 452 L995 512"/>
+  <path class="a" d="M800 452 L1365 512"/>
+  <path class="a" d="M610 802 L995 802"/>
+  <path class="a" d="M1365 802 L995 802"/>
+
+  <path class="a2" d="M214 900 L214 210"/>
+  <path class="a2" d="M494 900 L494 802"/>
+  <path class="a2" d="M774 900 L774 802"/>
+  <path class="a2" d="M1054 900 L610 802"/>
+  <path class="a2" d="M1359 900 L610 802"/>
+
+  <text class="s" x="38" y="1012">Updated for current code paths, including calendar tools and recurring scheduled prompts, with expanded spacing to prevent overlaps.</text>
 </svg>

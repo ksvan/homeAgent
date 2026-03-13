@@ -19,6 +19,13 @@ logger = logging.getLogger(__name__)
 # Dimension of OpenAI text-embedding-3-small vectors
 EMBEDDING_DIM = 1536
 
+_vec_available: bool = False
+
+
+def is_vec_available() -> bool:
+    """Return True if sqlite-vec loaded successfully on the memory engine."""
+    return _vec_available
+
 
 def _make_engine(db_name: str) -> Engine:
     settings = get_settings()
@@ -43,6 +50,7 @@ def _make_memory_engine() -> Engine:
 
     @event.listens_for(engine, "connect")
     def _load_vec(dbapi_conn: sqlite3.Connection, _: object) -> None:
+        global _vec_available
         try:
             dbapi_conn.enable_load_extension(True)
             sqlite_vec.load(dbapi_conn)
@@ -51,8 +59,13 @@ def _make_memory_engine() -> Engine:
                 f"CREATE VIRTUAL TABLE IF NOT EXISTS episodic_memory_vec "
                 f"USING vec0(embedding float[{EMBEDDING_DIM}])"
             )
+            _vec_available = True
         except Exception:
-            logger.warning("sqlite-vec extension could not be loaded — vector search disabled")
+            _vec_available = False
+            logger.warning(
+                "sqlite-vec extension could not be loaded — vector search disabled",
+                exc_info=True,
+            )
 
     return engine
 

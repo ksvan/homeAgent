@@ -13,7 +13,7 @@
 -->
 
 ## Set location
-Home is in timezone CET
+Home is in timezone Europe/oslo, meaning CET
 
 ## Home layout
 

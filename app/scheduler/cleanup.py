@@ -7,6 +7,8 @@ logger = logging.getLogger(__name__)
 
 _CLEANUP_JOB_ID = "cleanup_old_logs"
 _MEMORY_PURGE_JOB_ID = "cleanup_stale_memories"
+_TASK_PURGE_JOB_ID = "cleanup_old_tasks"
+_TASK_RETENTION_DAYS = 8
 
 
 async def purge_old_logs() -> None:
@@ -106,6 +108,33 @@ async def purge_stale_memories() -> None:
         logger.debug("Memory purge: nothing to remove")
 
 
+async def purge_old_tasks() -> None:
+    """
+    Delete completed/failed/cancelled Task rows older than _TASK_RETENTION_DAYS.
+    ACTIVE tasks are never touched. Runs daily via APScheduler.
+    """
+    from sqlmodel import col, delete
+
+    from app.db import users_session
+    from app.models.tasks import Task
+
+    cutoff = datetime.now(timezone.utc) - timedelta(days=_TASK_RETENTION_DAYS)
+
+    with users_session() as session:
+        result = session.exec(
+            delete(Task).where(
+                Task.status != "ACTIVE",
+                col(Task.created_at) < cutoff,
+            )
+        )
+        session.commit()
+
+    if result.rowcount:
+        logger.info("Task purge: removed %d old task(s)", result.rowcount)
+    else:
+        logger.debug("Task purge: nothing to remove")
+
+
 async def register_cleanup_jobs() -> None:
     """Schedule the daily log-retention and memory-purge jobs. Safe to call even if the
     scheduler already has the jobs registered (conflicts are silently ignored)."""
@@ -121,6 +150,7 @@ async def register_cleanup_jobs() -> None:
     for fn, job_id in [
         (purge_old_logs, _CLEANUP_JOB_ID),
         (purge_stale_memories, _MEMORY_PURGE_JOB_ID),
+        (purge_old_tasks, _TASK_PURGE_JOB_ID),
     ]:
         try:
             await scheduler.add_schedule(fn, IntervalTrigger(hours=24), id=job_id)

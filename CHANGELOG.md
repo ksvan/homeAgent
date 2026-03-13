@@ -17,6 +17,40 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 
 ---
 
+## [0.10.0] - 2026-03-13
+
+### Added
+
+#### Scheduled prompts
+
+- **`app/models/scheduled_prompts.py`** (new) — `ScheduledPrompt` SQLModel: recurring LLM prompts stored in `users.db` with `id`, `household_id`, `user_id`, `channel_user_id`, `name`, `prompt`, `recurrence`, `time_of_day`, `enabled`, `created_at`.
+- **`alembic/versions/0004_users_db_scheduled_prompts.py`** (new) — migration creating `scheduledprompt` table with indices on `household_id` and `user_id`.
+- **`app/scheduler/scheduled_prompts.py`** (new) — `_build_trigger` (maps `"daily"` / `"weekly:sun"` / `"monthly:15"` to APScheduler `CronTrigger`), `create_scheduled_prompt`, `remove_scheduled_prompt`, `restore_scheduled_prompts` (re-registers all enabled prompts on startup with `ConflictPolicy.replace`).
+- **`app/agent/tools/scheduled_prompts.py`** (new) — three agent tools: `schedule_prompt`, `list_scheduled_prompts`, `cancel_scheduled_prompt`.
+- **`app/scheduler/jobs.py`** — `fire_scheduled_prompt` job: resolves user/household names from DB, calls `run_conversation`, delivers result to channel, emits `job.fire` / `job.complete` / `job.error` control events.
+- **`app/api/server.py`** — `restore_scheduled_prompts()` called in lifespan startup after other restore calls.
+- **`app/agent/agent.py`** — `register_scheduled_prompt_tools(a)` registered on agent creation.
+- **`prompts/instructions.md`** — `## Scheduled prompts` section added; instructions for when and how to use `schedule_prompt`.
+- **`app/control/api.py`** — admin Scheduler tab extended with third section "Scheduled Prompts" (Name | Schedule | Time | Prompt | ID); backend `GET /admin/scheduler` returns `scheduled_prompts` list.
+
+#### `start.sh clean` subcommand
+
+- **`start.sh`** — `./start.sh clean` prunes dangling Docker images and volumes to free disk space. Safe to run while the stack is up (stack uses bind mounts, not named volumes).
+
+### Fixed
+
+#### Agent describes actions but doesn't execute them
+
+- **`prompts/instructions.md`** — added `## Tool execution` section at the top: establishes a global contract that deciding to act = calling the tool in the same response. Includes explicit wrong/right examples covering scheduling, memory, and device control. Reinforces per-feature "always call immediately" rules with a behavioural contract.
+
+#### 429 rate limit errors crashing requests
+
+- **`app/config.py`** — `model_primary` default upgraded from `claude-sonnet-4-5` to `claude-sonnet-4-6`.
+- **`app/bot.py`** — retry loop for `ModelHTTPError` 429 in `handle_incoming_message`: up to 2 retries with 5 s / 15 s backoff. User notified once ("rate limited — retrying shortly") on first 429.
+- **`app/homey/mcp_client.py`** — `_MAX_TOOL_RESULT_CHARS = 12_000` cap on MCP tool responses in `_policy_process_tool_call`. Addresses root cause: `homey_get_home_structure` returning 20k+ chars across multiple tool calls per run pushing over the 30k input tokens/minute org limit.
+
+---
+
 ## [0.9.0] - 2026-03-09
 
 ### Changed

@@ -1,84 +1,54 @@
-<svg xmlns="http://www.w3.org/2000/svg" width="1700" height="1060" viewBox="0 0 1700 1060" role="img" aria-labelledby="title desc">
-  <title id="title">Dev vs Prod from start.sh</title>
-  <desc id="desc">Side-by-side comparison of development and production startup paths initiated by start.sh.</desc>
+<svg xmlns="http://www.w3.org/2000/svg" width="1700" height="1080" viewBox="0 0 1700 1080" role="img" aria-labelledby="title desc">
+  <title id="title">start.sh Runtime Modes</title>
+  <desc id="desc">Current start.sh command modes and how they map to Docker Compose behavior.</desc>
   <defs>
     <style>
-      .bg{fill:#f8fafc}.lane{fill:#fff;stroke:#334155;stroke-width:1.6;rx:14}.dev{fill:#ecfdf5;stroke:#047857;stroke-width:1.4;rx:10}.prod{fill:#eff6ff;stroke:#1d4ed8;stroke-width:1.4;rx:10}.shared{fill:#fefce8;stroke:#a16207;stroke-width:1.4;rx:10}
+      .bg{fill:#f8fafc}.lane{fill:#fff;stroke:#334155;stroke-width:1.6;rx:14}.up{fill:#ecfdf5;stroke:#047857;stroke-width:1.4;rx:10}.logs{fill:#eff6ff;stroke:#1d4ed8;stroke-width:1.4;rx:10}.stop{fill:#fff7ed;stroke:#c2410c;stroke-width:1.4;rx:10}.restart{fill:#fefce8;stroke:#a16207;stroke-width:1.4;rx:10}.shared{fill:#eef2ff;stroke:#4338ca;stroke-width:1.4;rx:10}
       .title{font:700 30px 'Segoe UI',Arial,sans-serif;fill:#0f172a}.h{font:700 18px 'Segoe UI',Arial,sans-serif;fill:#0f172a}.t{font:13px 'Segoe UI',Arial,sans-serif;fill:#1e293b}.s{font:12px 'Segoe UI',Arial,sans-serif;fill:#334155}
-      .ad{stroke:#047857;stroke-width:2.2;fill:none;marker-end:url(#md)}.ap{stroke:#1d4ed8;stroke-width:2.2;fill:none;marker-end:url(#mp)}.as{stroke:#a16207;stroke-width:2.2;fill:none;marker-end:url(#ms)}
+      .a{stroke:#4338ca;stroke-width:2.2;fill:none;marker-end:url(#m)}
     </style>
-    <marker id="md" markerWidth="10" markerHeight="10" refX="9" refY="5" orient="auto" markerUnits="strokeWidth"><path d="M0,0 L10,5 L0,10 z" fill="#047857"/></marker>
-    <marker id="mp" markerWidth="10" markerHeight="10" refX="9" refY="5" orient="auto" markerUnits="strokeWidth"><path d="M0,0 L10,5 L0,10 z" fill="#1d4ed8"/></marker>
-    <marker id="ms" markerWidth="10" markerHeight="10" refX="9" refY="5" orient="auto" markerUnits="strokeWidth"><path d="M0,0 L10,5 L0,10 z" fill="#a16207"/></marker>
+    <marker id="m" markerWidth="10" markerHeight="10" refX="9" refY="5" orient="auto" markerUnits="strokeWidth"><path d="M0,0 L10,5 L0,10 z" fill="#4338ca"/></marker>
   </defs>
 
-  <rect class="bg" x="0" y="0" width="1700" height="1060"/>
-  <text class="title" x="30" y="55">`start.sh` Startup Comparison: Development vs Production</text>
+  <rect class="bg" x="0" y="0" width="1700" height="1080"/>
+  <text class="title" x="30" y="55">`start.sh` (Current): Command Modes and Runtime Effect</text>
 
-  <rect class="shared" x="40" y="90" width="1620" height="108"/>
-  <text class="h" x="64" y="123">Shared baseline</text>
-  <text class="t" x="64" y="148">Launcher script: `start.sh` (default mode = dev). Core app entry is `python -m app` (`app/__main__.py`).</text>
-  <text class="t" x="64" y="171">Both paths rely on same internal modules for agent/context/policy; ingress mechanism differs (polling vs webhook).</text>
+  <rect class="shared" x="40" y="90" width="1620" height="132"/>
+  <text class="h" x="64" y="123">Baseline (applies to all modes)</text>
+  <text class="t" x="64" y="148">`start.sh` no longer has `dev`/`prod` branching. It selects Docker Compose invocation (`docker compose` or `docker-compose`).</text>
+  <text class="t" x="64" y="170">Compose stack includes `tools`, `homeagent`, and `cloudflared`; `homeagent` runs with `APP_ENV=production` and webhook ingress.</text>
+  <text class="t" x="64" y="192">Core app behavior (agent/context/policy/scheduler) is defined in Python services, not start.sh mode switches.</text>
 
-  <rect class="lane" x="40" y="226" width="790" height="790"/>
-  <text class="h" x="64" y="255">Development (`./start.sh dev`)</text>
+  <rect class="lane" x="40" y="250" width="1620" height="780"/>
+  <text class="h" x="64" y="280">Mode Matrix</text>
 
-  <rect class="lane" x="870" y="226" width="790" height="790"/>
-  <text class="h" x="894" y="255">Production (`./start.sh prod`)</text>
+  <rect class="up" x="70" y="314" width="1540" height="150"/>
+  <text class="h" x="95" y="342">`./start.sh up` (default)</text>
+  <text class="t" x="95" y="368">Runs: `docker compose build && docker compose up -d`</text>
+  <text class="t" x="95" y="390">Effect: builds images, starts stack detached, prints follow-up commands (`logs`, `stop`).</text>
+  <text class="t" x="95" y="412">Operational result: webhook endpoint and admin port come online after healthchecks.</text>
 
-  <!-- DEV -->
-  <rect class="dev" x="70" y="286" width="730" height="96"/>
-  <text class="t" x="95" y="316">Checks `uv`, optionally starts standalone Prometheus MCP process</text>
-  <text class="t" x="95" y="338">from `services/prometheus-mcp` if venv exists, then `uv run python -m app`</text>
-  <text class="t" x="95" y="360">trap cleans background MCP process on exit</text>
+  <rect class="logs" x="70" y="494" width="1540" height="130"/>
+  <text class="h" x="95" y="522">`./start.sh logs`</text>
+  <text class="t" x="95" y="548">Runs: `docker compose logs -f`</text>
+  <text class="t" x="95" y="570">Effect: attaches to live service logs for all compose services; no topology/state change.</text>
 
-  <rect class="dev" x="70" y="422" width="730" height="120"/>
-  <text class="t" x="95" y="452">`app/__main__.py`:</text>
-  <text class="t" x="95" y="474">_run_migrations() -> `_run_development()`</text>
-  <text class="t" x="95" y="496">logging + seed policies + start Homey/Prom MCP + reload agent</text>
-  <text class="t" x="95" y="518">start scheduler + restore reminders/actions + cleanup jobs</text>
+  <rect class="stop" x="70" y="654" width="1540" height="130"/>
+  <text class="h" x="95" y="682">`./start.sh stop`</text>
+  <text class="t" x="95" y="708">Runs: `docker compose down`</text>
+  <text class="t" x="95" y="730">Effect: stops and removes running containers/network for the stack.</text>
 
-  <rect class="dev" x="70" y="582" width="730" height="120"/>
-  <text class="t" x="95" y="612">Creates TelegramChannel and sets channel registry</text>
-  <text class="t" x="95" y="634">Starts local admin FastAPI app in same process on `settings.port`</text>
-  <text class="t" x="95" y="656">Runs Telegram long polling (`channel.start_polling()`)</text>
-  <text class="t" x="95" y="678">No webhook secret/token path required for ingress</text>
+  <rect class="restart" x="70" y="814" width="1540" height="190"/>
+  <text class="h" x="95" y="842">`./start.sh restart`</text>
+  <text class="t" x="95" y="868">Runs: `docker compose down` then `docker compose build && docker compose up -d`</text>
+  <text class="t" x="95" y="890">Effect: full rebuild and clean re-launch of all services.</text>
+  <text class="t" x="95" y="912">Useful after dependency/config/prompt changes that need new container startup state.</text>
+  <text class="t" x="95" y="934">Message-processing logic remains identical after restart (webhook -> bot -> context -> agent -> persistence).</text>
 
-  <rect class="dev" x="70" y="742" width="730" height="230"/>
-  <text class="t" x="95" y="772">Message turn flow in dev:</text>
-  <text class="t" x="95" y="794">polling update -> TelegramChannel._handle_message()</text>
-  <text class="t" x="95" y="816">allowlist/rate checks -> handle_incoming_message()</text>
-  <text class="t" x="95" y="838">get/create user + assemble_context() + run_conversation()</text>
-  <text class="t" x="95" y="860">persist pair + cache updates + reply_text()</text>
+  <path class="a" d="M840 222 L840 250"/>
+  <path class="a" d="M840 464 L840 494"/>
+  <path class="a" d="M840 624 L840 654"/>
+  <path class="a" d="M840 784 L840 814"/>
 
-  <!-- PROD -->
-  <rect class="prod" x="900" y="286" width="730" height="96"/>
-  <text class="t" x="925" y="316">Uses Docker Compose: `docker compose up --build -d`</text>
-  <text class="t" x="925" y="338">Container env forces `APP_ENV=production`, `LOG_FORMAT=json`</text>
-  <text class="t" x="925" y="360">Healthcheck probes `/health`</text>
-
-  <rect class="prod" x="900" y="422" width="730" height="120"/>
-  <text class="t" x="925" y="452">Container runs `python -m app`:</text>
-  <text class="t" x="925" y="474">_run_migrations() -> `_run_production()` -> uvicorn(create_app())</text>
-  <text class="t" x="925" y="496">FastAPI lifespan performs runtime startup orchestration</text>
-  <text class="t" x="925" y="518">(MCP, scheduler, policy seed, channel init)</text>
-
-  <rect class="prod" x="900" y="582" width="730" height="140"/>
-  <text class="t" x="925" y="612">Lifespan startup (`app/api/server.py::_lifespan`):</text>
-  <text class="t" x="925" y="634">configure logging, seed policies, start Homey+Prom MCP, reload_agent</text>
-  <text class="t" x="925" y="656">start scheduler, restore reminders, register cleanup jobs</text>
-  <text class="t" x="925" y="678">initialize TelegramChannel and set `app.state.telegram_channel`</text>
-
-  <rect class="prod" x="900" y="742" width="730" height="230"/>
-  <text class="t" x="925" y="772">Message turn flow in prod:</text>
-  <text class="t" x="925" y="794">Telegram webhook -> `/webhook/telegram`</text>
-  <text class="t" x="925" y="816">secret-token validation in webhooks.py</text>
-  <text class="t" x="925" y="838">channel.process_update() -> Telegram handlers -> handle_incoming_message()</text>
-  <text class="t" x="925" y="860">same core context/agent/persist path as dev</text>
-
-  <path class="as" d="M850 170 L850 226"/>
-  <path class="ad" d="M435 382 L435 422"/><path class="ad" d="M435 542 L435 582"/><path class="ad" d="M435 702 L435 742"/>
-  <path class="ap" d="M1265 382 L1265 422"/><path class="ap" d="M1265 542 L1265 582"/><path class="ap" d="M1265 722 L1265 742"/>
-
-  <text class="s" x="40" y="1032">Key diff: dev ingress uses polling and in-process admin UI; prod ingress uses webhook + FastAPI lifecycle/bootstrap in containerized runtime.</text>
+  <text class="s" x="40" y="1060">Note: file name retained for continuity, but content now documents actual start.sh behavior rather than obsolete dev/prod split.</text>
 </svg>

@@ -30,11 +30,28 @@ def register_action_tools(agent: Agent[AgentDeps, str]) -> None:
         Do NOT use set_reminder for this — set_reminder only sends a text message.
         This tool actually executes the device action at the scheduled time.
 
+        Workflow — follow these steps in order:
+        1. Call homey_search_tools to find the right tool for the device and action.
+        2. Note the exact tool name returned by the search (e.g. "set_devices_capabilities_values").
+        3. Call this tool with:
+           - tool_name: always "homey_use_tool"
+           - tool_args: the EXACT same {"name": ..., "arguments": ...} you would pass
+             to homey_use_tool for an immediate action. Use the tool name from step 2.
+
+        Example structure (do NOT copy these placeholder values — use real values from search results):
+          schedule_homey_action(
+              description="Turn off garden lights",
+              tool_name="homey_use_tool",
+              tool_args={"name": "<TOOL_NAME_FROM_SEARCH>", "arguments": {"<ARG>": "<VALUE>"}},
+              run_at_iso="2026-03-04T23:00:00+01:00",
+          )
+
         Args:
             description: Human-readable summary, e.g. "Turn on bedroom light".
-            tool_name: The Homey MCP tool name exactly as it appears in your tool list,
-                       including the 'homey_' prefix, e.g. "homey_set_device_capability".
-            tool_args: Arguments dict to pass to the tool, exactly as you would call it now.
+            tool_name: Always "homey_use_tool".
+            tool_args: Exactly what you would pass to homey_use_tool right now:
+                       {"name": "<tool_name_from_search>", "arguments": {<real_device_args>}}.
+                       Never guess the inner tool name — always get it from homey_search_tools.
             run_at_iso: When to execute, as an ISO-8601 datetime string with timezone,
                         e.g. "2026-03-03T07:30:00+01:00". Always include a UTC offset.
         """

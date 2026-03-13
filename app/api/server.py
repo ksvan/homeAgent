@@ -35,6 +35,7 @@ async def _lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     from app.scheduler.cleanup import register_cleanup_jobs
     from app.scheduler.engine import start_scheduler, stop_scheduler
     from app.scheduler.reminders import restore_pending_reminders
+    from app.scheduler.scheduled_prompts import restore_scheduled_prompts
 
     configure_logging(settings.log_level, settings.log_format)
     seed_policies()
@@ -49,6 +50,7 @@ async def _lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     await start_scheduler()
     await restore_pending_reminders()
     await restore_pending_actions()
+    await restore_scheduled_prompts()
     await register_cleanup_jobs()
 
     # Trigger home profile refresh in background (don't block startup)

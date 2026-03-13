@@ -123,3 +123,90 @@ async def execute_homey_action(
             task.completed_at = datetime.now(timezone.utc)
             session.add(task)
             session.commit()
+
+
+async def fire_scheduled_prompt(
+    prompt_id: str,
+    user_id: str,
+    household_id: str,
+    channel_user_id: str,
+    prompt_text: str,
+    name: str,
+) -> None:
+    """
+    APScheduler job — fires on a recurring CronTrigger for a ScheduledPrompt.
+
+    Runs the conversation agent with the stored prompt and sends the response
+    to the user via the active channel.
+    """
+    import uuid as _uuid
+
+    from app.agent.agent import run_conversation
+    from app.channels.registry import get_channel
+    from app.control.events import emit
+    from app.db import users_session
+    from app.models.users import Household, User
+
+    run_id = str(_uuid.uuid4())
+    t0 = _time.monotonic()
+    emit(
+        "job.fire",
+        {"job": "scheduled_prompt", "name": name[:80], "prompt": prompt_text[:80]},
+        run_id=run_id,
+    )
+
+    # Resolve display names from DB
+    user_name = "user"
+    household_name = "the household"
+    with users_session() as session:
+        user = session.get(User, user_id)
+        household = session.get(Household, household_id)
+        if user:
+            user_name = user.name
+        if household:
+            household_name = household.name
+
+    channel = get_channel()
+    success = False
+    try:
+        result = await run_conversation(
+            text=prompt_text,
+            user_name=user_name,
+            household_name=household_name,
+            user_id=user_id,
+            household_id=household_id,
+            channel_user_id=channel_user_id,
+            run_id=run_id,
+        )
+        response = result.output
+        success = True
+        logger.info(
+            "Scheduled prompt fired: prompt_id=%s name=%r run_id=%s", prompt_id, name, run_id
+        )
+    except Exception:
+        response = f"Scheduled prompt '{name}' failed to run."
+        logger.warning(
+            "Scheduled prompt failed: prompt_id=%s name=%r", prompt_id, name, exc_info=True
+        )
+
+    duration_ms = int((_time.monotonic() - t0) * 1000)
+    emit(
+        "job.complete" if success else "job.error",
+        {
+            "job": "scheduled_prompt",
+            "name": name[:80],
+            "duration_ms": duration_ms,
+            "success": success,
+        },
+        run_id=run_id,
+    )
+
+    if channel and channel_user_id:
+        try:
+            await channel.send_message(channel_user_id, response)
+        except Exception:
+            logger.warning(
+                "Could not deliver scheduled prompt response to channel_user_id=%s",
+                channel_user_id,
+                exc_info=True,
+            )
