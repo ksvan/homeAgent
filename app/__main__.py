@@ -41,6 +41,15 @@ async def _run() -> None:
 
     settings = get_settings()
 
+    # Fail fast if APP_SECRET_KEY is missing or too weak in production.
+    # Checked here (after migrations) rather than in Settings validation so that
+    # the alembic migration step can still load Settings without a key configured.
+    if settings.app_env == "production" and len(settings.app_secret_key) < 32:
+        raise SystemExit(
+            "ERROR: APP_SECRET_KEY must be a strong random string (≥32 chars) in production.\n"
+            "Generate one with: python -c \"import secrets; print(secrets.token_hex(32))\""
+        )
+
     class _AdminServer(uvicorn.Server):
         """Uvicorn server that leaves asyncio's signal handlers untouched."""
 
