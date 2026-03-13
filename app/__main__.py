@@ -32,12 +32,11 @@ def _run_migrations() -> None:
 async def _run() -> None:
     """Start the webhook server (main port) and admin server (LAN-only port)."""
     import uvicorn
-    from fastapi import Depends, FastAPI
+    from fastapi import FastAPI
 
     from app.api.server import create_app
     from app.config import get_settings
     from app.control.api import router as admin_router
-    from app.control.auth import require_admin_auth
 
     settings = get_settings()
 
@@ -69,7 +68,7 @@ async def _run() -> None:
 
     # Admin app — separate LAN-only port, shares in-process state (event bus, scheduler…)
     admin_app = FastAPI(docs_url=None, redoc_url=None)
-    admin_app.include_router(admin_router, dependencies=[Depends(require_admin_auth)])
+    admin_app.include_router(admin_router)
     admin_server = _AdminServer(
         uvicorn.Config(admin_app, host="0.0.0.0", port=settings.admin_port, log_level="warning")
     )

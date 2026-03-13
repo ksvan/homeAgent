@@ -6,8 +6,12 @@ import logging
 import time
 from typing import Any, AsyncGenerator
 
-from fastapi import APIRouter
+from fastapi import APIRouter, Depends
 from fastapi.responses import HTMLResponse, StreamingResponse
+
+from app.control.auth import require_admin_auth
+
+_auth = [Depends(require_admin_auth)]
 
 logger = logging.getLogger(__name__)
 
@@ -28,7 +32,7 @@ async def admin_page() -> str:
     return _ADMIN_HTML
 
 
-@router.get("/stats")
+@router.get("/stats", dependencies=_auth)
 async def admin_stats() -> dict[str, Any]:
     import psutil
 
@@ -113,7 +117,7 @@ async def admin_stats() -> dict[str, Any]:
     }
 
 
-@router.get("/stream")
+@router.get("/stream", dependencies=_auth)
 async def admin_stream() -> StreamingResponse:
     from app.control.events import get_recent_events, subscribe, unsubscribe
 
@@ -154,7 +158,7 @@ def _format_sse(event: object) -> str:
     return f"event: {event.event_type}\ndata: {data}\n\n"
 
 
-@router.get("/memory")
+@router.get("/memory", dependencies=_auth)
 async def admin_memory() -> dict[str, Any]:
     from sqlmodel import select
 
@@ -225,7 +229,7 @@ async def admin_memory() -> dict[str, Any]:
     }
 
 
-@router.get("/scheduler")
+@router.get("/scheduler", dependencies=_auth)
 async def admin_scheduler() -> dict[str, Any]:
     import json as _json
 
