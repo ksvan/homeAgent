@@ -108,7 +108,7 @@ def _find_duplicate(
         with _raw_memory_conn() as raw:
             rows = raw.execute(
                 "SELECT rowid, distance FROM episodic_memory_vec "
-                "WHERE embedding MATCH ? ORDER BY distance LIMIT 1",
+                "WHERE embedding MATCH ? AND k = 1 ORDER BY distance",
                 [vec_bytes],
             ).fetchall()
 
@@ -277,7 +277,7 @@ def _vec_search(
         with _raw_memory_conn() as raw:
             rows = raw.execute(
                 "SELECT rowid FROM episodic_memory_vec "
-                "WHERE embedding MATCH ? ORDER BY distance LIMIT ?",
+                "WHERE embedding MATCH ? AND k = ? ORDER BY distance",
                 [vec_bytes, limit * 3],  # over-fetch; filter by user below
             ).fetchall()
 
