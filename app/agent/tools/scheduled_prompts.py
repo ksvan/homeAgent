@@ -46,7 +46,7 @@ def register_scheduled_prompt_tools(agent: Agent[AgentDeps, str]) -> None:
         from app.scheduler.scheduled_prompts import create_scheduled_prompt, recurrence_label
 
         try:
-            prompt_id = create_scheduled_prompt(
+            prompt_id = await create_scheduled_prompt(
                 user_id=ctx.deps.user_id,
                 household_id=ctx.deps.household_id,
                 channel_user_id=ctx.deps.channel_user_id,
@@ -55,7 +55,7 @@ def register_scheduled_prompt_tools(agent: Agent[AgentDeps, str]) -> None:
                 recurrence=recurrence,
                 time_of_day=time_of_day,
             )
-        except ValueError as exc:
+        except (ValueError, RuntimeError) as exc:
             return f"Could not schedule prompt: {exc}"
 
         label = recurrence_label(recurrence, time_of_day)

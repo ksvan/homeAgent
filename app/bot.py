@@ -14,6 +14,7 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+import random
 import uuid
 from collections import defaultdict
 from dataclasses import dataclass
@@ -166,7 +167,7 @@ async def handle_incoming_message(telegram_id: int, text: str) -> str | None:
     from app.channels.registry import get_channel
 
     _MAX_RETRIES = 2
-    _BACKOFF_SECS = [5, 15]
+    _RETRYABLE_STATUS = {429, 500, 502, 503, 504}
     channel_user_id = str(telegram_id)
     result = None
     for attempt in range(_MAX_RETRIES + 1):
@@ -186,22 +187,27 @@ async def handle_incoming_message(telegram_id: int, text: str) -> str | None:
                 run_id=run_id,
             )
             break
-        except ModelHTTPError as exc:
-            if exc.status_code == 429 and attempt < _MAX_RETRIES:
+        except (ModelHTTPError, asyncio.TimeoutError) as exc:
+            is_retryable = (
+                isinstance(exc, ModelHTTPError) and exc.status_code in _RETRYABLE_STATUS
+            ) or isinstance(exc, asyncio.TimeoutError)
+            if is_retryable and attempt < _MAX_RETRIES:
+                wait = min(5 * (2 ** attempt) + random.uniform(0, 2), 30)
                 logger.warning(
-                    "Rate limited (429) on attempt %d for telegram_id=%d — retrying in %ds",
+                    "Retryable error on attempt %d for telegram_id=%d (%s) — retrying in %.1fs",
                     attempt + 1,
                     telegram_id,
-                    _BACKOFF_SECS[attempt],
+                    type(exc).__name__,
+                    wait,
                 )
                 if attempt == 0:
                     ch = get_channel()
                     if ch:
                         try:
-                            await ch.send_message(channel_user_id, "One moment, I'm being rate limited — retrying shortly.")
+                            await ch.send_message(channel_user_id, "One moment — retrying shortly.")
                         except Exception:
                             pass
-                await asyncio.sleep(_BACKOFF_SECS[attempt])
+                await asyncio.sleep(wait)
                 continue
             duration_ms = int((monotonic() - t_start) * 1000)
             logger.exception("Agent run failed for telegram_id=%d", telegram_id)
@@ -237,6 +243,14 @@ async def handle_incoming_message(telegram_id: int, text: str) -> str | None:
     usage = result.usage()
     input_tokens = usage.request_tokens or 0
     output_tokens = usage.response_tokens or 0
+    if input_tokens > settings.token_cost_warn_threshold:
+        logger.warning(
+            "High token usage: input_tokens=%d (threshold=%d) telegram_id=%d",
+            input_tokens,
+            settings.token_cost_warn_threshold,
+            telegram_id,
+        )
+        emit("run.token_warning", {"input_tokens": input_tokens}, run_id=run_id)
     emit(
         "run.complete",
         {
@@ -271,6 +285,12 @@ async def handle_incoming_message(telegram_id: int, text: str) -> str | None:
     from app.memory.conversation import maybe_summarize_conversation
     from app.memory.extraction import extract_and_store_memories
 
+    def _task_done(label: str):  # noqa: ANN202
+        def _cb(fut: asyncio.Future) -> None:  # type: ignore[type-arg]
+            if not fut.cancelled() and (exc := fut.exception()):
+                logger.error("Background task %r failed: %s", label, exc, exc_info=exc)
+        return _cb
+
     asyncio.ensure_future(
         extract_and_store_memories(
             household_id=user.household_id,
@@ -278,8 +298,10 @@ async def handle_incoming_message(telegram_id: int, text: str) -> str | None:
             run_id=run_id,
             new_messages=new_messages,
         )
-    )
-    asyncio.ensure_future(maybe_summarize_conversation(user.id))
+    ).add_done_callback(_task_done("extract_memories"))
+    asyncio.ensure_future(
+        maybe_summarize_conversation(user.id)
+    ).add_done_callback(_task_done("summarize_conversation"))
 
     return response
 

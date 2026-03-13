@@ -186,8 +186,11 @@ async def run_conversation(
         len(list(agent.toolsets)),
     )
 
+    from pydantic_ai.settings import ModelSettings
+
     return await agent.run(
         text,
         deps=deps,
         message_history=message_history or [],
+        model_settings=ModelSettings(max_tokens=settings.max_tokens_per_run),
     )

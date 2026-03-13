@@ -8,7 +8,7 @@ from typing import Any
 logger = logging.getLogger(__name__)
 
 
-def schedule_reminder(
+async def schedule_reminder(
     user_id: str,
     household_id: str,
     channel_user_id: str,
@@ -19,6 +19,7 @@ def schedule_reminder(
     Persist a reminder as a Task record and schedule the APScheduler job.
 
     Returns the task_id which can be used to cancel the reminder.
+    Raises RuntimeError if scheduler registration fails (DB record is rolled back to FAILED).
     """
     from apscheduler.triggers.date import DateTrigger
 
@@ -53,9 +54,7 @@ def schedule_reminder(
     # Schedule via APScheduler — use task_id as the schedule id for easy lookup
     scheduler = get_scheduler()
     if scheduler is not None:
-        import asyncio
-
-        async def _add() -> None:
+        try:
             await scheduler.add_schedule(
                 send_reminder,
                 DateTrigger(run_time=run_at),
@@ -67,8 +66,15 @@ def schedule_reminder(
                     "text": text,
                 },
             )
-
-        asyncio.ensure_future(_add())
+        except Exception as exc:
+            with users_session() as s:
+                t = s.get(Task, task_id)
+                if t:
+                    t.status = "FAILED"
+                    t.completed_at = datetime.now(timezone.utc)
+                    s.add(t)
+                    s.commit()
+            raise RuntimeError(f"Scheduler registration failed: {exc}") from exc
     else:
         logger.warning("Scheduler not running — reminder task_id=%s will not fire", task_id)
 
@@ -140,36 +146,41 @@ async def restore_pending_reminders() -> None:
         tasks = session.exec(select(Task).where(Task.status == "ACTIVE")).all()
 
         for task in tasks:
-            ctx = json.loads(task.context)
-            scheduled_at_str: str | None = ctx.get("scheduled_at")
-            channel_user_id: str = ctx.get("channel_user_id", "")
-            reminder_text: str = ctx.get("reminder_text", task.title)
-
-            if not scheduled_at_str or not channel_user_id:
-                continue  # not a reminder task
-
             try:
-                run_at = datetime.fromisoformat(scheduled_at_str)
-                if run_at.tzinfo is None:
-                    run_at = run_at.replace(tzinfo=timezone.utc)
-            except ValueError:
-                continue
+                ctx = json.loads(task.context)
+                scheduled_at_str: str | None = ctx.get("scheduled_at")
+                channel_user_id: str = ctx.get("channel_user_id", "")
+                reminder_text: str = ctx.get("reminder_text", task.title)
 
-            # Overdue: fire at the next scheduler tick (~1 s from now)
-            fire_at = run_at if run_at > now else now.replace(microsecond=0)
+                if not scheduled_at_str or not channel_user_id:
+                    continue  # not a reminder task
 
-            await scheduler.add_schedule(
-                send_reminder,
-                DateTrigger(run_time=fire_at),
-                id=task.id,
-                kwargs={
-                    "task_id": task.id,
-                    "user_id": task.user_id,
-                    "channel_user_id": channel_user_id,
-                    "text": reminder_text,
-                },
-            )
-            restored += 1
+                try:
+                    run_at = datetime.fromisoformat(scheduled_at_str)
+                    if run_at.tzinfo is None:
+                        run_at = run_at.replace(tzinfo=timezone.utc)
+                except ValueError:
+                    continue
+
+                # Overdue: fire at the next scheduler tick (~1 s from now)
+                fire_at = run_at if run_at > now else now.replace(microsecond=0)
+
+                await scheduler.add_schedule(
+                    send_reminder,
+                    DateTrigger(run_time=fire_at),
+                    id=task.id,
+                    kwargs={
+                        "task_id": task.id,
+                        "user_id": task.user_id,
+                        "channel_user_id": channel_user_id,
+                        "text": reminder_text,
+                    },
+                )
+                restored += 1
+            except Exception as exc:
+                logger.warning(
+                    "Skipping reminder task_id=%s during restore: %s", task.id, exc, exc_info=True
+                )
 
     if restored:
         logger.info("Restored %d pending reminder(s) from DB", restored)

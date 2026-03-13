@@ -76,13 +76,22 @@ async def _policy_process_tool_call(
     decision = evaluate_policy(tool_name, tool_args)
 
     if not decision.requires_confirm:
+        from app.config import get_settings as _get_settings
         run_id: str = getattr(ctx.deps, "run_id", "")
         t0 = time.monotonic()
         try:
-            result = await call_tool(tool_name, tool_args, None)
+            result = await asyncio.wait_for(
+                call_tool(tool_name, tool_args, None),
+                timeout=_get_settings().homey_tool_timeout_secs,
+            )
             duration_ms = int((time.monotonic() - t0) * 1000)
             from app.control.events import emit
             emit("run.tool_call", {"tool": tool_name, "duration_ms": duration_ms, "success": True}, run_id=run_id)
+        except asyncio.TimeoutError:
+            duration_ms = int((time.monotonic() - t0) * 1000)
+            from app.control.events import emit
+            emit("run.tool_call", {"tool": tool_name, "duration_ms": duration_ms, "success": False, "error": "timeout"}, run_id=run_id)
+            return f"Homey did not respond within {_get_settings().homey_tool_timeout_secs} s — please try again."
         except Exception as exc:
             duration_ms = int((time.monotonic() - t0) * 1000)
             from app.control.events import emit
@@ -116,9 +125,12 @@ async def _policy_process_tool_call(
 
     if not household_id or not user_id:
         logger.warning(
-            "Policy gate triggered but deps missing household_id/user_id — allowing tool"
+            "Policy gate: deps missing household_id/user_id for tool=%s — denying", tool_name
         )
-        return await call_tool(tool_name, tool_args, None)
+        return (
+            "Action blocked — session context is incomplete. "
+            "Please restart the conversation and try again."
+        )
 
     token = save_pending_action(
         household_id=household_id,

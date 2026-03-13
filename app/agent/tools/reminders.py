@@ -45,13 +45,16 @@ def register_reminder_tools(agent: Agent[AgentDeps, str]) -> None:
         if run_at <= now:
             return "The requested time is in the past — please provide a future datetime."
 
-        task_id = schedule_reminder(
-            user_id=ctx.deps.user_id,
-            household_id=ctx.deps.household_id,
-            channel_user_id=ctx.deps.channel_user_id,
-            text=text,
-            run_at=run_at,
-        )
+        try:
+            task_id = await schedule_reminder(
+                user_id=ctx.deps.user_id,
+                household_id=ctx.deps.household_id,
+                channel_user_id=ctx.deps.channel_user_id,
+                text=text,
+                run_at=run_at,
+            )
+        except RuntimeError as exc:
+            return f"Failed to set reminder: {exc}"
         friendly = run_at.strftime("%A, %d %B %Y at %H:%M UTC")
         return f"Reminder set for {friendly}. (ID: {task_id})"
 

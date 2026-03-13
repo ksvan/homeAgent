@@ -58,7 +58,7 @@ def recurrence_label(recurrence: str, time_of_day: str) -> str:
     return f"{recurrence} at {time_of_day}"
 
 
-def create_scheduled_prompt(
+async def create_scheduled_prompt(
     user_id: str,
     household_id: str,
     channel_user_id: str,
@@ -72,7 +72,10 @@ def create_scheduled_prompt(
 
     Returns the prompt_id which can be used to cancel the prompt.
     Raises ValueError for invalid recurrence / time_of_day.
+    Raises RuntimeError if scheduler registration fails (DB record disabled).
     """
+    from apscheduler import ConflictPolicy
+
     from app.db import users_session
     from app.models.scheduled_prompts import ScheduledPrompt
     from app.scheduler.engine import get_scheduler
@@ -97,10 +100,7 @@ def create_scheduled_prompt(
 
     scheduler = get_scheduler()
     if scheduler is not None:
-        import asyncio
-        from apscheduler import ConflictPolicy
-
-        async def _add() -> None:
+        try:
             await scheduler.add_schedule(
                 fire_scheduled_prompt,
                 trigger,
@@ -115,8 +115,14 @@ def create_scheduled_prompt(
                     "name": name,
                 },
             )
-
-        asyncio.ensure_future(_add())
+        except Exception as exc:
+            with users_session() as s:
+                sp_rec = s.get(ScheduledPrompt, prompt_id)
+                if sp_rec:
+                    sp_rec.enabled = False
+                    s.add(sp_rec)
+                    s.commit()
+            raise RuntimeError(f"Scheduler registration failed: {exc}") from exc
     else:
         logger.warning("Scheduler not running — prompt_id=%s will not fire", prompt_id)
 
@@ -183,29 +189,25 @@ async def restore_scheduled_prompts() -> None:
     for sp in prompts:
         try:
             trigger = _build_trigger(sp.recurrence, sp.time_of_day)
-        except ValueError:
-            logger.warning(
-                "Skipping scheduled prompt with invalid recurrence: prompt_id=%s recurrence=%r",
-                sp.id,
-                sp.recurrence,
+            await scheduler.add_schedule(
+                fire_scheduled_prompt,
+                trigger,
+                id=sp.id,
+                conflict_policy=ConflictPolicy.replace,
+                kwargs={
+                    "prompt_id": sp.id,
+                    "user_id": sp.user_id,
+                    "household_id": sp.household_id,
+                    "channel_user_id": sp.channel_user_id,
+                    "prompt_text": sp.prompt,
+                    "name": sp.name,
+                },
             )
-            continue
-
-        await scheduler.add_schedule(
-            fire_scheduled_prompt,
-            trigger,
-            id=sp.id,
-            conflict_policy=ConflictPolicy.replace,
-            kwargs={
-                "prompt_id": sp.id,
-                "user_id": sp.user_id,
-                "household_id": sp.household_id,
-                "channel_user_id": sp.channel_user_id,
-                "prompt_text": sp.prompt,
-                "name": sp.name,
-            },
-        )
-        restored += 1
+            restored += 1
+        except Exception as exc:
+            logger.warning(
+                "Skipping scheduled prompt_id=%s during restore: %s", sp.id, exc, exc_info=True
+            )
 
     if restored:
         logger.info("Restored %d scheduled prompt(s) from DB", restored)

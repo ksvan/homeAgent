@@ -8,7 +8,7 @@ from typing import Any
 logger = logging.getLogger(__name__)
 
 
-def schedule_action(
+async def schedule_action(
     user_id: str,
     household_id: str,
     channel_user_id: str,
@@ -21,6 +21,7 @@ def schedule_action(
     Persist a scheduled Homey action as a Task record and schedule the APScheduler job.
 
     Returns the task_id which can be used to cancel the action.
+    Raises RuntimeError if scheduler registration fails (DB record is rolled back to FAILED).
     """
     from apscheduler.triggers.date import DateTrigger
 
@@ -54,9 +55,7 @@ def schedule_action(
 
     scheduler = get_scheduler()
     if scheduler is not None:
-        import asyncio
-
-        async def _add() -> None:
+        try:
             await scheduler.add_schedule(
                 execute_homey_action,
                 DateTrigger(run_time=run_at),
@@ -70,8 +69,15 @@ def schedule_action(
                     "description": description,
                 },
             )
-
-        asyncio.ensure_future(_add())
+        except Exception as exc:
+            with users_session() as s:
+                t = s.get(Task, task_id)
+                if t:
+                    t.status = "FAILED"
+                    t.completed_at = datetime.now(timezone.utc)
+                    s.add(t)
+                    s.commit()
+            raise RuntimeError(f"Scheduler registration failed: {exc}") from exc
     else:
         logger.warning("Scheduler not running — action task_id=%s will not fire", task_id)
 
@@ -109,48 +115,53 @@ async def restore_pending_actions() -> None:
         tasks = session.exec(select(Task).where(Task.status == "ACTIVE")).all()
 
         for task in tasks:
-            ctx = json.loads(task.context)
-            if "action_tool" not in ctx:
-                continue  # not an action task
-
-            scheduled_at_str: str | None = ctx.get("scheduled_at")
-            channel_user_id: str = ctx.get("channel_user_id", "")
-            tool_name: str = ctx.get("action_tool", "")
-            tool_args: dict[str, Any] = ctx.get("action_args", {})
-            description: str = ctx.get("action_description", task.title)
-
-            if not scheduled_at_str or not tool_name:
-                continue
-
             try:
-                run_at = datetime.fromisoformat(scheduled_at_str)
-                if run_at.tzinfo is None:
-                    run_at = run_at.replace(tzinfo=timezone.utc)
-            except ValueError:
-                continue
+                ctx = json.loads(task.context)
+                if "action_tool" not in ctx:
+                    continue  # not an action task
 
-            if run_at <= now:
-                # Overdue — skip silently; the action time has passed
-                task.status = "FAILED"
-                task.completed_at = now
-                session.add(task)
-                logger.info("Overdue action skipped at restore: task_id=%s", task.id)
-                continue
+                scheduled_at_str: str | None = ctx.get("scheduled_at")
+                channel_user_id: str = ctx.get("channel_user_id", "")
+                tool_name: str = ctx.get("action_tool", "")
+                tool_args: dict[str, Any] = ctx.get("action_args", {})
+                description: str = ctx.get("action_description", task.title)
 
-            await scheduler.add_schedule(
-                execute_homey_action,
-                DateTrigger(run_time=run_at),
-                id=task.id,
-                kwargs={
-                    "task_id": task.id,
-                    "user_id": task.user_id,
-                    "channel_user_id": channel_user_id,
-                    "tool_name": tool_name,
-                    "tool_args_json": json.dumps(tool_args),
-                    "description": description,
-                },
-            )
-            restored += 1
+                if not scheduled_at_str or not tool_name:
+                    continue
+
+                try:
+                    run_at = datetime.fromisoformat(scheduled_at_str)
+                    if run_at.tzinfo is None:
+                        run_at = run_at.replace(tzinfo=timezone.utc)
+                except ValueError:
+                    continue
+
+                if run_at <= now:
+                    # Overdue — skip silently; the action time has passed
+                    task.status = "FAILED"
+                    task.completed_at = now
+                    session.add(task)
+                    logger.info("Overdue action skipped at restore: task_id=%s", task.id)
+                    continue
+
+                await scheduler.add_schedule(
+                    execute_homey_action,
+                    DateTrigger(run_time=run_at),
+                    id=task.id,
+                    kwargs={
+                        "task_id": task.id,
+                        "user_id": task.user_id,
+                        "channel_user_id": channel_user_id,
+                        "tool_name": tool_name,
+                        "tool_args_json": json.dumps(tool_args),
+                        "description": description,
+                    },
+                )
+                restored += 1
+            except Exception as exc:
+                logger.warning(
+                    "Skipping action task_id=%s during restore: %s", task.id, exc, exc_info=True
+                )
 
         session.commit()
 

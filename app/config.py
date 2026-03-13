@@ -4,7 +4,7 @@ from functools import lru_cache
 from pathlib import Path
 from typing import Optional
 
-from pydantic import BaseModel, field_validator
+from pydantic import BaseModel, field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -93,6 +93,7 @@ class Settings(BaseSettings):
     homey_mcp_url: str = ""   # e.g. http://192.168.1.x:3000/mcp
     homey_poll_interval_seconds: int = 300
     homey_verify_delay_seconds: int = 2
+    homey_tool_timeout_secs: int = 15
 
     # ------------------------------------------------------------------
     # Prometheus MCP  (services/prometheus-mcp/ — read-only metrics)
@@ -118,6 +119,12 @@ class Settings(BaseSettings):
     prompts_dir: str = "prompts"
 
     # ------------------------------------------------------------------
+    # Per-run token enforcement
+    # ------------------------------------------------------------------
+    max_tokens_per_run: int = 4096
+    token_cost_warn_threshold: int = 3000  # input tokens; emit warning event if exceeded
+
+    # ------------------------------------------------------------------
     # Rate limiting / alerting
     # ------------------------------------------------------------------
     rate_limit_per_user_per_minute: int = 50
@@ -128,6 +135,15 @@ class Settings(BaseSettings):
     # ------------------------------------------------------------------
     allowed_telegram_ids: list[int] = []
     admin_telegram_ids: list[int] = []
+
+    @model_validator(mode="after")
+    def _require_webhook_secret(self) -> "Settings":
+        if self.telegram_bot_token and not self.telegram_webhook_secret:
+            raise ValueError(
+                "TELEGRAM_WEBHOOK_SECRET must be set when TELEGRAM_BOT_TOKEN is configured. "
+                "Generate one with: python -c \"import secrets; print(secrets.token_hex(32))\""
+            )
+        return self
 
     @field_validator("allowed_telegram_ids", "admin_telegram_ids", mode="before")
     @classmethod

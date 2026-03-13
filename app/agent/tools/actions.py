@@ -71,15 +71,18 @@ def register_action_tools(agent: Agent[AgentDeps, str]) -> None:
         if run_at <= datetime.now(timezone.utc):
             return "The requested time is in the past — please provide a future datetime."
 
-        task_id = schedule_action(
-            user_id=ctx.deps.user_id,
-            household_id=ctx.deps.household_id,
-            channel_user_id=ctx.deps.channel_user_id,
-            description=description,
-            tool_name=tool_name,
-            tool_args=tool_args,
-            run_at=run_at,
-        )
+        try:
+            task_id = await schedule_action(
+                user_id=ctx.deps.user_id,
+                household_id=ctx.deps.household_id,
+                channel_user_id=ctx.deps.channel_user_id,
+                description=description,
+                tool_name=tool_name,
+                tool_args=tool_args,
+                run_at=run_at,
+            )
+        except RuntimeError as exc:
+            return f"Failed to schedule action: {exc}"
         friendly = run_at.strftime("%A, %d %B %Y at %H:%M %Z")
         return f"Scheduled: '{description}' for {friendly}. (ID: {task_id})"
 

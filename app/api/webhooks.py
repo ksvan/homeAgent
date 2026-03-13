@@ -29,5 +29,10 @@ async def telegram_webhook(
 
     data = await request.json()
     channel = request.app.state.telegram_channel
-    asyncio.create_task(channel.process_update(data))
+
+    def _task_done(fut: asyncio.Future) -> None:  # type: ignore[type-arg]
+        if not fut.cancelled() and (exc := fut.exception()):
+            logger.error("process_update failed: %s", exc, exc_info=exc)
+
+    asyncio.create_task(channel.process_update(data)).add_done_callback(_task_done)
     return {"ok": True}
