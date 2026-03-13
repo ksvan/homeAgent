@@ -6,9 +6,11 @@ always starts cleanly regardless of which features are enabled.
 """
 from __future__ import annotations
 
+import ipaddress
 import logging
 import re
 import shutil
+import socket
 import uuid
 from datetime import datetime, timezone
 from pathlib import Path
@@ -20,6 +22,27 @@ from app.config import Settings, get_settings
 from app.shell import ALWAYS_BLOCKED, DEFAULT_ALLOWED, run_command
 
 logger = logging.getLogger(__name__)
+
+
+def _is_ssrf_blocked(url: str) -> bool:
+    """Return True if the URL's hostname resolves to a private/reserved address.
+
+    Blocks requests to loopback, private RFC-1918, link-local, and multicast
+    ranges to prevent SSRF attacks against internal services.
+    Fails closed (returns True) on resolution errors.
+    """
+    try:
+        parsed = urlparse(url)
+        host = parsed.hostname or ""
+        addrs = socket.getaddrinfo(host, None)
+        for *_, sockaddr in addrs:
+            ip = ipaddress.ip_address(sockaddr[0])
+            if ip.is_private or ip.is_loopback or ip.is_link_local or ip.is_multicast:
+                return True
+    except Exception:
+        return True  # fail-closed on resolution error
+    return False
+
 
 mcp = FastMCP(
     name="tools",
@@ -218,11 +241,14 @@ def register_tools(settings: Settings) -> None:
             except Exception:
                 return f"Could not parse URL: {url!r}"
 
+            if _is_ssrf_blocked(url):
+                return f"URL not allowed: '{parsed.hostname}' resolves to a private or reserved address."
+
             logger.info("Scraping URL: %s", url)
 
             try:
                 async with httpx.AsyncClient(
-                    follow_redirects=True,
+                    follow_redirects=False,
                     timeout=t,
                     headers={
                         "User-Agent": "Mozilla/5.0 (compatible; HomeAgent/1.0)",

@@ -143,6 +143,11 @@ class Settings(BaseSettings):
                 "TELEGRAM_WEBHOOK_SECRET must be set when TELEGRAM_BOT_TOKEN is configured. "
                 "Generate one with: python -c \"import secrets; print(secrets.token_hex(32))\""
             )
+        if self.app_env == "production" and len(self.app_secret_key) < 32:
+            raise ValueError(
+                "APP_SECRET_KEY must be a strong random string (≥32 chars) in production. "
+                "Generate one with: python -c \"import secrets; print(secrets.token_hex(32))\""
+            )
         return self
 
     @field_validator("allowed_telegram_ids", "admin_telegram_ids", mode="before")

@@ -92,16 +92,31 @@ async def execute_homey_action(
         msg = f"⚠️ Could not run scheduled action — Homey is not connected.\nAction: {description}"
         logger.warning("Scheduled action skipped (MCP not connected): task_id=%s", task_id)
     else:
-        try:
-            await server.direct_call_tool(raw_name, tool_args)
-            msg = f"✅ Done: {description}"
-            success = True
-            logger.info("Scheduled action executed: task_id=%s tool=%s", task_id, raw_name)
-        except Exception:
-            msg = f"❌ Scheduled action failed: {description}"
-            logger.warning(
-                "Scheduled action failed: task_id=%s tool=%s", task_id, raw_name, exc_info=True
+        # Policy gate: enforce confirmation requirements at execution time too.
+        # Scheduled actions cannot pause for interactive confirmation, so block them.
+        from app.policy.gate import evaluate_policy
+
+        decision = evaluate_policy(raw_name, tool_args)
+        if decision.requires_confirm:
+            msg = (
+                f"⛔ Scheduled action blocked: '{description}' requires confirmation "
+                "and cannot run unattended. Use the chat to run it directly."
             )
+            logger.warning(
+                "Scheduled action blocked by policy: task_id=%s tool=%s policy=%s",
+                task_id, raw_name, decision.policy_name,
+            )
+        else:
+            try:
+                await server.direct_call_tool(raw_name, tool_args)
+                msg = f"✅ Done: {description}"
+                success = True
+                logger.info("Scheduled action executed: task_id=%s tool=%s", task_id, raw_name)
+            except Exception:
+                msg = f"❌ Scheduled action failed: {description}"
+                logger.warning(
+                    "Scheduled action failed: task_id=%s tool=%s", task_id, raw_name, exc_info=True
+                )
 
     duration_ms = int((_time.monotonic() - t0) * 1000)
     emit(

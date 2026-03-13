@@ -51,6 +51,34 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 
 ---
 
+## [0.10.3] - 2026-03-13
+
+### Security
+
+#### SBP-001 (Critical) — Policy gate enforced for scheduled Homey actions
+
+- **`app/agent/tools/actions.py`** — `schedule_homey_action` now calls `evaluate_policy` at schedule time. If the inner tool requires confirmation, the agent returns an error immediately rather than queuing a future unattended execution.
+- **`app/scheduler/jobs.py`** — `execute_homey_action` now calls `evaluate_policy` at execution time before calling `direct_call_tool`. If `requires_confirm=True`, the action is skipped, the user is notified with a clear message, and the task is marked FAILED.
+
+#### SBP-002 (High) — Admin `APP_SECRET_KEY` validated at startup in production
+
+- **`app/config.py`** — Extended `_require_webhook_secret` validator: in `production` mode, raises `ValueError` at startup if `APP_SECRET_KEY` is empty or shorter than 32 characters. Prevents misconfigured deployments from silently exposing the admin dashboard.
+
+#### SBP-003 (High) — Admin token stripped from page URL (no longer in browser history)
+
+- **`app/control/api.py`** — Admin JS now uses `history.replaceState` on page load to strip `?token=` from the address bar before it enters browser history or bookmarks. Token is stored in `sessionStorage`. All `fetch()` calls use `Authorization: Bearer` header instead of URL query parameter. EventSource still uses `?token=` (browsers cannot send custom headers for SSE; the URL is JS-constructed and not stored in history).
+- **`app/control/auth.py`** — Updated docstring to document the two-path auth model and why `?token=` is retained exclusively for the EventSource connection.
+
+#### SBP-004 (Medium) — SSRF guard in scrape tool
+
+- **`services/tools-mcp/app/mcp_server.py`** — Added `_is_ssrf_blocked(url)` helper that resolves the hostname via `socket.getaddrinfo` and blocks requests to private (RFC-1918), loopback, link-local, and multicast ranges. Applied to `scrape_page` before the HTTP request. Changed `follow_redirects=True` → `follow_redirects=False` to prevent redirect-based SSRF bypass.
+
+#### SBP-005 (Medium) — Webhook body-size cap
+
+- **`app/api/webhooks.py`** — Added `_MAX_BODY_BYTES = 64 KB` guard. Checks `Content-Length` header first (early rejection), then verifies raw body size after read. Returns HTTP 413 for oversized payloads before JSON parsing. Telegram updates are typically <10 KB.
+
+---
+
 ## [0.10.2] - 2026-03-13
 
 ### Fixed

@@ -55,7 +55,19 @@ def register_action_tools(agent: Agent[AgentDeps, str]) -> None:
             run_at_iso: When to execute, as an ISO-8601 datetime string with timezone,
                         e.g. "2026-03-03T07:30:00+01:00". Always include a UTC offset.
         """
+        from app.policy.gate import evaluate_policy
         from app.scheduler.actions import schedule_action
+
+        # Check policy at schedule time — high-impact tools cannot run unattended.
+        inner_name = str(tool_args.get("name", "")).removeprefix("homey_")
+        if inner_name:
+            inner_args = dict(tool_args.get("arguments", {}))  # type: ignore[arg-type]
+            decision = evaluate_policy(inner_name, inner_args)
+            if decision.requires_confirm:
+                return (
+                    f"Cannot schedule '{description}': this action requires real-time "
+                    "confirmation and cannot run unattended. Run it directly via chat instead."
+                )
 
         try:
             run_at = datetime.fromisoformat(run_at_iso.replace("Z", "+00:00"))

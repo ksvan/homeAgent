@@ -504,9 +504,23 @@ header { background: var(--surface); border-bottom: 1px solid var(--border); pad
 </div>
 
 <script>
-// Propagate ?token= from the page URL to all API sub-requests
-const _tok = new URLSearchParams(window.location.search).get('token');
-const _authQ = _tok ? '?token=' + encodeURIComponent(_tok) : '';
+// Token management: strip ?token= from the address bar on first load so it
+// never enters browser history or bookmarks. Store in sessionStorage and use
+// Bearer header for all fetch() calls. EventSource still uses ?token= since
+// browsers cannot send custom headers for SSE connections.
+(function() {
+  const params = new URLSearchParams(window.location.search);
+  const urlToken = params.get('token');
+  if (urlToken) {
+    sessionStorage.setItem('admin_token', urlToken);
+    params.delete('token');
+    const clean = window.location.pathname + (params.toString() ? '?' + params.toString() : '');
+    history.replaceState(null, '', clean);
+  }
+})();
+const _tok = sessionStorage.getItem('admin_token') || '';
+const _authHeaders = _tok ? {'Authorization': 'Bearer ' + _tok} : {};
+const _authQ = _tok ? '?token=' + encodeURIComponent(_tok) : '';  // SSE only
 
 let autoScroll = true;
 let evCount = 0;
@@ -627,7 +641,7 @@ function fmtK(n) {
 // Stats
 async function fetchStats() {
   try {
-    const r = await fetch('/admin/stats' + _authQ);
+    const r = await fetch('/admin/stats', {headers: _authHeaders});
     if (!r.ok) return;
     const d = await r.json();
     document.getElementById('v-cpu').textContent = d.system.cpu_percent + '%';
@@ -703,7 +717,7 @@ document.querySelectorAll('.tab').forEach(btn => {
 // Memory details loader
 async function loadMemory() {
   try {
-    const r = await fetch('/admin/memory' + _authQ);
+    const r = await fetch('/admin/memory', {headers: _authHeaders});
     if (!r.ok) return;
     const d = await r.json();
 
@@ -757,7 +771,7 @@ document.getElementById('refresh-memory').addEventListener('click', loadMemory);
 // Scheduler tab loader
 async function loadScheduler() {
   try {
-    const r = await fetch('/admin/scheduler' + _authQ);
+    const r = await fetch('/admin/scheduler', {headers: _authHeaders});
     if (!r.ok) return;
     const d = await r.json();
 
