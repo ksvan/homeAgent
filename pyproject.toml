@@ -20,7 +20,7 @@ dependencies = [
     "structlog",
     "pydantic-settings",
     "python-dotenv",
-    "sqlite-vec>=0.1.6",
+    "sqlite-vec>=0.1.7a10",
     "numpy",
     "beautifulsoup4",
     "tavily-python",
