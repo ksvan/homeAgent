@@ -2,6 +2,10 @@
 # HomeAgent .gitignore
 # ============================================================
 
+skills/*
+agents/*
+skills/
+agents/
 # ------------------------------------------------------------
 # Secrets — never commit these
 # The pattern .env.* catches all variants (.env.production,
