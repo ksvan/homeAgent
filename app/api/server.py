@@ -46,6 +46,16 @@ async def _lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     await start_tools_mcp()
     reload_agent()  # rebuild agent singleton with all connected MCP toolsets
 
+    from app.homey.mcp_client import get_mcp_server as _get_homey_mcp
+    from app.prometheus.mcp_client import get_mcp_server as _get_prom_mcp
+    from app.tools.mcp_client import get_mcp_server as _get_tools_mcp
+    logger.info(
+        "MCP startup: homey=%s prom=%s tools=%s",
+        "ok" if _get_homey_mcp() else "MISSING",
+        "ok" if _get_prom_mcp() else "missing",
+        "ok" if _get_tools_mcp() else "missing",
+    )
+
     # Start APScheduler, restore pending reminders, register cleanup job
     await start_scheduler()
     await restore_pending_reminders()

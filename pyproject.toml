@@ -1,6 +1,6 @@
 [project]
 name = "homeagent"
-version = "0.10.0"
+version = "0.10.2"
 description = "Locally-orchestrated household AI agent"
 requires-python = ">=3.12"
 

@@ -27,12 +27,16 @@ def _db_ok(engine_fn: Callable[[], Engine]) -> str:
 @router.get("/health")
 async def health() -> dict[str, object]:
     from app.homey.mcp_client import get_mcp_server
+    from app.prometheus.mcp_client import get_mcp_server as get_prom_mcp
     from app.scheduler.engine import get_scheduler
+    from app.tools.mcp_client import get_mcp_server as get_tools_mcp
 
     db_users = _db_ok(users_engine)
     db_memory = _db_ok(memory_engine)
     db_cache = _db_ok(cache_engine)
     mcp_status = "ok" if get_mcp_server() is not None else "disconnected"
+    prom_status = "ok" if get_prom_mcp() is not None else "disconnected"
+    tools_status = "ok" if get_tools_mcp() is not None else "disconnected"
     scheduler_status = "ok" if get_scheduler() is not None else "stopped"
 
     all_ok = all(s == "ok" for s in (db_users, db_memory, db_cache))
@@ -51,7 +55,9 @@ async def health() -> dict[str, object]:
             "db_users": db_users,
             "db_memory": db_memory,
             "db_cache": db_cache,
-            "mcp": mcp_status,
+            "mcp_homey": mcp_status,
+            "mcp_prom": prom_status,
+            "mcp_tools": tools_status,
             "scheduler": scheduler_status,
         },
     }

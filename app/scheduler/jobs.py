@@ -5,6 +5,9 @@ import time as _time
 
 logger = logging.getLogger(__name__)
 
+# In-flight guard: prevents a second run from starting if the first hasn't finished.
+_running_prompts: set[str] = set()
+
 
 async def send_reminder(
     task_id: str,
@@ -139,6 +142,34 @@ async def fire_scheduled_prompt(
     Runs the conversation agent with the stored prompt and sends the response
     to the user via the active channel.
     """
+    if prompt_id in _running_prompts:
+        logger.warning(
+            "Scheduled prompt prompt_id=%s already in-flight — skipping overlap", prompt_id
+        )
+        return
+
+    _running_prompts.add(prompt_id)
+    try:
+        await _fire_scheduled_prompt_inner(
+            prompt_id=prompt_id,
+            user_id=user_id,
+            household_id=household_id,
+            channel_user_id=channel_user_id,
+            prompt_text=prompt_text,
+            name=name,
+        )
+    finally:
+        _running_prompts.discard(prompt_id)
+
+
+async def _fire_scheduled_prompt_inner(
+    prompt_id: str,
+    user_id: str,
+    household_id: str,
+    channel_user_id: str,
+    prompt_text: str,
+    name: str,
+) -> None:
     import uuid as _uuid
 
     from app.agent.agent import run_conversation

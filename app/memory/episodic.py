@@ -16,6 +16,12 @@ logger = logging.getLogger(__name__)
 
 _MAX_RESULTS = 5
 
+# Circuit breaker for the embedding API
+_embedding_failures: int = 0
+_embedding_open_until: float = 0.0
+_CIRCUIT_OPEN_AFTER = 3
+_CIRCUIT_COOLDOWN_SECS = 60
+
 
 def _now() -> datetime:
     return datetime.now(timezone.utc)
@@ -32,20 +38,37 @@ def _raw_memory_conn() -> Generator[sqlite3.Connection, None, None]:
 
 def _get_embedding(text: str) -> list[float] | None:
     """Return an embedding vector for *text* via the OpenAI API, or None on failure."""
+    import time
+
+    global _embedding_failures, _embedding_open_until
+
     from app.config import get_settings
 
     settings = get_settings()
     if not settings.openai_api_key:
         return None
 
+    if time.monotonic() < _embedding_open_until:
+        return None  # circuit open — skip HTTP call
+
     try:
         import openai
 
         client = openai.OpenAI(api_key=settings.openai_api_key)
         response = client.embeddings.create(model=settings.model_embedding, input=text)
+        _embedding_failures = 0  # reset on success
         return response.data[0].embedding
     except Exception:
-        logger.warning("Embedding request failed — skipping vector indexing", exc_info=True)
+        _embedding_failures += 1
+        if _embedding_failures >= _CIRCUIT_OPEN_AFTER:
+            _embedding_open_until = time.monotonic() + _CIRCUIT_COOLDOWN_SECS
+            logger.warning(
+                "Embedding API circuit opened after %d failures — skipping for %ds",
+                _embedding_failures,
+                _CIRCUIT_COOLDOWN_SECS,
+            )
+        else:
+            logger.warning("Embedding request failed — skipping vector indexing", exc_info=True)
         return None
 
 
@@ -177,7 +200,13 @@ def store_memory(
 
 
 def _insert_into_vec(memory_id: str, embedding: list[float]) -> None:
-    """Insert the embedding into the sqlite-vec virtual table."""
+    """Insert the embedding into the sqlite-vec virtual table.
+
+    Note: if this fails after the EpisodicMemory row has already been committed,
+    the record will have embedding_id=NULL and degrade gracefully to recency-based
+    retrieval — it will never appear in vec similarity searches but is otherwise
+    fully functional.
+    """
     try:
         vec_bytes = _pack_embedding(embedding)
         with _raw_memory_conn() as raw:

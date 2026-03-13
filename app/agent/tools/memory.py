@@ -159,14 +159,12 @@ def register_memory_tools(agent: Agent[AgentDeps, str]) -> None:
             if not to_delete:
                 return f"No memories found containing '{content_substring}'."
 
+            from app.memory.episodic import _delete_from_vec
+
             for m in to_delete:
+                _delete_from_vec(m.embedding_id)
                 session.delete(m)
             session.commit()
-
-        from app.memory.episodic import _delete_from_vec
-
-        for m in to_delete:
-            _delete_from_vec(m.embedding_id)
 
         count = len(to_delete)
         logger.info("Deleted %d memory/memories matching %r", count, content_substring)

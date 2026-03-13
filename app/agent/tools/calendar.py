@@ -106,8 +106,8 @@ def register_calendar_tools(agent: Agent[AgentDeps, str]) -> None:
             async with httpx.AsyncClient(timeout=10) as client:
                 resp = await client.get(url)
                 resp.raise_for_status()
-        except Exception as exc:
-            return f"Could not reach calendar URL: {exc}"
+        except Exception:
+            return "Could not reach the calendar URL — check it is correct and accessible."
 
         with users_session() as session:
             # Prevent duplicate URLs within the same household

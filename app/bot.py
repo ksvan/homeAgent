@@ -37,7 +37,9 @@ def _is_rate_limited(telegram_id: int, limit_per_minute: int) -> bool:
     now = monotonic()
     calls = _user_call_times[telegram_id]
     _user_call_times[telegram_id] = [t for t in calls if now - t < 60.0]
-    if len(_user_call_times[telegram_id]) >= limit_per_minute:
+    if not _user_call_times[telegram_id]:
+        del _user_call_times[telegram_id]
+    if len(_user_call_times.get(telegram_id, [])) >= limit_per_minute:
         return True
     _user_call_times[telegram_id].append(now)
     return False

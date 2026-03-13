@@ -51,6 +51,28 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 
 ---
 
+## [0.10.2] - 2026-03-13
+
+### Fixed
+
+#### Resilience Fixes — Priority 2 (7 fixes)
+
+- **Fix 9 — Rate limiter memory leak** (`app/bot.py`): `_user_call_times` now deletes empty list entries after window expiry so idle-user keys don't accumulate forever.
+
+- **Fix 10 — Calendar error sanitization** (`app/agent/tools/calendar.py`): `add_calendar` no longer exposes the raw `httpx` exception (which can include auth tokens in URL query strings); replaced with a generic "check it is correct and accessible" message.
+
+- **Fix 11 — Cleanup job isolation + staggered triggers** (`app/scheduler/cleanup.py`): Each of the three daily cleanup jobs (`purge_old_logs`, `purge_stale_memories`, `purge_old_tasks`) is now wrapped in `try/except Exception: logger.exception(...)` so a DB error in one job doesn't silently abort the others. Triggers are staggered by 1-hour `start_delay` so all three don't fire simultaneously on first startup.
+
+- **Fix 12 — Cascade delete for vector index entries** (`app/agent/tools/memory.py`, `app/memory/episodic.py`): `forget_memory` now calls `_delete_from_vec` before `session.delete` (inside the session) so vec rows are cleaned up atomically with their parent records. Added a doc comment to `_insert_into_vec` documenting the known `embedding_id=NULL` degraded-mode behaviour for records whose vec insert failed.
+
+- **Fix 13 — Expose degraded startup state** (`app/api/health.py`, `app/api/server.py`): `/health` now reports `mcp_prom` and `mcp_tools` status alongside `mcp_homey`. Startup logs a summary line: `MCP startup: homey=ok prom=ok tools=ok`. Renamed `mcp` key to `mcp_homey` in the health response for clarity.
+
+- **Fix 14 — Deduplicate concurrent scheduled prompt runs** (`app/scheduler/jobs.py`): Added module-level `_running_prompts: set[str]` with `try/finally` guard in `fire_scheduled_prompt`. If a second APScheduler trigger fires before the first run completes, the duplicate logs a warning and returns immediately without starting another agent run.
+
+- **Fix 15 — Circuit breaker for embedding API** (`app/memory/episodic.py`): `_get_embedding` now tracks consecutive failures. After 3 failures it opens the circuit for 60 s, skipping all HTTP calls during that window. Resets on success. Prevents every `store_memory` / `search_memories` call from making a failing HTTP request when the OpenAI embedding API is down.
+
+---
+
 ## [0.9.0] - 2026-03-09
 
 ### Changed
