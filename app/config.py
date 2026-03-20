@@ -28,10 +28,18 @@ class Settings(BaseSettings):
     )
 
     # ------------------------------------------------------------------
-    # LLM providers
+    # LLM providers  (global fallback keys)
     # ------------------------------------------------------------------
     anthropic_api_key: str = ""
     openai_api_key: str = ""
+
+    # Per-slot API keys — optional, takes precedence over global keys above.
+    # Set these to explicitly bind a model slot to a specific key/provider.
+    model_primary_api_key: str = ""
+    model_background_api_key: str = ""
+    model_fallback_api_key: str = ""
+    model_background_fallback_api_key: str = ""
+    model_embedding_api_key: str = ""
 
     # ------------------------------------------------------------------
     # Model selection

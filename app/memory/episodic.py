@@ -45,7 +45,8 @@ def _get_embedding(text: str) -> list[float] | None:
     from app.config import get_settings
 
     settings = get_settings()
-    if not settings.openai_api_key:
+    embedding_key = settings.model_embedding_api_key or settings.openai_api_key
+    if not embedding_key:
         return None
 
     if time.monotonic() < _embedding_open_until:
@@ -54,7 +55,7 @@ def _get_embedding(text: str) -> list[float] | None:
     try:
         import openai
 
-        client = openai.OpenAI(api_key=settings.openai_api_key)
+        client = openai.OpenAI(api_key=embedding_key)
         response = client.embeddings.create(model=settings.model_embedding, input=text)
         _embedding_failures = 0  # reset on success
         return response.data[0].embedding
