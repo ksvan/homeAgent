@@ -21,6 +21,7 @@ class AgentDeps:
     household_name: str
     current_date: str
     current_time: str
+    current_dt_iso: str  # ISO 8601 with UTC offset, e.g. "2026-03-20T15:32:00+01:00"
     timezone: str
     # M3: memory context
     user_profile_text: str = ""
@@ -65,6 +66,8 @@ def _make_conversation_agent() -> Agent[AgentDeps, str]:
 
     @a.system_prompt
     async def _(ctx: RunContext[AgentDeps]) -> str:  # noqa: ANN202
+        import json as _json
+
         d = ctx.deps
         vars_: dict[str, str] = {
             "agent_name": d.agent_name,
@@ -90,9 +93,13 @@ def _make_conversation_agent() -> Agent[AgentDeps, str]:
             mem_block = "\n".join(f"- {m}" for m in d.relevant_memories)
             extra_sections.append(f"## Relevant Memories\n{mem_block}")
 
-        if extra_sections:
-            return base + "\n\n---\n\n" + "\n\n".join(extra_sections)
-        return base
+        time_block = (
+            "<time_context>\n"
+            + _json.dumps({"current_time": d.current_dt_iso, "timezone": d.timezone}, indent=2)
+            + "\n</time_context>"
+        )
+        suffix = ("\n\n---\n\n" + "\n\n".join(extra_sections)) if extra_sections else ""
+        return time_block + "\n\n" + base + suffix
 
     from app.agent.tools.actions import register_action_tools
     from app.agent.tools.calendar import register_calendar_tools
@@ -164,6 +171,7 @@ async def run_conversation(
         household_name=household_name,
         current_date=now.strftime("%A, %d %B %Y"),
         current_time=now.strftime("%H:%M") + " (UTC" + now.strftime("%z")[:3] + ":" + now.strftime("%z")[3:] + ")",
+        current_dt_iso=now.isoformat(),
         timezone=settings.household_timezone,
         user_profile_text=user_profile_text,
         household_profile_text=household_profile_text,

@@ -14,7 +14,7 @@ from pydantic_ai.messages import (
 from sqlmodel import col, select
 
 from app.db import memory_session
-from app.models.memory import ConversationMessage, ConversationSummary
+from app.models.memory import ConversationMessage, ConversationSummary, ConversationTurn
 
 logger = logging.getLogger(__name__)
 
@@ -60,10 +60,55 @@ def save_message_pair(user_id: str, user_text: str, assistant_text: str) -> None
         session.commit()
 
 
+def save_conversation_turn(user_id: str, new_messages: list[ModelMessage]) -> None:
+    """Persist the full pydantic-ai message list for one conversation turn.
+
+    Stores tool call exchanges in addition to the final text, so the LLM
+    sees the complete history on the next request and does not re-execute
+    actions that have already been completed.
+    """
+    from pydantic_ai.messages import ModelMessagesTypeAdapter
+
+    json_str = ModelMessagesTypeAdapter.dump_json(new_messages).decode()
+    with memory_session() as session:
+        session.add(
+            ConversationTurn(
+                user_id=user_id,
+                messages_json=json_str,
+            )
+        )
+        session.commit()
+
+
 def load_recent_messages(
     user_id: str, limit_pairs: int = _MAX_RECENT_PAIRS
 ) -> list[ModelMessage]:
-    """Load the most recent messages and return them as PydanticAI ModelMessage objects."""
+    """Load the most recent conversation turns as PydanticAI ModelMessage objects.
+
+    Reads from ConversationTurn (full tool-call history). Falls back to
+    text-only ConversationMessage rows if no turns exist yet (backward compat).
+    """
+    from pydantic_ai.messages import ModelMessagesTypeAdapter
+
+    with memory_session() as session:
+        turns = session.exec(
+            select(ConversationTurn)
+            .where(ConversationTurn.user_id == user_id)
+            .order_by(col(ConversationTurn.created_at).desc())
+            .limit(limit_pairs)
+        ).all()
+
+    if turns:
+        # Chronological order; each turn's messages_json is one exchange
+        messages: list[ModelMessage] = []
+        for turn in reversed(turns):
+            try:
+                messages.extend(ModelMessagesTypeAdapter.validate_json(turn.messages_json))
+            except Exception:
+                logger.warning("Failed to deserialize ConversationTurn id=%s", turn.id)
+        return messages
+
+    # Backward-compat: no turns yet — fall back to text-only pairs
     with memory_session() as session:
         rows = session.exec(
             select(ConversationMessage)
@@ -72,20 +117,14 @@ def load_recent_messages(
             .limit(limit_pairs * 2)
         ).all()
 
-    # Reverse to chronological order
     ordered = list(reversed(rows))
-
-    messages: list[ModelMessage] = []
+    fallback: list[ModelMessage] = []
     for row in ordered:
         if row.role == "user":
-            messages.append(
-                ModelRequest(parts=[UserPromptPart(content=row.content)])
-            )
+            fallback.append(ModelRequest(parts=[UserPromptPart(content=row.content)]))
         else:
-            messages.append(
-                ModelResponse(parts=[TextPart(content=row.content)])
-            )
-    return messages
+            fallback.append(ModelResponse(parts=[TextPart(content=row.content)]))
+    return fallback
 
 
 def get_conversation_summary(user_id: str) -> str | None:

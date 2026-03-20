@@ -141,7 +141,7 @@ async def handle_incoming_message(telegram_id: int, text: str) -> str | None:
     from app.agent.context import assemble_context
     from app.control.events import emit
     from app.homey.state_cache import update_snapshots_from_tool_calls
-    from app.memory.conversation import save_message_pair
+    from app.memory.conversation import save_conversation_turn, save_message_pair
 
     # Serialize per-user: Q2 waits for Q1 to finish so responses never arrive
     # out of order and context always sees the latest saved history.
@@ -288,7 +288,8 @@ async def handle_incoming_message(telegram_id: int, text: str) -> str | None:
 
         # Persist messages and update state cache from any Homey tool calls
         new_messages = list(result.new_messages())
-        save_message_pair(user.id, text, response)
+        save_message_pair(user.id, text, response)  # text-only, used for summarization
+        save_conversation_turn(user.id, new_messages)  # full tool-call history for LLM context
         update_snapshots_from_tool_calls(user.household_id, new_messages)
 
         # Background memory tasks — fire-and-forget, never block the response

@@ -58,6 +58,16 @@ class ConversationMessage(SQLModel, table=True):
     created_at: datetime = Field(default_factory=_now)
 
 
+class ConversationTurn(SQLModel, table=True):
+    """Full pydantic-ai message list for one conversation turn (user + tool calls + assistant)."""
+
+    id: str = Field(default_factory=_uuid, primary_key=True)
+    user_id: str = Field(index=True)
+    # JSON-serialized list[ModelMessage] from result.new_messages()
+    messages_json: str
+    created_at: datetime = Field(default_factory=_now)
+
+
 class ConversationSummary(SQLModel, table=True):
     id: str = Field(default_factory=_uuid, primary_key=True)
     # user_id references User.id in users.db — no SQLite FK across DB files
