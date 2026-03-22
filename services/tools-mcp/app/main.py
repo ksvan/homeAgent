@@ -30,6 +30,7 @@ if __name__ == "__main__":
             ("python", settings.feature_python),
             ("scrape", settings.feature_scrape),
             ("search", settings.feature_search),
+            ("sharepoint", settings.feature_sharepoint),
         ]
         if flag
     ]

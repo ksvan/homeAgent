@@ -17,6 +17,53 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 
 ---
 
+## [0.11.0] - 2026-03-22
+
+### Added
+
+#### SharePoint file access
+
+- **`services/tools-mcp/app/mcp_server.py`** — two new tools behind `FEATURE_SHAREPOINT=true`:
+  - `sharepoint_list_files(site_url, folder_path)` — lists files and subfolders in a SharePoint document library via the SharePoint REST API; SSRF-checked.
+  - `sharepoint_download_file(file_url)` — downloads a file; auto-parses `.docx` to plain text (paragraphs + tables), decodes `.txt`/`.csv`/`.md` as UTF-8, reports binary types.
+- **`services/tools-mcp/requirements.txt`** — added `python-docx>=1.1`.
+- **`services/tools-mcp/app/config.py`** — `feature_sharepoint`, `sharepoint_timeout_seconds`, `sharepoint_max_file_bytes`, `sharepoint_max_content_bytes` settings.
+- **`services/tools-mcp/app/main.py`** — SharePoint registered in feature-gate startup log.
+- **`docker-compose.yml`** — `FEATURE_SHAREPOINT: "true"` added to `tools` service environment.
+
+#### Prometheus MCP service
+
+- **`services/prometheus-mcp/Dockerfile`** (new) — missing Dockerfile for the prometheus-mcp container; based on `uv:python3.12-bookworm-slim`, runs as non-root `appuser`.
+- **`services/prometheus-mcp/app/config.py`** — fixed `IndexError` crash at container startup: `.env` lookup now walks parents safely instead of hardcoding `parents[3]`.
+
+#### HTTP requests from Python scripts
+
+- **`prompts/instructions.md`** — `## Bash commands`: notes that `curl` is unavailable (blocked); `## Python scripts`: updated to state that scripts may make HTTP requests using the pre-installed `httpx`.
+
+### Fixed
+
+#### Homey home structure truncated in large homes
+
+- **`app/homey/mcp_client.py`** — raised `_MAX_TOOL_RESULT_CHARS` from `12,000` to `40,000` chars so that `homey_get_home_structure` returns a complete response for large homes instead of truncating at 12k.
+
+#### tools-mcp crash on startup with pydantic-settings ≥2.4
+
+- **`services/tools-mcp/app/config.py`** — `bash_allowed_commands` changed from `list[str]` to `str` (CSV). pydantic-settings ≥2.4 JSON-parses list fields from env vars before field validators run, breaking comma-separated allowlists. Field is now a plain string with a `bash_allowed_commands_list()` helper method.
+- **`services/tools-mcp/app/mcp_server.py`** — updated bash tool to call `settings.bash_allowed_commands_list()`.
+
+### Changed
+
+#### Context window reduced — conversation history compaction
+
+- **`app/memory/conversation.py`**:
+  - `_MAX_RECENT_PAIRS` lowered from 20 → 10 (halves the number of turns in the sliding window).
+  - `_FULL_TURNS_KEPT = 3` — full tool-call results kept only for the 3 most recent turns; older turns have `ToolReturnPart` content replaced with `[result omitted]`, eliminating large tool response blobs from older history.
+  - `_SUMMARY_THRESHOLD` lowered from 50 → 20; `_SUMMARY_BATCH` from 30 → 10 — summarization triggers much earlier, keeping a rolling summary in the system prompt.
+  - `_strip_tool_results()` helper strips `ToolReturnPart` content from older turns when loading.
+- **`app/scheduler/cleanup.py`** — `purge_old_turns` daily cleanup job added: retains max 50 `ConversationTurn` rows per user, pruning the rest to prevent unbounded DB growth.
+
+---
+
 ## [0.10.0] - 2026-03-13
 
 ### Added

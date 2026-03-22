@@ -8,7 +8,9 @@ logger = logging.getLogger(__name__)
 _CLEANUP_JOB_ID = "cleanup_old_logs"
 _MEMORY_PURGE_JOB_ID = "cleanup_stale_memories"
 _TASK_PURGE_JOB_ID = "cleanup_old_tasks"
+_TURNS_PURGE_JOB_ID = "cleanup_old_turns"
 _TASK_RETENTION_DAYS = 8
+_TURNS_MAX_KEEP = 50  # maximum ConversationTurn rows retained per user
 
 
 async def purge_old_logs() -> None:
@@ -144,6 +146,49 @@ async def purge_old_tasks() -> None:
         logger.exception("purge_old_tasks failed")
 
 
+async def purge_old_turns() -> None:
+    """
+    Keep only the most recent _TURNS_MAX_KEEP ConversationTurn rows per user.
+    Older rows accumulate indefinitely otherwise. Runs daily via APScheduler.
+    """
+    try:
+        from sqlmodel import col, select
+
+        from app.db import memory_session
+        from app.models.memory import ConversationTurn
+
+        total_deleted = 0
+        with memory_session() as session:
+            user_ids = session.exec(
+                select(ConversationTurn.user_id).distinct()
+            ).all()
+            for uid in user_ids:
+                keep_ids = session.exec(
+                    select(ConversationTurn.id)
+                    .where(ConversationTurn.user_id == uid)
+                    .order_by(col(ConversationTurn.created_at).desc())
+                    .limit(_TURNS_MAX_KEEP)
+                ).all()
+                if not keep_ids:
+                    continue
+                old_rows = session.exec(
+                    select(ConversationTurn)
+                    .where(ConversationTurn.user_id == uid)
+                    .where(col(ConversationTurn.id).not_in(keep_ids))
+                ).all()
+                for row in old_rows:
+                    session.delete(row)
+                total_deleted += len(old_rows)
+            session.commit()
+
+        if total_deleted:
+            logger.info("Turn purge: removed %d old ConversationTurn(s)", total_deleted)
+        else:
+            logger.debug("Turn purge: nothing to remove")
+    except Exception:
+        logger.exception("purge_old_turns failed")
+
+
 async def register_cleanup_jobs() -> None:
     """Schedule the daily log-retention and memory-purge jobs. Safe to call even if the
     scheduler already has the jobs registered (conflicts are silently ignored)."""
@@ -160,6 +205,7 @@ async def register_cleanup_jobs() -> None:
         (purge_old_logs,       _CLEANUP_JOB_ID,       0),
         (purge_stale_memories, _MEMORY_PURGE_JOB_ID,  1),
         (purge_old_tasks,      _TASK_PURGE_JOB_ID,    2),
+        (purge_old_turns,      _TURNS_PURGE_JOB_ID,   3),
     ]:
         try:
             await scheduler.add_schedule(

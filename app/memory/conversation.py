@@ -9,6 +9,7 @@ from pydantic_ai.messages import (
     ModelRequest,
     ModelResponse,
     TextPart,
+    ToolReturnPart,
     UserPromptPart,
 )
 from sqlmodel import col, select
@@ -19,11 +20,14 @@ from app.models.memory import ConversationMessage, ConversationSummary, Conversa
 logger = logging.getLogger(__name__)
 
 # Keep this many message *pairs* in the rolling window passed to the agent
-_MAX_RECENT_PAIRS = 20
+_MAX_RECENT_PAIRS = 10
+
+# Keep full tool results only for the most recent N turns; strip them from older turns
+_FULL_TURNS_KEPT = 3
 
 # Summarize oldest _SUMMARY_BATCH messages once total exceeds _SUMMARY_THRESHOLD
-_SUMMARY_THRESHOLD = 50
-_SUMMARY_BATCH = 30
+_SUMMARY_THRESHOLD = 20
+_SUMMARY_BATCH = 10
 
 _SUMMARIZER_PROMPT = (
     "Summarize the following conversation into concise bullet points. "
@@ -33,6 +37,31 @@ _SUMMARIZER_PROMPT = (
 )
 
 _summarizer: Agent[None, str] | None = None
+
+
+def _strip_tool_results(messages: list[ModelMessage]) -> list[ModelMessage]:
+    """Replace ToolReturnPart content with a placeholder to reduce context size.
+
+    Called on older turns where the tool result blobs are no longer useful —
+    the LLM only needs to know a tool was called, not what it returned.
+    """
+    stripped = []
+    for msg in messages:
+        if not any(isinstance(p, ToolReturnPart) for p in msg.parts):
+            stripped.append(msg)
+            continue
+        new_parts = [
+            ToolReturnPart(
+                tool_name=p.tool_name,
+                content="[result omitted]",
+                tool_call_id=p.tool_call_id,
+            )
+            if isinstance(p, ToolReturnPart)
+            else p
+            for p in msg.parts
+        ]
+        stripped.append(msg.model_copy(update={"parts": new_parts}))
+    return stripped
 
 
 def _get_summarizer() -> Agent[None, str]:
@@ -99,9 +128,22 @@ def load_recent_messages(
         ).all()
 
     if turns:
-        # Chronological order; each turn's messages_json is one exchange
+        # Chronological order; strip tool results from older turns to save context space
+        all_turns = list(reversed(turns))
+        full_turns = all_turns[-_FULL_TURNS_KEPT:]
+        old_turns = all_turns[:-_FULL_TURNS_KEPT]
+
         messages: list[ModelMessage] = []
-        for turn in reversed(turns):
+        for turn in old_turns:
+            try:
+                messages.extend(
+                    _strip_tool_results(
+                        ModelMessagesTypeAdapter.validate_json(turn.messages_json)
+                    )
+                )
+            except Exception:
+                logger.warning("Failed to deserialize ConversationTurn id=%s", turn.id)
+        for turn in full_turns:
             try:
                 messages.extend(ModelMessagesTypeAdapter.validate_json(turn.messages_json))
             except Exception:

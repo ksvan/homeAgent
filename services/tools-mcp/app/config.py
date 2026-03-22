@@ -2,7 +2,6 @@ from __future__ import annotations
 
 from functools import lru_cache
 
-from pydantic import field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -26,8 +25,8 @@ class Settings(BaseSettings):
     # Workspace root (set to /workspace inside Docker)
     workspace_dir: str = "/workspace"
 
-    # Bash tool
-    bash_allowed_commands: list[str] = []
+    # Bash tool — CSV string to avoid pydantic-settings JSON-parsing list fields from env vars
+    bash_allowed_commands: str = ""
     bash_max_timeout_seconds: int = 60
     bash_max_output_bytes: int = 200_000
 
@@ -39,17 +38,20 @@ class Settings(BaseSettings):
     scrape_timeout_seconds: int = 30
     scrape_max_content_bytes: int = 100_000
 
+    # SharePoint tool
+    feature_sharepoint: bool = False
+    sharepoint_timeout_seconds: int = 30
+    sharepoint_max_file_bytes: int = 10_000_000   # 10 MB raw cap
+    sharepoint_max_content_bytes: int = 100_000   # text output cap
+
     # Web search tool
     search_provider: str = "tavily"
     tavily_api_key: str = ""
     search_max_results: int = 5
 
-    @field_validator("bash_allowed_commands", mode="before")
-    @classmethod
-    def parse_str_list(cls, v: object) -> object:
-        if isinstance(v, str):
-            return [x.strip() for x in v.split(",") if x.strip()]
-        return v
+    def bash_allowed_commands_list(self) -> list[str]:
+        """Parse the CSV bash_allowed_commands string into a list."""
+        return [x.strip() for x in self.bash_allowed_commands.split(",") if x.strip()]
 
 
 @lru_cache(maxsize=1)

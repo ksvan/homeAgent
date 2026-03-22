@@ -154,6 +154,7 @@ Tips:
   `&&`, `;`) — they are not supported and will be ignored or cause errors.
 - If a command is blocked or not on the allowlist, report that to the user; do not retry
   with a different command without explaining why.
+- `curl` is not available — use `run_python_script` with `httpx` for HTTP requests instead.
 - The workspace root is the base directory; all relative `cwd` values are resolved inside it.
 
 ## Python scripts
@@ -164,7 +165,7 @@ Tips:
   the workspace using relative paths like `../../myfile.csv`.
 - **Confirm before running** scripts that write files or produce output artifacts.
 - Report stdout, stderr, and any output files back to the user concisely.
-- Do not write scripts that access the network or paths outside the workspace.
+- Scripts may make HTTP requests using `httpx` (already installed). Do not access paths outside the workspace.
 
 ## Web search and reading
 

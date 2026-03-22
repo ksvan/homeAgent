@@ -5,9 +5,12 @@ from pathlib import Path
 
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
-# Absolute path to the repo root .env — works regardless of CWD at startup.
-# app/config.py lives at services/prometheus-mcp/app/config.py → 3 parents up = repo root.
-_ROOT_ENV = Path(__file__).resolve().parents[3] / ".env"
+# Walk up from this file looking for a .env (works locally).
+# In Docker no .env exists on any parent — pydantic-settings silently skips it.
+_ROOT_ENV = next(
+    (p / ".env" for p in Path(__file__).resolve().parents if (p / ".env").exists()),
+    Path("/nonexistent/.env"),
+)
 
 
 class Settings(BaseSettings):

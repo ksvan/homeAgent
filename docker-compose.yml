@@ -5,6 +5,7 @@ services:
     env_file: .env
     environment:
       MCP_PORT: "9001"
+      FEATURE_SHAREPOINT: "true"
     volumes:
       # Isolated workspace — tools can read/write here but NOT /app/data
       - ./data/workspace:/workspace
