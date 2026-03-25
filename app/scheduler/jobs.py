@@ -195,6 +195,10 @@ async def _fire_scheduled_prompt_inner(
 
     run_id = str(_uuid.uuid4())
     t0 = _time.monotonic()
+
+    logger.info(
+        "Scheduled prompt starting: prompt_id=%s name=%r run_id=%s", prompt_id, name, run_id
+    )
     emit(
         "job.fire",
         {"job": "scheduled_prompt", "name": name[:80], "prompt": prompt_text[:80]},
@@ -204,13 +208,20 @@ async def _fire_scheduled_prompt_inner(
     # Resolve display names from DB
     user_name = "user"
     household_name = "the household"
-    with users_session() as session:
-        user = session.get(User, user_id)
-        household = session.get(Household, household_id)
-        if user:
-            user_name = user.name
-        if household:
-            household_name = household.name
+    try:
+        with users_session() as session:
+            user = session.get(User, user_id)
+            household = session.get(Household, household_id)
+            if user:
+                user_name = user.name
+            if household:
+                household_name = household.name
+    except Exception:
+        logger.error(
+            "Scheduled prompt DB lookup failed: prompt_id=%s name=%r", prompt_id, name,
+            exc_info=True,
+        )
+        raise
 
     channel = get_channel()
     success = False
@@ -227,12 +238,13 @@ async def _fire_scheduled_prompt_inner(
         response = result.output
         success = True
         logger.info(
-            "Scheduled prompt fired: prompt_id=%s name=%r run_id=%s", prompt_id, name, run_id
+            "Scheduled prompt complete: prompt_id=%s name=%r run_id=%s", prompt_id, name, run_id
         )
     except Exception:
         response = f"Scheduled prompt '{name}' failed to run."
-        logger.warning(
-            "Scheduled prompt failed: prompt_id=%s name=%r", prompt_id, name, exc_info=True
+        logger.error(
+            "Scheduled prompt run_conversation failed: prompt_id=%s name=%r",
+            prompt_id, name, exc_info=True,
         )
 
     duration_ms = int((_time.monotonic() - t0) * 1000)
@@ -251,8 +263,11 @@ async def _fire_scheduled_prompt_inner(
         try:
             await channel.send_message(channel_user_id, response)
         except Exception:
-            logger.warning(
-                "Could not deliver scheduled prompt response to channel_user_id=%s",
-                channel_user_id,
-                exc_info=True,
+            logger.error(
+                "Could not deliver scheduled prompt response: prompt_id=%s channel_user_id=%s",
+                prompt_id, channel_user_id, exc_info=True,
             )
+    elif not channel:
+        logger.error(
+            "Scheduled prompt: no active channel — response not delivered: prompt_id=%s", prompt_id
+        )

@@ -27,7 +27,11 @@ def validate_range(start: str, end: str, step: int) -> None:
 
     delta_seconds = (end_dt - start_dt).total_seconds()
     if delta_seconds <= 0:
-        raise ValueError("start must be before end")
+        raise ValueError(
+            f"start must be before end (start={start!r}, end={end!r}). "
+            "start is the older/earlier time, end is the newer/later time (usually now). "
+            "You may have them reversed — swap the values and retry."
+        )
 
     delta_hours = delta_seconds / 3600
     if delta_hours > settings.prom_max_range_hours:

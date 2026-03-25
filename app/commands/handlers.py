@@ -160,15 +160,86 @@ class _Schedule(SlashCommand):
         return f"{len(tasks)} scheduled item(s):\n\n" + "\n".join(lines)
 
 
+class _ScheduledPrompts(SlashCommand):
+    name = "prompts"
+    help = "List recurring scheduled prompts (or: /prompts run <id>)"
+
+    async def run(self, ctx: SlashCommandContext) -> str:
+        from sqlmodel import col, select
+
+        from app.db import users_session
+        from app.models.scheduled_prompts import ScheduledPrompt
+
+        # /prompts run <id-prefix>
+        if ctx.args and ctx.args[0] == "run":
+            if len(ctx.args) < 2:
+                return "Usage: /prompts run <id>"
+            id_prefix = ctx.args[1].lower()
+
+            with users_session() as session:
+                prompts = session.exec(
+                    select(ScheduledPrompt).where(
+                        ScheduledPrompt.household_id == ctx.household_id
+                    )
+                ).all()
+                match = next((p for p in prompts if p.id.lower().startswith(id_prefix)), None)
+
+            if match is None:
+                return f"No prompt found with id starting '{id_prefix}'."
+
+            from app.scheduler.jobs import fire_scheduled_prompt
+
+            try:
+                await fire_scheduled_prompt(
+                    prompt_id=match.id,
+                    user_id=match.user_id,
+                    household_id=match.household_id,
+                    channel_user_id=match.channel_user_id,
+                    prompt_text=match.prompt,
+                    name=match.name,
+                )
+            except Exception as exc:
+                return f"Prompt '{match.name}' failed: {exc}"
+            return f"Fired '{match.name}' — response delivered to its channel."
+
+        # Default: list all prompts
+        with users_session() as session:
+            prompts = session.exec(
+                select(ScheduledPrompt).where(
+                    ScheduledPrompt.household_id == ctx.household_id
+                )
+            ).all()
+
+        if not prompts:
+            return "No scheduled prompts."
+
+        lines = []
+        for p in prompts:
+            status = "on" if p.enabled else "off"
+            text = p.prompt if len(p.prompt) <= 60 else p.prompt[:60] + "…"
+            lines.append(
+                f"[{status}] {p.name}  —  {p.recurrence} @ {p.time_of_day}\n"
+                f"       {text}  (id: {p.id[:8]})"
+            )
+
+        return f"{len(prompts)} scheduled prompt(s):\n\n" + "\n\n".join(lines)
+
+
 class _Status(SlashCommand):
     name = "status"
-    help = "Operational status snapshot"
+    help = "Operational status snapshot (or: /status refresh to reconnect)"
     admin_only = True
 
     async def run(self, ctx: SlashCommandContext) -> str:
+        if ctx.args and ctx.args[0] == "refresh":
+            return await self._refresh()
+        return self._snapshot()
+
+    def _snapshot(self) -> str:
         from app.homey.mcp_client import get_mcp_server as get_homey
         from app.prometheus.mcp_client import get_mcp_server as get_prom
         from app.scheduler.engine import get_scheduler
+        from app.tools.mcp_client import get_mcp_server as get_tools
 
         def _mark(ok: bool) -> str:
             return "ok" if ok else "unavailable"
@@ -177,8 +248,53 @@ class _Status(SlashCommand):
             f"Scheduler       : {_mark(get_scheduler() is not None)}",
             f"Homey MCP       : {_mark(get_homey() is not None)}",
             f"Prometheus MCP  : {_mark(get_prom() is not None)}",
+            f"Tools MCP       : {_mark(get_tools() is not None)}",
         ]
         return "Status:\n\n" + "\n".join(lines)
+
+    async def _refresh(self) -> str:
+        from app.agent.agent import reload_agent
+        from app.homey.mcp_client import get_mcp_server as get_homey
+        from app.homey.mcp_client import start_mcp as start_homey
+        from app.homey.mcp_client import stop_mcp as stop_homey
+        from app.prometheus.mcp_client import get_mcp_server as get_prom
+        from app.prometheus.mcp_client import start_mcp as start_prom
+        from app.prometheus.mcp_client import stop_mcp as stop_prom
+        from app.tools.mcp_client import get_mcp_server as get_tools
+        from app.tools.mcp_client import start_mcp as start_tools
+        from app.tools.mcp_client import stop_mcp as stop_tools
+
+        services = [
+            ("Homey MCP",      get_homey,  stop_homey,  start_homey),
+            ("Prometheus MCP", get_prom,   stop_prom,   start_prom),
+            ("Tools MCP",      get_tools,  stop_tools,  start_tools),
+        ]
+
+        lines = []
+        agent_needs_reload = False
+
+        for name, getter, stopper, starter in services:
+            if getter() is not None:
+                lines.append(f"{name}: ok")
+                continue
+            try:
+                await stopper()
+            except Exception:
+                pass
+            result = await starter()
+            if result is not None:
+                lines.append(f"{name}: reconnected")
+                agent_needs_reload = True
+            else:
+                lines.append(f"{name}: still unavailable")
+
+        if agent_needs_reload:
+            reload_agent()
+            lines.append("\nAgent reloaded — reconnected tools are now active.")
+        else:
+            lines.append("\nNo services recovered — agent unchanged.")
+
+        return "Status refresh:\n\n" + "\n".join(lines)
 
 
 class _Users(SlashCommand):
@@ -209,5 +325,5 @@ class _Users(SlashCommand):
 
 
 # Register all commands in display order
-for _cmd in [_Help(), _ContextStats(), _History(), _Schedule(), _Status(), _Users()]:
+for _cmd in [_Help(), _ContextStats(), _History(), _Schedule(), _ScheduledPrompts(), _Status(), _Users()]:
     registry.register(_cmd)

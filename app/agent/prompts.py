@@ -10,11 +10,22 @@ from app.config import get_settings
 logger = logging.getLogger(__name__)
 
 
-class _SafeDict(dict):  # type: ignore[type-arg]
-    """Leave unrecognised {keys} unchanged instead of raising KeyError."""
+class _SafeStr(str):
+    """A str that reconstructs {key:spec} when an unknown format spec is applied."""
 
-    def __missing__(self, key: str) -> str:
-        return "{" + key + "}"
+    def __format__(self, spec: str) -> str:
+        # Reconstruct the original {key} or {key:spec} so JSON examples in prompt
+        # files are preserved verbatim even when format_map processes the template.
+        if spec:
+            return "{" + str(self) + ":" + spec + "}"
+        return "{" + str(self) + "}"
+
+
+class _SafeDict(dict):  # type: ignore[type-arg]
+    """Leave unrecognised {keys} unchanged instead of raising KeyError or ValueError."""
+
+    def __missing__(self, key: str) -> _SafeStr:
+        return _SafeStr(key)
 
 
 def _strip_html_comments(text: str) -> str:

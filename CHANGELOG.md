@@ -17,6 +17,37 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 
 ---
 
+## [0.11.1] - 2026-03-25
+
+### Added
+
+#### `/prompts` slash command
+
+- **`app/commands/handlers.py`** — `_ScheduledPrompts` command (`/prompts`): lists all household scheduled prompts with ID, status, recurrence, time, and prompt text. `/prompts run <id-prefix>` triggers an immediate execution — useful for testing and debugging scheduled prompts.
+
+#### `/status refresh` subcommand
+
+- **`app/commands/handlers.py`** — `/status refresh` reconnects any disconnected MCP services (Homey, Prometheus, Tools) without a container restart: calls `stop_mcp()` + `start_mcp()` per service, then `reload_agent()` so the new connections are used immediately.
+
+### Fixed
+
+#### Scheduled prompt `format_map` crash on JSON examples in instructions.md
+
+- **`app/agent/prompts.py`** — `_SafeStr` class: overrides `__format__` to reconstruct `{key:spec}` for unknown format keys instead of raising `ValueError: Invalid format specifier`. Fixes crash when `instructions.md` contains JSON examples like `{"query": "lights bedroom"}` which `str.format_map()` tried to parse as a format spec.
+- `_SafeDict.__missing__` now returns `_SafeStr(key)` instead of a plain `str`, preserving the protection for arbitrary format specs.
+
+#### Scheduled prompt silent failures
+
+- **`app/scheduler/jobs.py`** — `_fire_scheduled_prompt_inner`: added `logger.info` at job start; wrapped DB lookup in its own `try/except` with `logger.error` + re-raise; upgraded `logger.warning` → `logger.error` for all failure paths; error reply now includes the actual exception text so failures are visible in logs.
+
+#### `prom_query_range` crash when agent reverses timestamps
+
+- **`app/agent/agent.py`** — `Agent` constructor now sets `retries=3` (was default 1): gives the LLM 3 attempts to self-correct a bad tool call before the run is abandoned.
+- **`services/prometheus-mcp/app/guards.py`** — `validate_range` error message now includes the actual `start`/`end` values and an explicit hint to swap them, making self-correction possible within the retry budget.
+- **`services/prometheus-mcp/app/mcp_server.py`** — `prom_query_range` docstring clarifies that `start` is the older/earlier time and `end` is the newer/later time (usually now), with `Must be before/after` notes.
+
+---
+
 ## [0.11.0] - 2026-03-22
 
 ### Added

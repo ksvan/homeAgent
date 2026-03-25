@@ -60,8 +60,8 @@ async def prom_query_range(
 
     Args:
         query: PromQL expression.
-        start: Range start, RFC3339, e.g. '2024-01-15T00:00:00Z'.
-        end:   Range end, RFC3339, e.g. '2024-01-16T00:00:00Z'.
+        start: Range start (older/earlier time), RFC3339, e.g. '2024-01-15T00:00:00Z'. Must be before end.
+        end:   Range end (newer/later time, usually now), RFC3339, e.g. '2024-01-16T00:00:00Z'. Must be after start.
         step:  Resolution step in seconds (default 300 = 5 min; minimum enforced by config).
     """
     validate_metric_allowlist(query)

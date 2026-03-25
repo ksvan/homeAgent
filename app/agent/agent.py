@@ -62,6 +62,7 @@ def _make_conversation_agent() -> Agent[AgentDeps, str]:
         deps_type=AgentDeps,
         output_type=str,
         toolsets=toolsets or None,
+        retries=3,
     )
 
     @a.system_prompt
