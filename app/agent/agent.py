@@ -150,6 +150,7 @@ async def run_conversation(
     household_id: str = "",
     channel_user_id: str = "",
     run_id: str = "",
+    media: list | None = None,
 ) -> AgentRunResult[str]:
     """
     Run the conversation agent and return the full AgentRunResult.
@@ -195,10 +196,19 @@ async def run_conversation(
         len(list(agent.toolsets)),
     )
 
+    from pydantic_ai import BinaryContent
     from pydantic_ai.settings import ModelSettings
 
+    if media:
+        user_prompt: str | list = [text] + [
+            BinaryContent(data=m.data, media_type=m.mime_type) for m in media
+        ]
+        logger.info("run_conversation: media=%d attachment(s)", len(media))
+    else:
+        user_prompt = text
+
     return await agent.run(
-        text,
+        user_prompt,
         deps=deps,
         message_history=message_history or [],
         model_settings=ModelSettings(max_tokens=settings.max_tokens_per_run),

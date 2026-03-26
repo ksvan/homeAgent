@@ -1,7 +1,15 @@
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
-from dataclasses import dataclass
+from dataclasses import dataclass, field
+
+
+@dataclass
+class MediaAttachment:
+    """Channel-agnostic representation of a binary media item (image, audio, etc.)."""
+
+    data: bytes
+    mime_type: str  # e.g. "image/jpeg", "audio/ogg", "audio/mpeg"
 
 
 @dataclass
@@ -12,6 +20,7 @@ class IncomingMessage:
     text: str
     channel: str  # "telegram" | "whatsapp" | ...
     raw: dict[str, object]  # original event payload for audit / debugging
+    attachments: list[MediaAttachment] = field(default_factory=list)
 
 
 class Channel(ABC):

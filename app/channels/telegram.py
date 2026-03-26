@@ -8,13 +8,15 @@ from collections.abc import Awaitable, Callable
 from telegram import CallbackQuery, InlineKeyboardButton, InlineKeyboardMarkup, Update
 from telegram.ext import Application, CallbackQueryHandler, MessageHandler, filters
 
-from app.channels.base import Channel
+from app.channels.base import Channel, MediaAttachment
 from app.config import get_settings
 
 logger = logging.getLogger(__name__)
 
-# Callback type: (telegram_id, text) → response string or None
-MessageCallback = Callable[[int, str], Awaitable[str | None]]
+_MAX_MEDIA_BYTES = 10 * 1024 * 1024  # 10 MB
+
+# Callback type: (telegram_id, text, attachments) → response string or None
+MessageCallback = Callable[[int, str, list[MediaAttachment]], Awaitable[str | None]]
 
 
 class TelegramChannel(Channel):
@@ -30,6 +32,9 @@ class TelegramChannel(Channel):
     def _register_handlers(self) -> None:
         self._app.add_handler(
             MessageHandler(filters.TEXT | filters.COMMAND, self._handle_message)
+        )
+        self._app.add_handler(
+            MessageHandler(filters.PHOTO | filters.VOICE | filters.AUDIO, self._handle_media)
         )
         self._app.add_handler(CallbackQueryHandler(self._handle_callback_query))
 
@@ -48,9 +53,62 @@ class TelegramChannel(Channel):
         if telegram_id not in settings.allowed_telegram_ids:
             return  # silent drop
 
-        response = await self._on_message(telegram_id, text)
+        response = await self._on_message(telegram_id, text, [])
         if response:
             await update.message.reply_text(response)
+
+    async def _handle_media(self, update: Update, context: object) -> None:
+        if not update.effective_user or not update.message:
+            return
+
+        telegram_id = update.effective_user.id
+        settings = get_settings()
+        if telegram_id not in settings.allowed_telegram_ids:
+            return  # silent drop
+
+        msg = update.message
+        caption = msg.caption or ""
+
+        # Determine file_id, file_size, and mime_type
+        if msg.photo:
+            # photo is a list of PhotoSize; last entry is the largest
+            photo = msg.photo[-1]
+            file_id = photo.file_id
+            file_size = photo.file_size or 0
+            mime_type = "image/jpeg"
+        elif msg.voice:
+            file_id = msg.voice.file_id
+            file_size = msg.voice.file_size or 0
+            mime_type = "audio/ogg"
+        elif msg.audio:
+            file_id = msg.audio.file_id
+            file_size = msg.audio.file_size or 0
+            mime_type = msg.audio.mime_type or "audio/mpeg"
+        else:
+            return
+
+        if file_size > _MAX_MEDIA_BYTES:
+            await msg.reply_text("Sorry, that file is too large to process (max 10 MB).")
+            return
+
+        try:
+            from telegram import Bot
+            bot: Bot = self._app.bot
+            tg_file = await bot.get_file(file_id)
+            ba = await tg_file.download_as_bytearray()
+            attachments = [MediaAttachment(data=bytes(ba), mime_type=mime_type)]
+        except Exception:
+            logger.exception("Failed to download media (file_id=%s)", file_id)
+            await msg.reply_text("Sorry, I couldn't download that file. Please try again.")
+            return
+
+        logger.info(
+            "Media received: mime=%s size=%d caption=%r telegram_id=%d",
+            mime_type, len(ba), caption, telegram_id,
+        )
+        response = await self._on_message(telegram_id, caption, attachments)
+        if response:
+            await msg.reply_text(response)
 
     async def _handle_callback_query(self, update: Update, _context: object) -> None:
         """Handle Yes/No confirmation button presses from the Policy Gate."""

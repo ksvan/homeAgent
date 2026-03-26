@@ -106,9 +106,11 @@ def _get_or_create_user(telegram_id: int) -> _UserInfo:
         )
 
 
-async def handle_incoming_message(telegram_id: int, text: str) -> str | None:
+async def handle_incoming_message(
+    telegram_id: int, text: str, attachments: list | None = None
+) -> str | None:
     """
-    Entry point for all incoming text messages.
+    Entry point for all incoming messages (text and/or media).
     Returns the response string to send back, or None to send nothing.
     """
     settings = get_settings()
@@ -195,6 +197,7 @@ async def handle_incoming_message(telegram_id: int, text: str) -> str | None:
                     household_id=user.household_id,
                     channel_user_id=channel_user_id,
                     run_id=run_id,
+                    media=attachments or [],
                 )
                 break
             except (ModelHTTPError, asyncio.TimeoutError) as exc:
@@ -274,11 +277,15 @@ async def handle_incoming_message(telegram_id: int, text: str) -> str | None:
         )
 
         # Write AgentRunLog
+        _media_list = attachments or []
+        _input_summary = text or ""
+        if _media_list:
+            _input_summary += " " + " ".join(f"[{a.mime_type}]" for a in _media_list)
         _write_run_log(
             household_id=user.household_id,
             user_id=user.id,
             model_used=model_name,
-            input_summary=text[:200],
+            input_summary=_input_summary[:200],
             output_summary=response[:200],
             tools_called=tools_called_list,
             duration_ms=duration_ms,
@@ -288,7 +295,15 @@ async def handle_incoming_message(telegram_id: int, text: str) -> str | None:
 
         # Persist messages and update state cache from any Homey tool calls
         new_messages = list(result.new_messages())
-        save_message_pair(user.id, text, response)  # text-only, used for summarization
+        # Strip binary content before persistence — images/audio are large and
+        # don't need to be re-sent in future conversation history.
+        new_messages = _strip_binary_from_messages(new_messages)
+        # Build text label for summarisation (caption or media type description if no text)
+        if not text and _media_list:
+            media_label = ", ".join(f"[{a.mime_type.split('/')[0]}]" for a in _media_list)
+        else:
+            media_label = text
+        save_message_pair(user.id, media_label, response)  # text-only, used for summarization
         save_conversation_turn(user.id, new_messages)  # full tool-call history for LLM context
         update_snapshots_from_tool_calls(user.household_id, new_messages)
 
@@ -315,6 +330,44 @@ async def handle_incoming_message(telegram_id: int, text: str) -> str | None:
         ).add_done_callback(_task_done("summarize_conversation"))
 
         return response
+
+
+def _strip_binary_from_messages(messages: list) -> list:
+    """
+    Replace BinaryContent parts in UserPromptPart with text descriptors.
+    Prevents base64 image/audio data from being stored in ConversationTurn rows.
+    """
+    from pydantic_ai import BinaryContent
+    from pydantic_ai.messages import ModelRequest, UserPromptPart
+
+    result = []
+    for msg in messages:
+        if not isinstance(msg, ModelRequest):
+            result.append(msg)
+            continue
+        new_parts = []
+        for part in msg.parts:
+            if not isinstance(part, UserPromptPart):
+                new_parts.append(part)
+                continue
+            content = part.content
+            if isinstance(content, str):
+                new_parts.append(part)
+                continue
+            # content is a list — replace BinaryContent with text descriptors
+            new_content: list = []
+            for item in content:
+                if isinstance(item, BinaryContent):
+                    new_content.append(f"[{item.media_type} attached]")
+                else:
+                    new_content.append(item)
+            # If the list collapsed to a single string, unwrap it
+            if len(new_content) == 1 and isinstance(new_content[0], str):
+                new_parts.append(UserPromptPart(content=new_content[0], timestamp=part.timestamp))
+            else:
+                new_parts.append(UserPromptPart(content=new_content, timestamp=part.timestamp))
+        result.append(ModelRequest(parts=new_parts))
+    return result
 
 
 def _write_run_log(
