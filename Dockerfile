@@ -6,19 +6,19 @@ ENV UV_COMPILE_BYTECODE=1 \
 
 WORKDIR /app
 
+# Create non-root user before installing deps (avoids chown-R layer duplication)
+RUN adduser --disabled-password --gecos "" appuser
+
 # Install dependencies first (cached when pyproject.toml/uv.lock unchanged)
-COPY pyproject.toml uv.lock ./
+COPY --chown=appuser:appuser pyproject.toml uv.lock ./
 RUN uv sync --frozen --no-dev --no-install-project
 
 # Application source
-COPY app/ app/
-COPY prompts/ prompts/
-COPY alembic/ alembic/
-COPY alembic.ini ./
+COPY --chown=appuser:appuser app/ app/
+COPY --chown=appuser:appuser prompts/ prompts/
+COPY --chown=appuser:appuser alembic/ alembic/
+COPY --chown=appuser:appuser alembic.ini ./
 
-# Run as non-root
-RUN adduser --disabled-password --gecos "" appuser \
-    && chown -R appuser:appuser /app
 USER appuser
 
 ENV PATH="/app/.venv/bin:$PATH" \

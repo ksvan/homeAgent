@@ -8,6 +8,21 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 
 ## Unreleased
 
+### Added
+
+#### Per-slot API keys for explicit LLM provider binding
+
+- **`app/config.py`** — 5 new optional `MODEL_*_API_KEY` settings (primary, background, fallback, background_fallback, embedding). When set, each slot uses its own key and provider rather than sharing global keys, eliminating silent provider/model mismatches.
+- **`app/agent/llm_router.py`** — Replaced inline provider inference with `_resolve_key` + `_make_model` helpers. Provider is determined by key prefix (`sk-ant-` → Anthropic, else OpenAI). Fully backward compatible — existing `.env` files with only global keys need no changes.
+- **`app/memory/episodic.py`** — `_get_embedding` prefers `MODEL_EMBEDDING_API_KEY` over the global `OPENAI_API_KEY`.
+- **`docs/frameworks-and-services.md`** — New reference document listing all frameworks, libraries, and external services with descriptions of their general purpose and their specific role in HomeAgent.
+
+### Improved
+
+#### Docker image 31% smaller (1.34 GB → 924 MB)
+
+- **`Dockerfile`** — Moved `adduser` before `uv sync` and replaced `chown -R` with `COPY --chown` flags. The previous pattern duplicated the entire 727 MB `.venv` tree into a separate ownership layer; the fix eliminates that waste entirely.
+
 ### Planned
 
 - Channels: email, iMessage, voice
