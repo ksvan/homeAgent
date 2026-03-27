@@ -47,7 +47,7 @@ class Settings(BaseSettings):
     prom_min_step_seconds: int = 60
 
     # Maximum number of series returned by a single query
-    prom_max_series: int = 50
+    prom_max_series: int = 80
 
     # Maximum total datapoints across all series (pre-checked from range/step)
     prom_max_datapoints: int = 10_000

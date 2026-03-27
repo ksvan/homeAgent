@@ -40,7 +40,7 @@ class _ContextStats(SlashCommand):
         # Prompt files (base system prompt)
         prompt_vars: dict[str, str] = {
             "agent_name": settings.agent_name,
-            "household_name": settings.household_name,
+            "household_name": "",
             "current_date": "",
             "current_time": "",
             "timezone": settings.household_timezone,
