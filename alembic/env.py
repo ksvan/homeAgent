@@ -17,18 +17,28 @@ from app.config import get_settings  # noqa: E402
 from app.models import (  # noqa: E402, F401  — imported for side effects (metadata registration)
     ActionPolicy,
     AgentRunLog,
+    CalendarEntity,
     ChannelMapping,
     ConversationMessage,
     ConversationSummary,
+    DeviceEntity,
     DeviceSnapshot,
     EpisodicMemory,
     EventLog,
     Household,
+    HouseholdMember,
     HouseholdProfile,
+    MemberActivity,
+    MemberGoal,
+    MemberInterest,
     PendingAction,
+    Place,
+    Relationship,
+    RoutineEntity,
     Task,
     User,
     UserProfile,
+    WorldFact,
 )
 from sqlmodel import SQLModel  # noqa: E402
 
@@ -36,7 +46,12 @@ from sqlmodel import SQLModel  # noqa: E402
 # Which tables live in which database
 # ---------------------------------------------------------------------------
 DATABASES: dict[str, set[str]] = {
-    "users": {"household", "user", "channelmapping", "task", "actionpolicy"},
+    "users": {
+        "household", "user", "channelmapping", "task", "actionpolicy",
+        "householdmember", "memberinterest", "membergoal", "memberactivity",
+        "place", "deviceentity", "calendarentity", "routineentity",
+        "relationship", "worldfact",
+    },
     "memory": {
         "userprofile",
         "householdprofile",

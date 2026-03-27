@@ -69,8 +69,10 @@ async def _lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
 
     if household:
         from app.homey.home_profile import refresh_home_profile
+        from app.world.sync import bootstrap_world_model
 
         asyncio.ensure_future(refresh_home_profile(household.id))
+        asyncio.ensure_future(bootstrap_world_model(household.id))
 
     channel = TelegramChannel(
         token=settings.telegram_bot_token,

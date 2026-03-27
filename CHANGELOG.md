@@ -10,6 +10,21 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 
 ### Added
 
+#### Household World Model (Phase 1+2)
+
+Structured world model layer that complements episodic memory with queryable household entities. Automatically built from existing data on startup; injected as a compact `## Household Model` section into every agent system prompt.
+
+- **`app/models/world.py`** (new) — 10 SQLModel table classes: `HouseholdMember`, `MemberInterest`, `MemberGoal`, `MemberActivity`, `Place`, `DeviceEntity`, `CalendarEntity`, `RoutineEntity`, `Relationship`, `WorldFact`. All in `users.db` with UUID PKs, source tracking, timestamps.
+- **`alembic/versions/0006_users_db_world_model.py`** (new) — Migration creating all 10 tables with indexes.
+- **`app/world/repository.py`** (new) — `WorldModelRepository` with `get_full_snapshot()`, per-entity getters, and upsert helpers behind a clean service boundary.
+- **`app/world/sync.py`** (new) — `bootstrap_world_model()` — idempotent startup sync: Users → HouseholdMember, Calendar → CalendarEntity, Homey zones → Place, Homey devices → DeviceEntity, hardcoded seed → WorldFact. Skips gracefully if Homey MCP is unavailable.
+- **`app/world/formatter.py`** (new) — `format_world_model()` renders a compact markdown snapshot (members with interests/activities, hierarchical places, devices grouped by place, calendars, routines, facts).
+- **`app/agent/context.py`** — `world_model_text` field added to `AgentContext`; `assemble_context()` calls `format_world_model()`.
+- **`app/agent/agent.py`** — `world_model_text` added to `AgentDeps` and injected into system prompt between household profile and conversation summary.
+- **`app/api/server.py`** — `bootstrap_world_model()` called as fire-and-forget in lifespan.
+- **`app/control/api.py`** — `GET /admin/world-model` endpoint returning full snapshot as JSON; new "World Model" tab in admin UI displaying members, places, devices, calendars, routines, and facts.
+- **`app/commands/handlers.py`** — `/contextstats` now includes persona, instructions, and world model sizes; output organized into "System prompt" and "Dynamic context" groups with accurate totals.
+
 #### Per-slot API keys for explicit LLM provider binding
 
 - **`app/config.py`** — 5 new optional `MODEL_*_API_KEY` settings (primary, background, fallback, background_fallback, embedding). When set, each slot uses its own key and provider rather than sharing global keys, eliminating silent provider/model mismatches.

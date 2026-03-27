@@ -31,10 +31,24 @@ class _ContextStats(SlashCommand):
         from datetime import datetime, timezone as _utc
 
         from app.agent.context import assemble_context
+        from app.agent.prompts import load_instructions, load_persona
         from app.config import get_settings
 
+        settings = get_settings()
         assembled = assemble_context(ctx.user_id, ctx.household_id, ctx.raw_text)
 
+        # Prompt files (base system prompt)
+        prompt_vars: dict[str, str] = {
+            "agent_name": settings.agent_name,
+            "household_name": settings.household_name,
+            "current_date": "",
+            "current_time": "",
+            "timezone": settings.household_timezone,
+        }
+        persona_chars = len(load_persona(prompt_vars))
+        instructions_chars = len(load_instructions(prompt_vars))
+
+        # Dynamic context sections
         msg_chars = sum(
             len(str(getattr(part, "content", "")))
             for msg in assembled.recent_messages
@@ -43,14 +57,17 @@ class _ContextStats(SlashCommand):
         summary_chars = len(assembled.conversation_summary or "")
         user_profile_chars = len(assembled.user_profile_text)
         household_profile_chars = len(assembled.household_profile_text)
+        world_model_chars = len(assembled.world_model_text)
         mem_count = len(assembled.relevant_memories)
         mem_chars = sum(len(m) for m in assembled.relevant_memories)
         total_chars = (
-            msg_chars + summary_chars + user_profile_chars + household_profile_chars + mem_chars
+            persona_chars + instructions_chars
+            + msg_chars + summary_chars
+            + user_profile_chars + household_profile_chars
+            + world_model_chars + mem_chars
         )
         approx_tokens = total_chars // 4
 
-        settings = get_settings()
         try:
             from zoneinfo import ZoneInfo
             tz = ZoneInfo(settings.household_timezone)
@@ -64,12 +81,17 @@ class _ContextStats(SlashCommand):
 
         return (
             f"Context breakdown:\n\n"
-            f"  Date/time in ctx : {date_str}, {time_str}\n"
-            f"  Recent messages  : {len(assembled.recent_messages)} ({msg_chars:,} chars)\n"
-            f"  Summary          : {summary_chars:,} chars\n"
-            f"  User profile     : {user_profile_chars:,} chars\n"
-            f"  Household profile: {household_profile_chars:,} chars\n"
-            f"  Memories         : {mem_count} ({mem_chars:,} chars)\n"
+            f"  Date/time in ctx : {date_str}, {time_str}\n\n"
+            f"  System prompt:\n"
+            f"    Persona        : {persona_chars:,} chars\n"
+            f"    Instructions   : {instructions_chars:,} chars\n\n"
+            f"  Dynamic context:\n"
+            f"    Recent messages: {len(assembled.recent_messages)} ({msg_chars:,} chars)\n"
+            f"    Summary        : {summary_chars:,} chars\n"
+            f"    User profile   : {user_profile_chars:,} chars\n"
+            f"    Household prof.: {household_profile_chars:,} chars\n"
+            f"    World model    : {world_model_chars:,} chars\n"
+            f"    Memories       : {mem_count} ({mem_chars:,} chars)\n"
             f"  ──────────────────────────────────────\n"
             f"  Total            : {total_chars:,} chars (~{approx_tokens:,} tokens)"
         )

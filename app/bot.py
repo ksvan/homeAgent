@@ -191,6 +191,7 @@ async def handle_incoming_message(
                     message_history=ctx.recent_messages,
                     user_profile_text=ctx.user_profile_text,
                     household_profile_text=ctx.household_profile_text,
+                    world_model_text=ctx.world_model_text,
                     conversation_summary=ctx.conversation_summary,
                     relevant_memories=ctx.relevant_memories,
                     user_id=user.id,

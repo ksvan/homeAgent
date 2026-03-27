@@ -26,6 +26,7 @@ class AgentDeps:
     # M3: memory context
     user_profile_text: str = ""
     household_profile_text: str = ""
+    world_model_text: str = ""
     conversation_summary: str | None = None
     relevant_memories: list[str] = field(default_factory=list)
     # M5: for policy gate — available inside process_tool_call callback via ctx.deps
@@ -88,6 +89,8 @@ def _make_conversation_agent() -> Agent[AgentDeps, str]:
             extra_sections.append(d.user_profile_text)
         if d.household_profile_text:
             extra_sections.append(d.household_profile_text)
+        if d.world_model_text:
+            extra_sections.append(d.world_model_text)
         if d.conversation_summary:
             extra_sections.append(f"## Conversation Summary\n{d.conversation_summary}")
         if d.relevant_memories:
@@ -144,6 +147,7 @@ async def run_conversation(
     message_history: list[ModelMessage] | None = None,
     user_profile_text: str = "",
     household_profile_text: str = "",
+    world_model_text: str = "",
     conversation_summary: str | None = None,
     relevant_memories: list[str] | None = None,
     user_id: str = "",
@@ -177,6 +181,7 @@ async def run_conversation(
         timezone=settings.household_timezone,
         user_profile_text=user_profile_text,
         household_profile_text=household_profile_text,
+        world_model_text=world_model_text,
         conversation_summary=conversation_summary,
         relevant_memories=relevant_memories or [],
         user_id=user_id,

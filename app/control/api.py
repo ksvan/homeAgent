@@ -284,6 +284,45 @@ async def admin_scheduler() -> dict[str, Any]:
     return {"reminders": reminders, "actions": actions, "scheduled_prompts": scheduled_prompts}
 
 
+@router.get("/world-model", dependencies=_auth)
+async def admin_world_model() -> dict[str, Any]:
+    import json as _json
+
+    from app.world.repository import WorldModelRepository, WorldModelSnapshot
+
+    from sqlmodel import select
+    from app.db import users_session
+    from app.models.users import Household
+
+    with users_session() as session:
+        household = session.exec(select(Household)).first()
+
+    if not household:
+        return {"error": "No household found"}
+
+    snap = WorldModelRepository.get_full_snapshot(household.id)
+
+    def _serialize(items: list) -> list[dict[str, Any]]:
+        return [
+            {k: v for k, v in row.__dict__.items() if not k.startswith("_")}
+            for row in items
+        ]
+
+    return {
+        "household_id": household.id,
+        "members": _serialize(snap.members),
+        "interests": _serialize(snap.interests),
+        "goals": _serialize(snap.goals),
+        "activities": _serialize(snap.activities),
+        "places": _serialize(snap.places),
+        "devices": _serialize(snap.devices),
+        "calendars": _serialize(snap.calendars),
+        "routines": _serialize(snap.routines),
+        "relationships": _serialize(snap.relationships),
+        "facts": _serialize(snap.facts),
+    }
+
+
 # ---------------------------------------------------------------------------
 # Embedded admin UI
 # ---------------------------------------------------------------------------
@@ -406,6 +445,7 @@ header { background: var(--surface); border-bottom: 1px solid var(--border); pad
   <button class="tab active" data-tab="live">Live</button>
   <button class="tab" data-tab="details">Details</button>
   <button class="tab" data-tab="scheduler">Scheduler</button>
+  <button class="tab" data-tab="world">World Model</button>
 </div>
 
 <div id="tab-live" class="tab-panel active">
@@ -502,6 +542,55 @@ header { background: var(--surface); border-bottom: 1px solid var(--border); pad
       <table class="mem-table">
         <thead><tr><th style="width:180px">Name</th><th style="width:160px">Schedule</th><th>Prompt</th><th style="width:72px">ID</th></tr></thead>
         <tbody id="sched-prompts"><tr><td colspan="4" style="color:var(--dim);padding:12px 10px">—</td></tr></tbody>
+      </table>
+    </section>
+  </div>
+</div>
+
+<div id="tab-world" class="tab-panel">
+  <div class="details-body">
+    <div class="details-toolbar">
+      <button class="details-btn" id="refresh-world">&#8635; Refresh</button>
+      <span id="world-updated" style="font-size:11px;color:var(--dim)"></span>
+    </div>
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:0 24px">
+      <section class="details-section">
+        <h3>Members <span id="wm-member-count" style="font-size:10px;color:var(--dim)"></span></h3>
+        <div id="wm-members"><span style="color:var(--dim)">—</span></div>
+      </section>
+      <section class="details-section">
+        <h3>Places</h3>
+        <div id="wm-places"><span style="color:var(--dim)">—</span></div>
+      </section>
+    </div>
+    <section class="details-section">
+      <h3>Devices <span id="wm-device-count" style="font-size:10px;color:var(--dim)"></span></h3>
+      <table class="mem-table">
+        <thead><tr><th>Name</th><th>Type</th><th>Place</th><th style="width:80px">Controllable</th></tr></thead>
+        <tbody id="wm-devices"><tr><td colspan="4" style="color:var(--dim);padding:12px 10px">—</td></tr></tbody>
+      </table>
+    </section>
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:0 24px">
+      <section class="details-section">
+        <h3>Calendars</h3>
+        <table class="mem-table">
+          <thead><tr><th>Name</th><th>Category</th><th>Owner</th></tr></thead>
+          <tbody id="wm-calendars"><tr><td colspan="3" style="color:var(--dim);padding:12px 10px">—</td></tr></tbody>
+        </table>
+      </section>
+      <section class="details-section">
+        <h3>Routines</h3>
+        <table class="mem-table">
+          <thead><tr><th>Name</th><th>Description</th><th>Kind</th></tr></thead>
+          <tbody id="wm-routines"><tr><td colspan="3" style="color:var(--dim);padding:12px 10px">—</td></tr></tbody>
+        </table>
+      </section>
+    </div>
+    <section class="details-section">
+      <h3>Facts</h3>
+      <table class="mem-table">
+        <thead><tr><th style="width:120px">Scope</th><th style="width:200px">Key</th><th>Value</th><th style="width:100px">Source</th></tr></thead>
+        <tbody id="wm-facts"><tr><td colspan="4" style="color:var(--dim);padding:12px 10px">—</td></tr></tbody>
       </table>
     </section>
   </div>
@@ -715,6 +804,7 @@ document.querySelectorAll('.tab').forEach(btn => {
     document.getElementById('tab-' + btn.dataset.tab).classList.add('active');
     if (btn.dataset.tab === 'details') loadMemory();
     if (btn.dataset.tab === 'scheduler') loadScheduler();
+    if (btn.dataset.tab === 'world') loadWorldModel();
   });
 });
 
@@ -809,6 +899,109 @@ async function loadScheduler() {
 }
 
 document.getElementById('refresh-scheduler').addEventListener('click', loadScheduler);
+
+// World Model tab loader
+async function loadWorldModel() {
+  try {
+    const r = await fetch('/admin/world-model', {headers: _authHeaders});
+    if (!r.ok) return;
+    const d = await r.json();
+    if (d.error) { document.getElementById('wm-members').innerHTML = '<span style="color:var(--dim)">' + esc(d.error) + '</span>'; return; }
+
+    // Build lookup maps
+    const memberById = {};
+    (d.members || []).forEach(m => { memberById[m.id] = m.name; });
+    const placeById = {};
+    (d.places || []).forEach(p => { placeById[p.id] = p.name; });
+
+    // Members with interests/activities/goals inline
+    const members = d.members || [];
+    document.getElementById('wm-member-count').textContent = '(' + members.length + ')';
+    const interestsByMember = {};
+    (d.interests || []).forEach(i => { (interestsByMember[i.member_id] = interestsByMember[i.member_id] || []).push(i.name); });
+    const actsByMember = {};
+    (d.activities || []).forEach(a => { const lbl = a.name + (a.schedule_hint ? ' (' + a.schedule_hint + ')' : ''); (actsByMember[a.member_id] = actsByMember[a.member_id] || []).push(lbl); });
+    const goalsByMember = {};
+    (d.goals || []).forEach(g => { (goalsByMember[g.member_id] = goalsByMember[g.member_id] || []).push(g.name); });
+
+    document.getElementById('wm-members').innerHTML = members.length
+      ? members.map(m => {
+          let aliases = ''; try { const a = JSON.parse(m.aliases_json || '[]'); if (a.length) aliases = ' <span class="d">(' + a.map(esc).join(', ') + ')</span>'; } catch(_) {}
+          let sub = [];
+          if (interestsByMember[m.id]) sub.push('interests: ' + interestsByMember[m.id].join(', '));
+          if (actsByMember[m.id]) sub.push('activities: ' + actsByMember[m.id].join(', '));
+          if (goalsByMember[m.id]) sub.push('goals: ' + goalsByMember[m.id].join(', '));
+          const subHtml = sub.length ? '<div style="margin-left:16px;color:var(--dim);font-size:12px">' + sub.map(s => '· ' + esc(s)).join('<br>') + '</div>' : '';
+          return '<div style="margin-bottom:6px"><strong>' + esc(m.name) + '</strong> <span class="scope-tag">' + esc(m.role) + '</span>' + aliases + subHtml + '</div>';
+        }).join('')
+      : '<span style="color:var(--dim)">No members</span>';
+
+    // Places (hierarchical)
+    const places = d.places || [];
+    const topLevel = places.filter(p => !p.parent_place_id);
+    const children = {};
+    places.filter(p => p.parent_place_id).forEach(p => {
+      (children[p.parent_place_id] = children[p.parent_place_id] || []).push(p);
+    });
+    document.getElementById('wm-places').innerHTML = topLevel.length
+      ? topLevel.map(p => {
+          const kids = children[p.id] || [];
+          const kidNames = kids.map(k => esc(k.name)).join(', ');
+          return '<div style="margin-bottom:4px"><strong>' + esc(p.name) + '</strong> <span class="scope-tag">' + esc(p.kind) + '</span>'
+            + (kidNames ? '<div style="margin-left:16px;color:var(--dim);font-size:12px">' + kidNames + '</div>' : '')
+            + '</div>';
+        }).join('')
+      : '<span style="color:var(--dim)">No places</span>';
+
+    // Devices grouped by place
+    const devices = d.devices || [];
+    document.getElementById('wm-device-count').textContent = '(' + devices.length + ')';
+    document.getElementById('wm-devices').innerHTML = devices.length
+      ? devices.map(dev =>
+          '<tr><td>' + esc(dev.name) + '</td>' +
+          '<td class="scope-tag">' + esc(dev.device_type || '—') + '</td>' +
+          '<td class="scope-tag">' + esc(dev.place_id ? (placeById[dev.place_id] || dev.place_id.slice(0,8)) : '—') + '</td>' +
+          '<td class="scope-tag">' + (dev.is_controllable ? '✓' : '—') + '</td></tr>'
+        ).join('')
+      : '<tr><td colspan="4" style="color:var(--dim);padding:12px 10px">No devices</td></tr>';
+
+    // Calendars
+    const cals = d.calendars || [];
+    document.getElementById('wm-calendars').innerHTML = cals.length
+      ? cals.map(c =>
+          '<tr><td>' + esc(c.name) + '</td>' +
+          '<td class="scope-tag">' + esc(c.category || 'general') + '</td>' +
+          '<td class="scope-tag">' + esc(c.member_id ? (memberById[c.member_id] || '—') : '—') + '</td></tr>'
+        ).join('')
+      : '<tr><td colspan="3" style="color:var(--dim);padding:12px 10px">No calendars</td></tr>';
+
+    // Routines
+    const routines = d.routines || [];
+    document.getElementById('wm-routines').innerHTML = routines.length
+      ? routines.map(r =>
+          '<tr><td>' + esc(r.name) + '</td>' +
+          '<td style="color:var(--dim)">' + esc(r.description || '—') + '</td>' +
+          '<td class="scope-tag">' + esc(r.kind || '—') + '</td></tr>'
+        ).join('')
+      : '<tr><td colspan="3" style="color:var(--dim);padding:12px 10px">No routines</td></tr>';
+
+    // Facts
+    const facts = d.facts || [];
+    document.getElementById('wm-facts').innerHTML = facts.length
+      ? facts.map(f => {
+          let val; try { val = JSON.parse(f.value_json); } catch(_) { val = f.value_json; }
+          return '<tr><td class="scope-tag">' + esc(f.scope) + '</td>' +
+            '<td>' + esc(f.key) + '</td>' +
+            '<td>' + esc(String(val)) + '</td>' +
+            '<td class="scope-tag">' + esc(f.source || '—') + '</td></tr>';
+        }).join('')
+      : '<tr><td colspan="4" style="color:var(--dim);padding:12px 10px">No facts</td></tr>';
+
+    document.getElementById('world-updated').textContent = 'Updated ' + new Date().toLocaleTimeString();
+  } catch(e) {}
+}
+
+document.getElementById('refresh-world').addEventListener('click', loadWorldModel);
 
 fetchStats();
 setInterval(fetchStats, 10000);
