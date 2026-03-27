@@ -8,8 +8,15 @@ logger = logging.getLogger(__name__)
 _VALID_DAYS = {"mon", "tue", "wed", "thu", "fri", "sat", "sun"}
 
 
-def _build_trigger(recurrence: str, time_of_day: str) -> object:
-    """Return an APScheduler CronTrigger for the given recurrence + time."""
+def _build_trigger(recurrence: str, time_of_day: str, run_at: object = None) -> object:
+    """Return an APScheduler trigger for the given recurrence + time."""
+    if recurrence == "once":
+        from apscheduler.triggers.date import DateTrigger
+
+        if run_at is None:
+            raise ValueError("run_at is required when recurrence='once'")
+        return DateTrigger(run_time=run_at)
+
     from apscheduler.triggers.cron import CronTrigger
 
     try:
@@ -41,12 +48,18 @@ def _build_trigger(recurrence: str, time_of_day: str) -> object:
 
     raise ValueError(
         f"Unknown recurrence {recurrence!r}. "
-        "Use 'daily', 'weekly:mon', 'weekly:sun', 'monthly:15', etc."
+        "Use 'daily', 'weekly:mon', 'weekly:sun', 'monthly:15', or 'once'."
     )
 
 
-def recurrence_label(recurrence: str, time_of_day: str) -> str:
+def recurrence_label(recurrence: str, time_of_day: str, run_at: object = None) -> str:
     """Return a human-readable label, e.g. 'Every Sunday at 20:00'."""
+    if recurrence == "once":
+        if run_at is not None:
+            from datetime import datetime
+            dt = run_at if isinstance(run_at, datetime) else run_at
+            return f"Once on {dt.strftime('%d %b %Y at %H:%M')}"
+        return "Once (time unknown)"
     if recurrence == "daily":
         return f"Every day at {time_of_day}"
     if recurrence.startswith("weekly:"):
@@ -66,12 +79,16 @@ async def create_scheduled_prompt(
     prompt: str,
     recurrence: str,
     time_of_day: str,
+    run_at: object = None,
 ) -> str:
     """
-    Persist a ScheduledPrompt record and register the CronTrigger APScheduler job.
+    Persist a ScheduledPrompt record and register the APScheduler job.
+
+    For recurring prompts (daily/weekly/monthly), uses CronTrigger.
+    For one-shot prompts (recurrence="once"), uses DateTrigger with run_at.
 
     Returns the prompt_id which can be used to cancel the prompt.
-    Raises ValueError for invalid recurrence / time_of_day.
+    Raises ValueError for invalid recurrence / time_of_day / run_at.
     Raises RuntimeError if scheduler registration fails (DB record disabled).
     """
     from apscheduler import ConflictPolicy
@@ -81,7 +98,8 @@ async def create_scheduled_prompt(
     from app.scheduler.engine import get_scheduler
     from app.scheduler.jobs import fire_scheduled_prompt
 
-    trigger = _build_trigger(recurrence, time_of_day)  # validates early
+    trigger = _build_trigger(recurrence, time_of_day, run_at)  # validates early
+    is_one_shot = recurrence == "once"
 
     with users_session() as session:
         sp = ScheduledPrompt(
@@ -92,6 +110,7 @@ async def create_scheduled_prompt(
             prompt=prompt,
             recurrence=recurrence,
             time_of_day=time_of_day,
+            run_at=run_at,
         )
         session.add(sp)
         session.commit()
@@ -113,6 +132,7 @@ async def create_scheduled_prompt(
                     "channel_user_id": channel_user_id,
                     "prompt_text": prompt,
                     "name": name,
+                    "is_one_shot": is_one_shot,
                 },
             )
         except Exception as exc:
@@ -127,10 +147,11 @@ async def create_scheduled_prompt(
         logger.warning("Scheduler not running — prompt_id=%s will not fire", prompt_id)
 
     logger.info(
-        "Scheduled prompt created: prompt_id=%s recurrence=%s time=%s name=%r",
+        "Scheduled prompt created: prompt_id=%s recurrence=%s time=%s run_at=%s name=%r",
         prompt_id,
         recurrence,
         time_of_day,
+        run_at,
         name,
     )
     return prompt_id
@@ -187,8 +208,23 @@ async def restore_scheduled_prompts() -> None:
 
     restored = 0
     for sp in prompts:
+        # One-shot prompts whose fire time has passed are stale — delete them.
+        if sp.recurrence == "once":
+            from datetime import datetime, timezone as _tz
+            if sp.run_at is None or sp.run_at <= datetime.now(_tz.utc):
+                with users_session() as s:
+                    stale = s.get(ScheduledPrompt, sp.id)
+                    if stale:
+                        s.delete(stale)
+                        s.commit()
+                logger.info(
+                    "Deleted stale one-shot prompt_id=%s (run_at=%s)", sp.id, sp.run_at
+                )
+                continue
+
+        is_one_shot = sp.recurrence == "once"
         try:
-            trigger = _build_trigger(sp.recurrence, sp.time_of_day)
+            trigger = _build_trigger(sp.recurrence, sp.time_of_day, sp.run_at)
             await scheduler.add_schedule(
                 fire_scheduled_prompt,
                 trigger,
@@ -201,6 +237,7 @@ async def restore_scheduled_prompts() -> None:
                     "channel_user_id": sp.channel_user_id,
                     "prompt_text": sp.prompt,
                     "name": sp.name,
+                    "is_one_shot": is_one_shot,
                 },
             )
             restored += 1

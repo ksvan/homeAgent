@@ -197,6 +197,7 @@ class _ScheduledPrompts(SlashCommand):
                     channel_user_id=match.channel_user_id,
                     prompt_text=match.prompt,
                     name=match.name,
+                    is_one_shot=match.recurrence == "once",
                 )
             except Exception as exc:
                 return f"Prompt '{match.name}' failed: {exc}"
@@ -213,12 +214,15 @@ class _ScheduledPrompts(SlashCommand):
         if not prompts:
             return "No scheduled prompts."
 
+        from app.scheduler.scheduled_prompts import recurrence_label
+
         lines = []
         for p in prompts:
             status = "on" if p.enabled else "off"
             text = p.prompt if len(p.prompt) <= 60 else p.prompt[:60] + "…"
+            label = recurrence_label(p.recurrence, p.time_of_day, p.run_at)
             lines.append(
-                f"[{status}] {p.name}  —  {p.recurrence} @ {p.time_of_day}\n"
+                f"[{status}] {p.name}  —  {label}\n"
                 f"       {text}  (id: {p.id[:8]})"
             )
 

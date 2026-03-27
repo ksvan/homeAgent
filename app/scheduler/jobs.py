@@ -150,12 +150,13 @@ async def fire_scheduled_prompt(
     channel_user_id: str,
     prompt_text: str,
     name: str,
+    is_one_shot: bool = False,
 ) -> None:
     """
-    APScheduler job — fires on a recurring CronTrigger for a ScheduledPrompt.
+    APScheduler job — fires on a CronTrigger (recurring) or DateTrigger (once).
 
     Runs the conversation agent with the stored prompt and sends the response
-    to the user via the active channel.
+    to the user via the active channel. One-shot prompts are deleted after firing.
     """
     if prompt_id in _running_prompts:
         logger.warning(
@@ -172,6 +173,7 @@ async def fire_scheduled_prompt(
             channel_user_id=channel_user_id,
             prompt_text=prompt_text,
             name=name,
+            is_one_shot=is_one_shot,
         )
     finally:
         _running_prompts.discard(prompt_id)
@@ -184,6 +186,7 @@ async def _fire_scheduled_prompt_inner(
     channel_user_id: str,
     prompt_text: str,
     name: str,
+    is_one_shot: bool = False,
 ) -> None:
     import uuid as _uuid
 
@@ -271,3 +274,20 @@ async def _fire_scheduled_prompt_inner(
         logger.error(
             "Scheduled prompt: no active channel — response not delivered: prompt_id=%s", prompt_id
         )
+
+    # One-shot prompts self-delete after firing (success or failure).
+    if is_one_shot:
+        try:
+            from app.db import users_session
+            from app.models.scheduled_prompts import ScheduledPrompt
+
+            with users_session() as s:
+                sp = s.get(ScheduledPrompt, prompt_id)
+                if sp:
+                    s.delete(sp)
+                    s.commit()
+            logger.info("One-shot prompt deleted after firing: prompt_id=%s name=%r", prompt_id, name)
+        except Exception:
+            logger.warning(
+                "Failed to delete one-shot prompt after firing: prompt_id=%s", prompt_id, exc_info=True
+            )

@@ -8,10 +8,6 @@ from app.agent.agent import AgentDeps
 
 logger = logging.getLogger(__name__)
 
-# Accepted recurrence values shown to the agent
-_RECURRENCE_EXAMPLES = "'daily', 'weekly:mon', 'weekly:sun', 'monthly:15'"
-
-
 def register_scheduled_prompt_tools(agent: Agent[AgentDeps, str]) -> None:
     """Attach scheduled-prompt tools to the conversation agent."""
 
@@ -22,15 +18,16 @@ def register_scheduled_prompt_tools(agent: Agent[AgentDeps, str]) -> None:
         prompt: str,
         recurrence: str,
         time_of_day: str,
+        run_at: str | None = None,
     ) -> str:
-        """Schedule a recurring prompt that runs the agent automatically and sends the response.
+        """Schedule a prompt that runs the agent automatically and sends the response.
 
-        Use this when the user asks to set up a repeating task driven by the agent,
-        e.g. "Remind me every Sunday at 20:00 what matches Sondre has next week" or
-        "Give me a daily briefing every morning at 07:30".
+        Supports both recurring and one-time (run-once) schedules.
 
-        The agent will be invoked with the exact `prompt` text at the scheduled time
-        and the result will be sent to the user's channel automatically.
+        Use this when the user asks to set up a repeating or one-off task, e.g.:
+          - "Remind me every Sunday at 20:00 what matches Sondre has next week"
+          - "Give me a daily briefing every morning at 07:30"
+          - "Send me an energy report tomorrow at 09:00"
 
         Args:
             name: Short descriptive label, e.g. "Weekly Sondre football summary".
@@ -40,10 +37,25 @@ def register_scheduled_prompt_tools(agent: Agent[AgentDeps, str]) -> None:
                 - "daily"            — every day
                 - "weekly:<day>"     — e.g. "weekly:sun", "weekly:mon", "weekly:wed"
                 - "monthly:<day>"    — e.g. "monthly:1", "monthly:15"
+                - "once"             — fire once at run_at, then auto-delete
                 Day abbreviations: mon tue wed thu fri sat sun
             time_of_day: Time in 24h HH:MM format, e.g. "20:00" or "07:30".
+                         Ignored when recurrence="once" (use run_at instead).
+            run_at: Required when recurrence="once". ISO 8601 datetime with timezone
+                    offset, e.g. "2026-03-28T09:00:00+01:00". Ignored for recurring.
         """
+        from datetime import datetime
+
         from app.scheduler.scheduled_prompts import create_scheduled_prompt, recurrence_label
+
+        parsed_run_at = None
+        if recurrence == "once":
+            if not run_at:
+                return "Could not schedule prompt: run_at is required when recurrence='once'"
+            try:
+                parsed_run_at = datetime.fromisoformat(run_at)
+            except ValueError as exc:
+                return f"Could not schedule prompt: invalid run_at — {exc}"
 
         try:
             prompt_id = await create_scheduled_prompt(
@@ -54,11 +66,12 @@ def register_scheduled_prompt_tools(agent: Agent[AgentDeps, str]) -> None:
                 prompt=prompt,
                 recurrence=recurrence,
                 time_of_day=time_of_day,
+                run_at=parsed_run_at,
             )
         except (ValueError, RuntimeError) as exc:
             return f"Could not schedule prompt: {exc}"
 
-        label = recurrence_label(recurrence, time_of_day)
+        label = recurrence_label(recurrence, time_of_day, parsed_run_at)
         return f"Scheduled '{name}' — {label}. (ID: {prompt_id})"
 
     @agent.tool
@@ -83,7 +96,7 @@ def register_scheduled_prompt_tools(agent: Agent[AgentDeps, str]) -> None:
 
         lines = []
         for sp in prompts:
-            label = recurrence_label(sp.recurrence, sp.time_of_day)
+            label = recurrence_label(sp.recurrence, sp.time_of_day, sp.run_at)
             lines.append(f"• {sp.name} — {label} | ID: {sp.id}")
         return "Scheduled prompts:\n" + "\n".join(lines)
 

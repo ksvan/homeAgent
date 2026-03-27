@@ -22,7 +22,8 @@ class ScheduledPrompt(SQLModel, table=True):
     channel_user_id: str  # Telegram chat ID to deliver the response to
     name: str  # Human-readable label, e.g. "Weekly football summary"
     prompt: str  # The text passed to run_conversation when this fires
-    recurrence: str  # "daily" | "weekly:sun" | "monthly:15"
-    time_of_day: str  # "HH:MM" in 24h format
+    recurrence: str  # "daily" | "weekly:sun" | "monthly:15" | "once"
+    time_of_day: str  # "HH:MM" in 24h format (unused when recurrence="once")
+    run_at: Optional[datetime] = Field(default=None, nullable=True)  # set when recurrence="once"
     enabled: bool = True
     created_at: datetime = Field(default_factory=_now)
