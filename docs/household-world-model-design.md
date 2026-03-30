@@ -6,8 +6,20 @@ This document proposes the next major architectural improvement for HomeAgent:
 introducing a structured household world model alongside the current profile +
 episodic-memory system.
 
-It is written to be consumed directly by Claude as an implementation-oriented
-design suggestion.
+It was originally written as an implementation-oriented design suggestion.
+
+## Status
+
+Large parts of this design are now implemented in the codebase:
+
+- world-model tables in `users.db`
+- startup bootstrap from users, calendars, Homey structure, and seed facts
+- compact `## Household Model` prompt injection
+- admin world-model browser and edit endpoints
+- agent world-model read/write tools
+
+What remains design-oriented in this document is mostly the later-stage proposal
+pipeline, broader autonomy hooks, and future refinement ideas.
 
 ---
 

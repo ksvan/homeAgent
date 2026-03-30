@@ -1,13 +1,13 @@
 # Architecture Diagrams
 
-This document provides architecture and flow drawings based on the current HomeAgent codebase.
+This document provides text diagrams for the current HomeAgent codebase. The Mermaid diagrams below are kept in sync with the runtime more often than the exported SVGs.
 
-SVG exports:
+SVG exports currently in the repo:
 
 - `docs/diagrams/architecture-high-level.svg`
 - `docs/diagrams/architecture-detailed.svg`
 - `docs/diagrams/main-path-startup-and-one-message.svg`
-- `docs/diagrams/dev-vs-prod-from-start-sh.svg` *(now documents current `start.sh` mode matrix)*
+- `docs/diagrams/dev-vs-prod-from-start-sh.svg`
 
 Preview:
 
@@ -22,40 +22,46 @@ Preview:
 
 ```mermaid
 flowchart TB
-    U[Telegram Users] --> API[FastAPI Webhook API\n/webhook, /health]
-    API --> BOT[Message Dispatcher\napp/bot.py]
+    U[Telegram Users] --> API[FastAPI API<br>/webhook/telegram /health /admin]
+    API --> BOT[Message Dispatcher<br>app/bot.py]
 
     subgraph RUNTIME[HomeAgent Runtime]
         BOT --> CMD[Slash Command Dispatcher]
-        CMD --> CMDS[Command Handlers\n/help /contextstats /history /schedule /status /users]
+        CMD --> CMDS[Command Handlers<br>/help /contextstats /history /schedule /prompts /status /users]
 
-        BOT --> AGENT[Agent Orchestrator\nPydanticAI]
+        BOT --> CTX[Context Assembly<br>profiles + world model + summary + memories + recent turns]
+        CTX --> AGENT[Conversation Agent<br>PydanticAI]
         AGENT --> ROUTER[LLM Router]
-        ROUTER --> CLAUDE[Anthropic Claude]
-        ROUTER --> OPENAI[OpenAI Models]
+        ROUTER --> CLAUDE[Anthropic models]
+        ROUTER --> OPENAI[OpenAI models]
 
         AGENT --> TOOLS[Tool Layer]
         TOOLS --> HOMEY[Homey MCP]
         TOOLS --> PROM[Prometheus MCP]
         TOOLS --> TOOLSMCP[Tools MCP]
-        TOOLS --> BUILTIN[Built-in Tools\nreminders/actions/memory]
+        TOOLS --> BUILTIN[Built-in tools<br>memory / reminders / actions / scheduled prompts / world model]
 
         HOMEY --> POLICY[Policy Gate]
         POLICY --> PENDING[Pending Confirmation Flow]
         PENDING --> U
 
-        AGENT --> DBU[(users.db)]
-        AGENT --> DBM[(memory.db)]
+        CTX --> DBU[(users.db)]
+        CTX --> DBM[(memory.db)]
         AGENT --> DBC[(cache.db)]
         DBM --> VEC[(sqlite-vec)]
 
-        AGENT --> BG[Background Memory Tasks\nextract + summarize]
+        STARTUP[Startup sync] --> WMBOOT[bootstrap_world_model]
+        WMBOOT --> DBU
+        STARTUP --> HPROF[refresh_home_profile]
+        HPROF --> DBM
+
+        AGENT --> BG[Background tasks<br>memory extract + conversation summarize]
         BG --> DBM
 
-        SCHED[APScheduler] --> JOBS[Restore + Cleanup Jobs]
+        SCHED[APScheduler] --> JOBS[restore reminders/actions/prompts<br>cleanup jobs]
         JOBS --> DBU
-        JOBS --> DBM
         JOBS --> DBC
+        JOBS --> DBM
 
         ADMIN[Admin API / Dashboard] --> SSE[SSE Event Bus]
         AGENT --> SSE
@@ -69,34 +75,39 @@ flowchart TB
 
 ```mermaid
 flowchart LR
-    TGU[Telegram Update] --> WH[/POST /webhook/telegram\napp/api/webhooks.py/]
+    TGU[Telegram Update] --> WH[/POST /webhook/telegram<br>app/api/webhooks.py/]
     WH --> SEC{Secret header valid?}
     SEC -->|No| REJ[403 reject]
-    SEC -->|Yes| CH[TelegramChannel\nprocess_update]
-    CH --> BOT[handle_incoming_message\napp/bot.py]
+    SEC -->|Yes| CH[TelegramChannel<br>process_update]
+    CH --> BOT[handle_incoming_message<br>app/bot.py]
 
-    BOT --> ACL{Allowlisted +\nnot rate-limited?}
+    BOT --> ACL{Allowlisted +<br>not rate-limited?}
     ACL -->|No| DROP[Drop / throttle response]
-    ACL -->|Yes| USER[Get/Create User\nusers.db]
+    ACL -->|Yes| USER[Get/Create User<br>users.db]
 
     USER --> CMDCHK{Starts with / ?}
-    CMDCHK -->|Yes| DISPATCH[commands.dispatcher\ntry_dispatch]
-    DISPATCH --> CMDH[commands.handlers registry]
+    CMDCHK -->|Yes| DISPATCH[commands.dispatcher<br>try_dispatch]
+    DISPATCH --> CMDH[commands.handlers]
     CMDH --> CMDRESP[Command response]
 
-    CMDCHK -->|No or unhandled| CTX[assemble_context\nprofiles/history/episodic]
-    CTX --> RUN[run_conversation\napp/agent/agent.py]
+    CMDCHK -->|No or unhandled| CTX[assemble_context]
+    CTX --> PROF[Profiles<br>memory.db]
+    CTX --> WORLD[World model snapshot<br>users.db]
+    CTX --> HIST[Recent turns + summary<br>memory.db]
+    CTX --> MEM[Episodic retrieval<br>sqlite-vec]
 
-    RUN --> PROMPTS[Persona + Instructions]
-    RUN --> MODEL[LLM Router -> Claude/OpenAI]
-    RUN --> MCPHOMEY[Homey MCP tool calls]
+    CTX --> RUN[run_conversation<br>app/agent/agent.py]
+    RUN --> PROMPTS[persona.md + instructions.md<br>+ time_context block]
+    RUN --> MODEL[LLM Router]
+    RUN --> MCPHOMEY[Homey MCP]
     RUN --> MCPPROM[Prometheus MCP]
     RUN --> MCPTOOLS[Tools MCP]
+    RUN --> BUILTIN[Built-in tools<br>memory/reminders/actions/prompts/world-model]
 
     MCPHOMEY --> POL[Policy evaluate]
     POL --> NEED{Confirmation needed?}
-    NEED -->|No| EXEC[Execute + verify]
-    NEED -->|Yes| SAVEPA[Save PendingAction\ncache.db]
+    NEED -->|No| EXEC[Execute tool]
+    NEED -->|Yes| SAVEPA[Save PendingAction<br>cache.db]
     SAVEPA --> INLINE[Inline Yes/No prompt]
     INLINE --> CH
 
@@ -104,20 +115,26 @@ flowchart LR
     CALLBACK --> CONFIRM[Execute or cancel pending action]
     CONFIRM --> MCPHOMEY
 
+    EXEC --> VERIFY[verify_after_write]
+    VERIFY --> SNAP[(device snapshots)]
+
     RUN --> RESP[Agent output]
-    RESP --> SAVEPAIR[save_message_pair\nmemory.db]
-    RESP --> SNAP[update_snapshots_from_tool_calls\ncache.db]
-    RESP --> EVT[emit run/cmd events\nSSE + cache.db]
-    RESP --> BG[async extraction + summarization]
+    RESP --> SAVEPAIR[save_message_pair]
+    RESP --> SAVETURN[save_conversation_turn]
+    RESP --> RUNLOG[write agent run log]
+    RESP --> EVT[emit run/cmd/world events]
+    RESP --> BG[async memory extraction + summarization]
+
     BG --> DBM[(memory.db)]
+    EVT --> DBC[(cache.db)]
 
-    SCHED[Scheduler engine] --> RESTORE[restore reminders/actions]
-    SCHED --> CLEAN[cleanup logs/memories/tasks]
-    CLEAN --> DBU[(users.db)]
-    CLEAN --> DBC[(cache.db)]
-    CLEAN --> DBM
+    START[FastAPI lifespan startup] --> MCPSTART[Start Homey / Prom / Tools MCP]
+    MCPSTART --> RELOAD[reload_agent]
+    START --> SCH[Start scheduler]
+    SCH --> RESTORE[restore reminders/actions/prompts]
+    START --> BOOT[bootstrap_world_model + refresh_home_profile]
 
-    ADMIN[/admin APIs\n/stats /stream /memory /scheduler/] --> EVT
+    ADMIN[/admin APIs<br>/stats /stream /scheduler /world-model/] --> EVT
 ```
 
 ---
@@ -127,49 +144,53 @@ flowchart LR
 ```mermaid
 flowchart TB
     START[start.sh up] --> DC[docker compose build + up -d]
-    DC --> APP[homeagent container\npython -m app]
+    DC --> APP[homeagent container<br>python -m app]
     APP --> MIG[Alembic upgrade heads]
-    MIG --> RUN[_run(): main webhook app + admin app]
+    MIG --> LIFE[FastAPI lifespan]
 
-    RUN --> LIFE[FastAPI lifespan startup]
-    LIFE --> MCP[Start Homey/Prom/Tools MCP]
-    LIFE --> SCH[Start scheduler + restore jobs + cleanup registration]
-    LIFE --> TG[Initialize TelegramChannel]
+    LIFE --> MCP[Start Homey / Prom / Tools MCP]
+    LIFE --> RELOAD[reload agent with connected toolsets]
+    LIFE --> SCH[Start scheduler + restore jobs + cleanup jobs]
+    LIFE --> BOOT[fire-and-forget startup syncs]
+    BOOT --> WM[bootstrap_world_model]
+    BOOT --> HP[refresh_home_profile]
+    LIFE --> TG[Initialize Telegram channel]
 
     TG --> WH[Incoming webhook update]
     WH --> MSG[handle_incoming_message]
     MSG --> CMD{slash command?}
     CMD -->|Yes handled| CR[Return command response]
-    CMD -->|No| AG[assemble_context + run_conversation]
-    AG --> POL{Homey write needs confirm?}
+    CMD -->|No| CTX[assemble_context]
+    CTX --> RUN[run_conversation]
+    RUN --> POL{tool call requires confirm?}
     POL -->|Yes| PEND[pending action + inline buttons]
     POL -->|No| OUT[agent output]
     PEND --> CB[user callback]
     CB --> OUT
 
-    OUT --> SAVE[persist messages + snapshots + run logs]
-    SAVE --> BG[async memory extraction/summarization]
+    OUT --> SAVE[persist turn + run log + snapshots]
+    SAVE --> BG[async extract + summarize]
     SAVE --> REPLY[Telegram reply]
 ```
 
 ---
 
-## `start.sh` Mode Matrix (Current)
+## `start.sh` Mode Matrix
 
 ```mermaid
 flowchart TB
     SH[start.sh] --> MODE{Mode arg}
 
-    MODE -->|up (default)| UP[docker compose build && up -d]
-    MODE -->|logs| LOGS[docker compose logs -f]
-    MODE -->|stop| STOP[docker compose down]
-    MODE -->|restart| RESTART[docker compose down -> build -> up -d]
+    MODE -->|up default| UP["docker compose build + up -d"]
+    MODE -->|logs| LOGS["docker compose logs -f"]
+    MODE -->|stop| STOP["docker compose down"]
+    MODE -->|restart| RESTART["docker compose down -> build -> up -d"]
 
-    UP --> STACK[Running stack: tools + homeagent + cloudflared]
+    UP --> STACK[Running stack<br>homeagent + tools + prometheus-mcp + cloudflared]
     RESTART --> STACK
 
-    STACK --> RUNTIME[Webhook runtime\n(homeagent APP_ENV=production)]
+    STACK --> RUNTIME[Webhook runtime]
 
-    LOGS --> OBS[Observe only\nno state change]
+    LOGS --> OBS[Observe only]
     STOP --> DOWN[Stack stopped]
 ```

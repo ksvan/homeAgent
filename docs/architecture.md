@@ -2,9 +2,13 @@
 
 ## Overview
 
-HomeAgent is a locally-orchestrated AI agent server. It runs 24/7 on a single machine (Mac or Linux), serves multiple family members via messaging channels, and integrates with the home via Homey's MCP server.
+HomeAgent is a locally orchestrated household AI service. It runs continuously on one machine, serves multiple household members through messaging channels, and integrates with Homey, Prometheus, and internal MCP-backed tools.
 
-The core design principle: **one agent, rich context, many tools.** Intelligence lives in context assembly and memory retrieval — not in routing between sub-agents.
+The core design principle is still:
+
+**one agent, rich context, many tools**
+
+But the current runtime is no longer only "profiles + fuzzy memory". It now includes a structured **household world model** that grounds people, places, devices, calendars, routines, and durable facts in canonical entities.
 
 Visual diagrams: [architecture-diagrams.md](architecture-diagrams.md)
 
@@ -17,166 +21,227 @@ Visual diagrams: [architecture-diagrams.md](architecture-diagrams.md)
 │                        Channels                              │
 │   [Telegram]   [WhatsApp*]   [Web UI*]   [Voice*]           │
 └─────────────────────────┬────────────────────────────────────┘
-                          │ messages / events
+                          │ messages / callbacks
 ┌─────────────────────────▼────────────────────────────────────┐
 │                   FastAPI Server                             │
-│   /webhook/telegram    /webhook/homey    /api/*              │
+│   /webhook/telegram    /health    /admin/*                  │
 └─────────────────────────┬────────────────────────────────────┘
                           │
 ┌─────────────────────────▼────────────────────────────────────┐
 │                  Agent Orchestrator                          │
 │                                                              │
 │   1. Identify user + household                               │
-│   2. Assemble context (memory + state cache)                 │
-│   3. LLM call via LLM Router (task-appropriate model)        │
-│   4. Policy Gate — confirm high-impact actions               │
-│   5. Execute tool calls + verify state change                │
-│   6. Send response via channel                               │
-│   7. Log run + extract new memories                          │
+│   2. Slash-command intercept                                 │
+│   3. Assemble context                                        │
+│      - profiles                                              │
+│      - world model                                           │
+│      - conversation summary                                  │
+│      - episodic memories                                     │
+│      - recent message history                                │
+│   4. LLM call via LLM Router                                 │
+│   5. Policy Gate on high-impact actions                      │
+│   6. Execute tool calls                                      │
+│   7. Persist turn + logs + snapshots                         │
+│   8. Background memory extraction / summarization            │
 └──────┬──────────────────┬──────────────────┬────────────────┘
        │                  │                  │
-┌──────▼──────┐  ┌────────▼───────┐  ┌──────▼──────────────┐
-│  LLM Router │  │   Tool Layer   │  │   Memory + Cache    │
-│             │  │                │  │                     │
-│ Claude      │  │ Policy Gate ◄──┤  │ User profiles       │
-│ Sonnet 4.5  │  │ Homey MCP‡     │  │ Home profile        │
-│ (primary)   │  │ Prometheus MCP†│  │ Conversation history│
-│             │  │ Sched. actions │  │ Episodic memories   │
-│ GPT-4o      │  │ Reminders      │  │ State cache (SQLite)│
-│ (fallback)  │  │ Bash runner    │  │ Event log           │
-│             │  │ Python exec    │  │ Agent run log       │
-│ Haiku/Mini  │  │ Web scrape     │  │ Vector search       │
-│ (background)│  │ Web search*    │  │                     │
-│             │  │ Action Verify  │  │                     │
-└─────────────┘  └────────────────┘  └─────────────────────┘
+┌──────▼──────┐  ┌────────▼───────┐  ┌──────▼────────────────────┐
+│  LLM Router │  │   Tool Layer   │  │  Storage + Runtime State  │
+│             │  │                │  │                           │
+│ Claude      │  │ Homey MCP      │  │ users.db                  │
+│ (primary)   │  │ Prometheus MCP │  │ - households, users       │
+│             │  │ Tools MCP      │  │ - calendars, tasks        │
+│ GPT-4o      │  │ reminders      │  │ - scheduled prompts       │
+│ (fallback)  │  │ sched. actions │  │ - action policies         │
+│             │  │ memory tools   │  │ - world model entities    │
+│ Haiku/Mini  │  │ world-model    │  │                           │
+│ (background)│  │ tools          │  │ memory.db                 │
+│             │  │                │  │ - profiles                │
+└─────────────┘  └────────────────┘  │ - episodic memories       │
+                                     │ - sqlite-vec index        │
+                                     │ - conversation history    │
+                                     │ - conversation summaries  │
+                                     │                           │
+                                     │ cache.db                  │
+                                     │ - device snapshots        │
+                                     │ - event log               │
+                                     │ - agent run log           │
+                                     │ - pending confirmations   │
+                                     └──────────┬────────────────┘
+                                                │
+                                      ┌─────────▼─────────┐
+                                      │    Scheduler      │
+                                      │    APScheduler    │
+                                      │ - reminders       │
+                                      │ - scheduled       │
+                                      │   Homey actions   │
+                                      │ - scheduled       │
+                                      │   prompts         │
+                                      │ - cleanup jobs    │
+                                      └───────────────────┘
 
-                                      ┌─────────────────────┐
-                                      │    Scheduler        │
-                                      │ APScheduler         │
-                                      │ - Device actions    │
-                                      │ - Reminders         │
-                                      │ - Log retention     │
-                                      │ - Cache refresh     │
-                                      └─────────────────────┘
-* Web search uses a provider adapter — swap backends via SEARCH_PROVIDER in .env
-† Prometheus MCP runs as a separate service in services/prometheus-mcp/
-‡ Homey MCP exposes a simple schema (7 everyday tools) by default; full schema available when needed
-* Planned, not yet implemented (channels)
+* Planned, not yet implemented
 ```
 
 ---
 
 ## Core Design Decisions
 
-### Single Agent, Not Multi-Agent
+### Single agent with typed household grounding
 
-A single conversational agent handles all tasks — home control, personal assistance, reminders, etc. This keeps the agent's context coherent across topics and makes memory simpler (one memory store, not per-agent stores).
+HomeAgent keeps one conversational agent for the whole household domain rather than routing requests between specialist sub-agents. What changed with the world-model work is not the number of agents, but the quality of the grounding available to that one agent.
 
-A router pattern was considered and rejected: it adds latency, complicates memory sharing, and the routing itself becomes a failure point.
+The agent now reasons over:
 
-### Context Assembly as Orchestration
+- persistent user profile facts
+- persistent household profile facts
+- a compact structured household model
+- episodic semantic memory
+- recent conversation turns
 
-The "intelligence" of the orchestrator is in how it assembles context before each LLM call. Each request goes through:
+That keeps the conversational surface simple while making tool use and disambiguation more reliable.
 
-1. **User identification** — who is this, what channel
-2. **Profile retrieval** — user profile + household profile
-3. **Semantic memory retrieval** — relevant past memories from sqlite-vec
-4. **Conversation history** — recent messages, rolling summary of older history
-5. **Prompt assembly** — build system prompt from all above (device states NOT pre-loaded)
-6. **LLM call** — via LLM Router, with tools available (Homey simple schema by default)
-7. **Policy Gate** — intercept any high-impact tool calls before execution
-8. **Post-response** — verify state changes, log run; background: auto-extract memories, summarize history
+### Context assembly is the real orchestrator
 
-### Channel Abstraction
+The key runtime work happens before each LLM call. `assemble_context()` currently builds:
 
-All channel adapters implement a common `Channel` interface. The agent core never knows what channel it is talking through. This makes adding new channels (WhatsApp, web UI, voice) a matter of writing a new adapter, not touching agent logic.
+1. User profile text from `memory.db`
+2. Household profile text from `memory.db`
+3. A formatted `## Household Model` snapshot from `users.db`
+4. Recent conversation turns from `memory.db`
+5. An optional rolling conversation summary
+6. Relevant episodic memories retrieved from sqlite-vec
+
+The conversation agent then adds:
+
+- prompt files (`persona.md`, `instructions.md`)
+- a machine-readable `<time_context>` block with current ISO timestamp and timezone
+
+Current device state is still **not** preloaded into the prompt. For live state, the agent is expected to call Homey tools.
+
+### World model as a first-class runtime layer
+
+The world model is now a real runtime component, not just a design idea.
+
+It lives in `users.db` and is bootstrapped on startup from trusted sources:
+
+- `User` rows -> `HouseholdMember`
+- calendar rows -> `CalendarEntity`
+- Homey zones -> `Place`
+- Homey devices -> `DeviceEntity`
+- hardcoded seed facts -> `WorldFact`
+
+The current schema also includes:
+
+- `MemberInterest`
+- `MemberGoal`
+- `MemberActivity`
+- `RoutineEntity`
+- `Relationship`
+
+The agent sees a compact formatted snapshot of this model on every run, and also has explicit tools to read and update it conservatively.
+
+### Channel abstraction
+
+All user-facing transport is behind a channel interface. The agent core does not know whether it is replying via Telegram or another future channel.
 
 ```text
 Channel (abstract)
-├── send_message(user_id: str, text: str) → None
-├── send_confirmation_prompt(user_id, action_description, token) → None
-├── get_user_from_event(event) → User
-└── parse_incoming(raw) → Message
+├── send_message(user_id: str, text: str) -> None
+├── send_confirmation_prompt(user_id, action_description, token) -> None
+├── get_user_from_event(event) -> User
+└── parse_incoming(raw) -> Message
 
-TelegramChannel(Channel)     ← implemented
-WhatsAppChannel(Channel)     ← future
-WebChannel(Channel)          ← future
+TelegramChannel(Channel)     <- implemented
+WhatsAppChannel(Channel)     <- future
+WebChannel(Channel)          <- future
 ```
 
-Note: confirmation is **not a blocking call** — see [Confirmation Flow](#confirmation-flow-async-pending-state) below.
+### Slash commands stay outside the LLM path
 
-### LLM Router
+Slash commands are intercepted in `app/bot.py` before context assembly and before the model is called. This keeps low-cost operational tasks deterministic and cheap.
 
-A thin `LLMRouter` class wraps PydanticAI's model objects. It selects the appropriate model based on task type, applies feature flag checks, and provides transparent fallback if the primary provider is unavailable.
+Current built-ins include:
 
-See [agent-design.md](agent-design.md#llm-routing) for task-to-model mapping.
+- `/help`
+- `/contextstats`
+- `/history`
+- `/schedule`
+- `/prompts`
+- `/status`
+- `/users`
+
+### LLM Router with per-slot provider binding
+
+`LLMRouter` still chooses models by task type, but provider binding is now per slot rather than implied globally. Each model slot can use its own API key and therefore its own provider.
+
+This avoids silent mismatches like "OpenAI model name with Anthropic key" or the reverse.
 
 ### Policy Gate
 
-A declarative middleware layer that sits between "agent proposes a tool call" and "tool executes". High-impact actions are intercepted and require explicit user confirmation before proceeding.
+The Policy Gate remains the safety boundary between "the model wants to do something" and "the side effect is executed".
 
-This is configured via a policy table (not hardcoded). New policies can be added without changing agent code.
+- read-only tools usually pass through
+- unknown write-capable tools default to confirmation
+- Homey writes can trigger async user confirmation
+- scheduled unattended Homey actions are checked at schedule time so high-impact actions cannot be queued for later execution
 
-See [policy-gate.md](policy-gate.md) for full design.
+See [policy-gate.md](policy-gate.md) for the full design.
 
-### Action Verification
+### Post-write verification is best-effort
 
-After every write action to Homey (or other stateful systems), a verification step queries the resulting state and compares it to the expected outcome. If the state does not match:
+After Homey write actions, the runtime schedules a fire-and-forget verification read-back. The current implementation:
 
-1. Retry the action once (after a short delay, as some updates are async)
-2. If still mismatched: report the error to the user with the actual vs expected state
+1. waits a short configured delay
+2. calls Homey `get_device_state`
+3. updates the device snapshot cache with what Homey reported
+4. warns the user only if the verification read-back itself fails
 
-Verification uses the state cache as a baseline and Homey MCP for the live read-back.
+It does **not** yet perform strong semantic expected-vs-actual matching for every device type.
 
-### State Cache
+### Unified scheduled task persistence
 
-A local SQLite layer that stores event history, agent run logs, and device snapshots (updated after write actions). Purposes:
+`Task` rows in `users.db` are currently used as durable records for:
 
-- **Audit trail** — full log of what happened and why
-- **Detect competing actions** — before acting on a device, check if another agent run recently touched it
-- **Post-write snapshots** — device state recorded after each agent write action and verification
-- **Event replay** — events can be inspected for debugging
+- reminders
+- scheduled Homey actions
 
-Note: device states are **not** pre-loaded into the agent's system prompt. The agent queries Homey live via MCP for current state when needed.
+The schema is still broad enough for future multi-step conversational task orchestration, but that broader task-resume flow is not yet wired into runtime context assembly.
 
-See [State Cache Tables](#state-cache-tables) below for schema.
+Detailed proposal: [multi-step-task-design.md](multi-step-task-design.md)
 
 ---
 
-## Confirmation Flow (Async Pending-State)
+## Confirmation Flow
 
-Confirmations are **not blocking calls** within the webhook request. A webhook handler must return quickly; it cannot wait 60 seconds for a user to press a button. Instead, confirmations use a two-webhook pattern:
+Confirmations are asynchronous. The webhook handling the original message does not wait for a button press.
 
 ```text
-Webhook 1 — agent hits a confirmation-required action:
-  1. Agent proposes tool call
-  2. Policy Gate: confirmation required
-  3. Save PendingAction{token, tool, args, user_id, expires_at} to DB
-  4. Send Telegram message with inline Yes/No buttons (token encoded in callback_data)
-  5. Agent responds to user: "I need your confirmation before proceeding — see above."
-  6. Webhook 1 returns
+Webhook 1:
+  agent proposes tool call
+  -> policy gate requires confirmation
+  -> save PendingAction in cache.db
+  -> send inline Yes/No prompt
+  -> return response
 
-Webhook 2 — user presses Yes or No:
-  1. Telegram sends callback_query POST to /webhook/telegram
-  2. FastAPI routes callback_query to confirmation handler
-  3. Look up PendingAction by token — check not expired, check user matches
-  4a. If Yes: execute the tool, verify state, send result to user
-  4b. If No: delete PendingAction, send "Cancelled" to user
-  5. Webhook 2 returns
+Webhook 2:
+  user presses button
+  -> callback handled
+  -> pending action validated and deleted
+  -> tool executed or cancelled
+  -> user notified
 ```
-
-Expired pending actions are cleaned up by a scheduled job. If the user does not respond within `TELEGRAM_CONFIRM_TIMEOUT_SECONDS`, the action is auto-cancelled on next cleanup pass and the buttons are edited to show "Expired".
 
 The `pending_action` table lives in `cache.db`:
 
 ```text
 pending_action
-├── token          (UUID, primary key — encoded in Telegram callback_data)
+├── token          UUID primary key
 ├── household_id
 ├── user_id
 ├── tool_name
 ├── tool_args      JSON
-├── policy_name    which policy triggered this
+├── policy_name
 ├── created_at
 └── expires_at
 ```
@@ -186,47 +251,56 @@ pending_action
 ## Data Flow: Incoming Message
 
 ```text
-1.  Telegram sends POST to /webhook/telegram
-2.  FastAPI validates X-Telegram-Bot-Api-Secret-Token header
-3.  Extract sender telegram_user_id — check against ALLOWED_TELEGRAM_IDS
-    → If not in list: drop silently, return HTTP 200 (no response to sender)
-4a. If callback_query: route to confirmation handler (see Confirmation Flow above)
-4b. If message: TelegramChannel.parse_incoming() → Message(user_id, text, channel)
-5.  Look up User record; if none: begin first-time onboarding (ask for name)
-6.  Event logged to event_log
-6.  Context assembled (profiles + memories + conversation history — no device states)
-7.  LLM Router selects model (task = CONVERSATION)
-8.  Pydantic AI agent runs with assembled context + tools (Homey simple schema by default)
-9.  For each tool call the agent proposes:
-      a. Policy Gate evaluates — confirmation required?
-      b. If yes: save PendingAction, send confirmation prompt, stop tool execution
-      c. If not required: execute tool, log to agent_run_log, verify state change
-10. Final response returned
-11. TelegramChannel.send_message() → user sees reply
-12. Background (fire-and-forget): auto-extract stable facts → episodic memory; summarize history if > 50 messages
+1. Telegram sends POST to /webhook/telegram
+2. FastAPI validates the secret token header
+3. Telegram user ID checked against ALLOWED_TELEGRAM_IDS
+4. Existing user loaded or placeholder user auto-created
+5. If message starts with /:
+     -> dispatch slash command
+     -> return command response without LLM
+6. Otherwise assemble context:
+     - profiles
+     - world model
+     - conversation summary
+     - episodic memories
+     - recent conversation turns
+7. Run conversation agent with MCP + built-in tools
+8. Policy gate intercepts sensitive tool calls when needed
+9. Final response returned to user
+10. Persist:
+      - text pair for summarization
+      - full conversation turn for model history
+      - agent run log
+      - device snapshots from Homey tool calls
+11. Background:
+      - episodic memory extraction
+      - conversation summarization when thresholds are exceeded
 ```
 
-## Data Flow: Scheduled Task / Reminder
+## Data Flow: Scheduled Prompt
 
 ```text
-1. APScheduler fires job at scheduled time
-2. Job retrieves target user + message from DB
-3. Looks up user's preferred channel
-4. Logs event to event_log
-5. Sends message via appropriate channel adapter
-6. For complex tasks: constructs a synthetic message and runs through agent pipeline
+1. APScheduler fires a scheduled prompt job
+2. The saved prompt is looked up in users.db
+3. A synthetic conversation run is executed through the same agent pipeline
+4. The response is delivered to the target channel user
+5. Run events and persistence behave like a normal conversation turn
 ```
 
-## Data Flow: Home Event (future)
+## Data Flow: Startup
 
 ```text
-1. Homey sends webhook to /webhook/homey
-2. Event parsed: device, capability, new value
-3. Event logged to event_log
-4. Device snapshot updated in state cache
-5. Event rules evaluated (is anyone listening? any automations?)
-6. If notification needed: channel adapter sends message to relevant user(s)
-7. If agent action needed: synthetic message through agent pipeline
+1. FastAPI lifespan starts
+2. Seed action policies
+3. Start Homey, Prometheus, and Tools MCP connections
+4. Reload the agent singleton so connected MCP toolsets are attached
+5. Start APScheduler
+6. Restore pending reminders, actions, and scheduled prompts
+7. Register cleanup jobs
+8. Fire-and-forget startup syncs:
+     - refresh_home_profile()
+     - bootstrap_world_model()
+9. Initialize Telegram channel
 ```
 
 ---
@@ -235,174 +309,140 @@ pending_action
 
 ```text
 data/
-├── db/
-│   ├── users.db          # Users, households, channel mappings, task state
-│   ├── memory.db         # Profiles, episodic facts, conversation history
-│   ├── cache.db          # State cache: device snapshots, event log, run log, pending_action
-│   └── scheduler.db      # Reminders, scheduled jobs
-└── chroma/               # Vector embeddings for semantic memory search
+└── db/
+    ├── users.db      # users, households, calendars, tasks, scheduled prompts,
+    │                 # action policies, world model entities
+    ├── memory.db     # profiles, episodic memories, conversation turns/messages,
+    │                 # conversation summaries, sqlite-vec virtual table
+    └── cache.db      # device snapshots, event log, agent run log, pending_action
 ```
 
-All databases are SQLite (WAL mode) with schemas managed by Alembic. Chroma runs embedded (in-process). No external database services required.
+All structured storage is SQLite in WAL mode. Semantic retrieval uses `sqlite-vec` inside `memory.db`; there is no separate vector database service.
 
 ---
 
-## State Cache Tables
+## Key Tables
 
-### `device_snapshot`
-
-Last known state of every Homey device capability.
+### `users.db`
 
 ```text
-device_snapshot
-├── device_id         (from Homey)
-├── capability        e.g. "onoff", "dim", "measure_temperature"
-├── value             JSON-encoded current value
-├── updated_at        timestamp of last known update
-└── source            "homey_event" | "agent_action" | "poll" | "verify"
+household
+user
+channel_mapping
+calendar
+task
+scheduledprompt
+action_policy
+householdmember
+memberinterest
+membergoal
+memberactivity
+place
+deviceentity
+calendarentity
+routineentity
+relationship
+worldfact
 ```
 
-Refreshed: on home events, after agent write actions, and by a periodic background poll (configurable interval, default 5 min).
-
-### `event_log`
-
-Immutable append-only log of all significant events.
+### `memory.db`
 
 ```text
-event_log
-├── id
-├── event_type        "telegram_message" | "home_event" | "reminder_fired" | "agent_trigger"
-├── household_id
-├── user_id           (nullable for system events)
-├── payload           JSON — full event details
-└── created_at
+userprofile
+householdprofile
+episodicmemory
+conversationmessage
+conversationturn
+conversationsummary
+episodic_memory_vec   # sqlite-vec virtual table
 ```
 
-Retention: configurable, default 90 days.
-
-### `agent_run_log`
-
-Record of each agent execution: what triggered it, what model was used, what tools were called, and what was returned.
+### `cache.db`
 
 ```text
-agent_run_log
-├── id
-├── household_id
-├── user_id
-├── trigger_event_id  (FK to event_log)
-├── model_used
-├── input_summary     truncated input for debugging
-├── tools_called      JSON array of {tool, args, result, verified}
-├── output_summary    truncated final response
-├── duration_ms
-├── tokens_used       {input, output}
-└── created_at
+devicesnapshot
+eventlog
+agentrunlog
+pendingaction
 ```
 
-Used for: competing action detection (check recent runs for this device), cost tracking, debugging.
-
 ---
 
-## Competing Action Detection
+## Conversation Memory Model
 
-Before the agent executes a write action on a device, it checks `agent_run_log` for any run in the last 60 seconds that also wrote to the same device. If found:
+HomeAgent now has three distinct durable knowledge layers plus the assembled runtime view:
 
-- If same user: proceed silently (user is following up their own request)
-- If different user: agent informs the requester ("Emma just changed that — want me to override?")
+1. Profiles
+2. Structured household world model
+3. Episodic memory
+4. Conversation history / summary
 
-The time window and behaviour are configurable via `COMPETING_ACTION_WINDOW_SECONDS`.
+Important current behavior:
 
----
+- recent context comes from `ConversationTurn`, not just raw user/assistant text
+- only the newest 3 turns keep full tool-return payloads
+- older turns are retained with tool-return content replaced by `[result omitted]`
+- rolling summarization starts once text-message history exceeds 20 messages
 
-## Task State
-
-A `task` represents a multi-step operation the agent is executing across multiple conversation turns. Single-turn requests do not create tasks. Tasks are created when the agent identifies that a goal requires multiple steps or spans multiple messages.
-
-```text
-task (in users.db)
-├── id
-├── household_id
-├── user_id
-├── title               short description, e.g. "Plan weekend dinner"
-├── status              ACTIVE | AWAITING_INPUT | AWAITING_CONFIRMATION | COMPLETED | FAILED | CANCELLED
-├── steps               JSON array: [{description, status, completed_at}, ...]
-├── current_step        index into steps array
-├── context             JSON — task-specific state (e.g. restaurant options found)
-├── trigger_event_id    FK to event_log — what started this task
-├── created_at
-├── updated_at
-└── completed_at
-```
-
-**Context injection:** When a user sends a message, the agent checks for any `ACTIVE` or `AWAITING_INPUT` tasks belonging to them. If found, task state is injected into the system prompt so the agent can resume the task coherently.
-
-**User commands:**
-
-- "What are you working on?" → agent lists active tasks
-- "Cancel that" / "Forget about the dinner plan" → agent marks task `CANCELLED`
-- "Continue" / resuming the conversation → agent picks up from `current_step`
-
-**Task lifecycle:** Tasks are created by the agent (via a `create_task` tool call). They are updated after each step. Completed and cancelled tasks are retained for history but not injected into future context.
-
----
-
-## Rate Limiting
-
-Per-user rate limiting is applied as FastAPI middleware before any request reaches the agent. Uses `slowapi` (wraps the `limits` library).
-
-Default: **50 requests per user per minute**, configurable via `RATE_LIMIT_PER_USER_PER_MINUTE`.
-
-Rate limit key: Telegram user ID (not IP address — all Telegram traffic comes from Telegram's servers, so IP-based limiting would block everyone).
-
-If exceeded: HTTP 429 returned to Telegram (Telegram will not retry message delivery for 429s). Agent sends the user a polite message: *"You're sending messages quickly — please wait a moment."*
-
-Rate limiting is disabled in `development` and `test` environments.
-
----
-
-## Health Endpoint
-
-`GET /health` — returns component status as JSON. Used by Docker healthcheck.
-
-See [observability.md](observability.md) for the full response schema and Docker Compose configuration.
-
----
-
-## Graceful Degradation
-
-Each component has a defined failure contract. The agent always informs the user when something is unavailable and continues with unaffected functionality.
-
-See [graceful-degradation.md](graceful-degradation.md) for the full degradation matrix and per-component contracts.
-
----
-
-## Security Considerations
-
-- Telegram webhooks validated via `secret_token`
-- All API keys in environment variables, never in code or git
-- User authorisation: only registered household members can interact
-- Homey token scoped to read/write only what is needed
-- Policy Gate prevents high-impact actions without explicit confirmation
-- No data sent to third parties except LLM API calls and Homey cloud MCP
-- Conversation content is sent to Anthropic/OpenAI as part of API calls — consider this when discussing sensitive topics
+See [memory-design.md](memory-design.md) for the detailed design.
 
 ---
 
 ## Admin Dashboard
 
-A real-time control plane is available at `/admin`. It provides:
+The admin dashboard at `/admin` is the control plane for the running service.
 
-- **Live event feed** — SSE stream showing every agent run, tool call, scheduler job, and memory event in real time, with colour-coded badges (RUN, TOOL, SCHED, MEM)
-- **Sidebar stats** — active users, recent runs, token usage, memory counts
-- **Controls** — reload agent/prompts, trigger manual reload of MCP connections
+Current capabilities include:
 
-Events are emitted via an in-process SSE bus (`app/control/events.py`) and displayed without polling. The admin page requires no separate process or database — it taps into the same event stream the application already generates.
+- live SSE event feed for runs, jobs, memory events, commands, and world-model updates
+- operational stats and status
+- scheduler inspection
+- a dedicated **World Model** view backed by `GET /admin/world-model`
+- authenticated write endpoints for world facts, routines, aliases, member details, and entity deletion
+
+The world-model admin endpoints are served from the same FastAPI app; there is no separate admin service.
+
+---
+
+## Health and Degradation
+
+`GET /health` reports:
+
+- `db_users`
+- `db_memory`
+- `db_cache`
+- `mcp_homey`
+- `mcp_prom`
+- `mcp_tools`
+- `scheduler`
+
+The service is considered degraded when one or more components are unavailable but the process is still functioning.
+
+See [observability.md](observability.md) and [graceful-degradation.md](graceful-degradation.md).
+
+---
+
+## Security Considerations
+
+- Telegram webhooks are validated with a secret token header.
+- Only allowlisted Telegram IDs are accepted.
+- High-impact tool calls can be gated behind explicit confirmation.
+- Pending confirmations are scoped to the requesting user and expire automatically.
+- World-model writes are conservative and inspectable through admin endpoints and the event feed.
+- Conversation content may be sent to external LLM providers depending on configured models.
 
 ---
 
 ## Deployment
 
-Single Docker container. Multi-platform image (ARM64 + AMD64).
+The repo runs as a Docker Compose stack, not a single process in a single container.
+
+Typical runtime services are:
+
+- `homeagent`
+- `tools`
+- `prometheus-mcp`
+- `cloudflared`
 
 See [README.md](../README.md) for build and run instructions.
-See [tech-stack.md](tech-stack.md) for full dependency list.
+See [frameworks-and-services.md](frameworks-and-services.md) for the technology inventory.

@@ -50,7 +50,7 @@ Each incoming webhook request is assigned a `trace_id` (UUID) at the FastAPI mid
 
 ## Health Endpoint
 
-`GET /health` — returns component status. Used by Docker healthcheck and optionally by external monitoring.
+`GET /health` returns component status. Used by Docker healthcheck and optionally by external monitoring.
 
 **Healthy response (HTTP 200):**
 
@@ -60,14 +60,14 @@ Each incoming webhook request is assigned a `trace_id` (UUID) at the FastAPI mid
   "version": "0.1.0",
   "uptime_seconds": 86400,
   "components": {
-    "database": "ok",
-    "chroma": "ok",
-    "homey_mcp": "ok",
+    "db_users": "ok",
+    "db_memory": "ok",
+    "db_cache": "ok",
+    "mcp_homey": "ok",
+    "mcp_prom": "ok",
+    "mcp_tools": "ok",
     "scheduler": "ok",
-    "llm_primary": "ok",
-    "llm_fallback": "ok"
-  },
-  "last_homey_sync": "2026-03-01T08:30:00Z"
+  }
 }
 ```
 
@@ -77,18 +77,18 @@ Each incoming webhook request is assigned a `trace_id` (UUID) at the FastAPI mid
 {
   "status": "degraded",
   "components": {
-    "database": "ok",
-    "chroma": "ok",
-    "homey_mcp": "unreachable",
-    "scheduler": "ok",
-    "llm_primary": "ok",
-    "llm_fallback": "ok"
-  },
-  "last_homey_sync": "2026-03-01T07:45:00Z"
+    "db_users": "ok",
+    "db_memory": "ok",
+    "db_cache": "ok",
+    "mcp_homey": "disconnected",
+    "mcp_prom": "ok",
+    "mcp_tools": "ok",
+    "scheduler": "ok"
+  }
 }
 ```
 
-**Unhealthy response (HTTP 503):** returned only if the database is down or the LLM layer is completely unavailable.
+Current implementation returns `"healthy"` when all three DBs are reachable and `"degraded"` otherwise. It does not currently mark MCP disconnections alone as unhealthy.
 
 Docker Compose healthcheck:
 
@@ -108,24 +108,12 @@ healthcheck:
 Any admin can send `/status` to get a real-time summary in Telegram:
 
 ```
-HomeAgent status — 01 Mar 2026, 08:32
+Status:
 
-Uptime: 3 days, 2 hours
-Version: 0.1.0
-
-Components:
-  ✅ Database
-  ✅ Homey (last sync: 2 min ago)
-  ✅ Claude Sonnet 4.5
-  ✅ Scheduler (12 jobs pending)
-
-This week:
-  Messages: 47
-  LLM calls: 83
-  Est. cost: ~$0.42
-
-Active tasks: 1
-  - "Plan weekend dinner" (Kristian, since 10:15)
+Scheduler       : ok
+Homey MCP       : ok
+Prometheus MCP  : ok
+Tools MCP       : ok
 ```
 
 ---
@@ -134,7 +122,7 @@ Active tasks: 1
 
 ### Per-run tracking
 
-Every agent run logs `tokens_used: {input: N, output: N}` and `model_used` to `agent_run_log`. This is the raw data for all cost calculations.
+Every agent run logs `tokens_used: {input: N, output: N}` and `model_used` to `agent_run_log`. This is the raw data for cost estimates and run analysis.
 
 ### Weekly summary (scheduled)
 
@@ -180,7 +168,7 @@ COST_ESTIMATE_EMBEDDING=0.00000002
 
 ## Log Retention and Rotation
 
-Logs are written to stdout (captured by Docker). Structured log entries are also persisted in `event_log` and `agent_run_log` in SQLite, with configurable retention (default 90 days).
+Logs are written to stdout and captured by Docker. Structured runtime events are also persisted in `event_log` and `agent_run_log` in `cache.db`, with cleanup jobs handling retention.
 
 For file-based log archiving, configure Docker's log driver (e.g. `json-file` with `max-size` and `max-file` options in `docker-compose.yml`).
 

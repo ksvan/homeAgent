@@ -24,7 +24,7 @@
 
 | Name | What it does | How it's used here |
 |---|---|---|
-| **SQLModel** | ORM combining SQLAlchemy 2.0 and Pydantic | Primary ORM for all models (users, households, tasks, memories, calendars, scheduled prompts) across three SQLite databases |
+| **SQLModel** | ORM combining SQLAlchemy 2.0 and Pydantic | Primary ORM for all models across three SQLite databases, including users, households, tasks, calendars, scheduled prompts, memories, and the household world model |
 | **SQLite** (stdlib) | Embedded relational database | Three separate databases in WAL mode: `users.db`, `memory.db`, `cache.db` |
 | **sqlite-vec** | SQLite extension for vector similarity search | Stores and queries 1536-dim OpenAI embeddings for semantic episodic memory search (`episodic_memory_vec` virtual table) |
 | **Alembic** | Database migration tool for SQLAlchemy | Manages schema versioning across all three databases |
@@ -60,7 +60,7 @@
 
 | Name | What it does | How it's used here |
 |---|---|---|
-| **Homey** (MCP) | Smart home hub — controls devices, flows, and zones | Agent calls Homey MCP over LAN for all home automation. A policy gate in `app/homey/mcp_client.py` screens destructive tool calls and can require user confirmation |
+| **Homey** (MCP) | Smart home hub — controls devices, flows, and zones | Agent calls Homey MCP for live home automation and also uses `get_home_structure` during startup to bootstrap `Place` and `DeviceEntity` rows in the world model |
 | **Prometheus** (MCP) | Time-series metrics database | Read-only metrics access (power, temperature, uptime). Wrapped in `services/prometheus-mcp` to expose it as an MCP server |
 | **Tavily** | Web search SaaS API | Powers the `search` tool in `services/tools-mcp`; used when the agent needs to query current facts or the web |
 | **Cloudflare Tunnel** | Tunneling service for NAT traversal | Exposes the FastAPI webhook endpoint to the internet without port forwarding, enabling Telegram to reach the bot at home |
@@ -105,7 +105,7 @@
 
 | Name | What it does | How it's used here |
 |---|---|---|
-| **Docker + Compose** | Container runtime and multi-container orchestration | Two runtime containers (`homeagent`, `tools`) plus `cloudflared`; health checks and `depends_on` ordering enforced |
+| **Docker + Compose** | Container runtime and multi-container orchestration | Runtime stack for `homeagent`, `tools`, `prometheus-mcp`, and `cloudflared`; health checks and dependency ordering handled in Compose |
 | **UV** | Fast Python package manager | Used in all Dockerfiles for deterministic, fast dependency installs with bytecode pre-compilation |
 
 ---

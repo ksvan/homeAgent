@@ -1,6 +1,6 @@
 # Agent Design
 
-This document defines how the agent behaves, its persona, how it is instructed, and how context is assembled for each conversation turn. Any agent working on this codebase should treat this as the source of truth for agent behaviour.
+This document describes the current HomeAgent runtime behavior: how prompts are assembled, what durable context is injected, and what tools the conversation agent can use.
 
 ---
 
@@ -8,254 +8,265 @@ This document defines how the agent behaves, its persona, how it is instructed, 
 
 The agent is a household AI assistant. It is:
 
-- **Warm and natural** — not robotic, not overly formal. Like a capable and trusted family helper.
-- **Concise by default** — gives short answers unless the user asks for detail.
-- **Proactive within limits** — surfaces relevant information when useful, but does not add unsolicited commentary.
-- **Household-aware** — knows the family, the home, and acts accordingly.
-- **Honest about limitations** — does not guess at home device states; queries Homey rather than making things up.
+- **Warm and natural**: not robotic, not overly formal
+- **Concise by default**: gives short answers unless the user asks for more
+- **Proactive within limits**: surfaces relevant information when useful, but should not ramble
+- **Household-aware**: knows the people, rooms, devices, and routines of the household
+- **Honest about uncertainty**: queries live systems rather than pretending to know current state
 
-The agent does not have a fixed name by default — this is configurable per household. Placeholder: **"Home"**.
+The agent name is configurable through `AGENT_NAME`.
 
 ---
 
 ## System Prompt Structure
 
-The system prompt is assembled fresh for each conversation turn. It is composed of the following sections, in order:
+The system prompt is assembled fresh for each run in [`app/agent/agent.py`](/Users/kristian/Documents/code/homeAgent/app/agent/agent.py).
 
-### 1. Base Persona
+Current structure:
 
-```text
-You are {agent_name}, the AI assistant for the {household_name} household.
-You help with smart home control, personal tasks, reminders, and general questions.
-You know the family well and remember past conversations.
-Today is {current_date}. The time is {current_time} ({timezone}).
-```
+### 1. Time Context Block
 
-### 2. User Context
-
-Who is currently speaking:
+A machine-readable block is prepended first:
 
 ```text
-You are speaking with {user_name}.
-{user_profile_summary}
+<time_context>
+{
+  "current_time": "2026-03-28T15:32:00+01:00",
+  "timezone": "Europe/Oslo"
+}
+</time_context>
 ```
 
-Example user profile summary:
-> Kristian is the household admin. Prefers concise answers. Usually checks in during commute.
+This exists so the model always has an exact timestamp with offset, not just prose.
 
-### 3. Household Context
+### 2. Base Prompt Files
 
-Shared family knowledge:
+Two prompt files are loaded and concatenated:
 
-```text
-Household members:
-{list of members with brief descriptors}
+- `prompts/persona.md`
+- `prompts/instructions.md`
 
-Shared context:
-{household_profile_summary}
-```
+These are rendered with runtime variables such as:
 
-### 4. Active Task State (injected when tasks exist)
+- `{agent_name}`
+- `{household_name}`
+- `{current_date}`
+- `{current_time}`
+- `{timezone}`
 
-If the user has any `ACTIVE` or `AWAITING_INPUT` tasks, they are summarised and injected:
+### 3. Structured Dynamic Context
 
-```text
-You are currently working on the following tasks for {user_name}:
-- "Plan weekend dinner" (step 2/4: restaurant options gathered, awaiting selection)
-```
+The following sections are appended when present:
 
-This allows the agent to pick up multi-step tasks coherently across conversation turns.
+- `## User Profile`
+- `## Household Profile`
+- `## Household Model`
+- `## Conversation Summary`
+- `## Relevant Memories`
 
-### 5. Home Context (injected for home-related queries)
+The `## Household Model` section is produced from the structured world model in `users.db`, not from free-text memory.
 
-Not always included — only when the query appears home-related, or on demand:
+### 4. Recent Conversation Turns
 
-```text
-Current home state (from Homey, as of {timestamp}):
-{relevant device states}
-```
+Recent conversation turns are **not** appended into the system prompt text. They are passed separately as `message_history` into the PydanticAI run so the model still sees the actual recent turn sequence, including tool calls.
 
-### 6. Relevant Memories
+---
 
-Retrieved by semantic search against the current message:
+## Context Assembly
 
-```text
-Relevant things to remember:
-- {memory_1}
-- {memory_2}
-...
-```
+`assemble_context()` in [`app/agent/context.py`](/Users/kristian/Documents/code/homeAgent/app/agent/context.py) currently loads:
 
-### 7. Conversation History
+1. user profile
+2. household profile
+3. formatted world model snapshot
+4. recent conversation turns
+5. optional rolling conversation summary
+6. relevant episodic memories
 
-Recent messages from this conversation (last 20 turns or ~4000 tokens, whichever is less). Older conversation is compressed into a rolling summary prepended before the recent window:
-
-```text
-Earlier in this conversation:
-{summary}
-
-Recent messages:
-[user]: ...
-[assistant]: ...
-```
+This is the authoritative current behavior. Older design notes about injecting task state or `home_context.md` directly into every run are not the current runtime path.
 
 ---
 
 ## Prompt Files
 
-The base persona, instructions, and home context are defined in editable markdown files
-under the `prompts/` directory (path configurable via `PROMPTS_DIR` in `.env`).
+The editable prompt files live in `prompts/`:
 
 ```text
 prompts/
-├── persona.md        — Who the agent is and how it communicates (always included)
-├── instructions.md   — Specific behavioural rules (always included)
-└── home_context.md   — Home layout and device context (included for home-related queries)
+├── persona.md
+├── instructions.md
+└── home_context.md
 ```
 
-Files are loaded at startup. An admin can hot-reload them without restarting the service
-by sending `/reload` in Telegram.
+Current runtime behavior:
+
+- `persona.md` is loaded
+- `instructions.md` is loaded
+- `home_context.md` exists, but is not currently injected by the conversation agent
+
+Prompt files are cached in-process and reloaded when the admin issues `/reload`.
 
 ### Template variables
 
-Files support `{variable}` slots that are filled in at runtime before the prompt is sent
-to the LLM. Available variables:
+Files support runtime replacement via `str.format_map()`, with unknown placeholders left untouched. Variables currently supplied by the agent include:
 
-| Variable | Source | Example |
-| --- | --- | --- |
-| `{agent_name}` | `AGENT_NAME` in `.env` | `Home` |
-| `{household_name}` | Household profile (DB) | `The Ås family` |
-| `{current_date}` | System clock | `Sunday, 1 March 2026` |
-| `{current_time}` | System clock | `08:32` |
-| `{timezone}` | Household profile (DB) | `Europe/Oslo` |
-| `{timestamp}` | State cache refresh time | `2026-03-01T08:30:00Z` |
-| `{device_states}` | Homey state cache | _(formatted device list)_ |
-
-Variables are only available in the files where they are listed in the file's
-header comment. Unrecognised variables are passed through unchanged and logged
-as a warning.
-
-### Editing tips
-
-- Comments wrapped in `<!-- ... -->` are stripped before the prompt is sent.
-- The files are plain markdown — headings and bullet points are fine. The LLM
-  reads them as plain text.
-- Keep files focused. `persona.md` defines tone; `instructions.md` defines rules.
-  Do not put rules in `persona.md` or vice versa.
-- Changes take effect immediately after a `/reload`. No restart needed.
+| Variable | Source |
+| --- | --- |
+| `{agent_name}` | `AGENT_NAME` setting |
+| `{household_name}` | household record |
+| `{current_date}` | system clock in household timezone |
+| `{current_time}` | system clock in household timezone |
+| `{timezone}` | configured household timezone |
 
 ---
 
 ## Tools Available to the Agent
 
-The agent has access to the following tools. Tools are registered via Pydantic AI's tool system.
+The conversation agent is built once and receives MCP toolsets plus built-in Python tools.
 
-| Tool | Description | Source |
-| --- | --- | --- |
-| `homey_*` | Control and query Homey devices | Homey MCP server |
-| `set_reminder` | Create a reminder for any household member | Internal |
-| `search_web` | Search the web for current information | Web search API |
-| `get_weather` | Get current or forecast weather | Weather API |
-| `get_time` | Get current time in a timezone | Internal |
-| `update_user_profile` | Store a new fact about a user | Internal memory |
-| `update_home_profile` | Store a new fact about the home | Internal memory |
+### MCP toolsets
 
-Tools prefixed `homey_` are dynamically registered from the Homey MCP server's capability list at startup.
+When connected, the agent gets tools from:
+
+- Homey MCP
+- Prometheus MCP
+- Tools MCP
+
+### Built-in tools
+
+Built-in tool families currently registered from `app/agent/tools/`:
+
+| Tool | Purpose |
+| --- | --- |
+| `set_reminder` | Schedule a reminder message for a household member |
+| `list_reminders` / `cancel_reminder` | Inspect and cancel reminders |
+| `schedule_homey_action` | Schedule a future Homey action |
+| `list_scheduled_actions` / `cancel_scheduled_action` | Inspect and cancel scheduled actions |
+| `store_memory` | Store soft episodic memory |
+| `forget_memory` | Delete episodic memories |
+| `update_user_profile` | Persist stable user facts |
+| `update_household_profile` | Persist stable household facts |
+| calendar tools | Add/query imported calendars |
+| `schedule_prompt` | Schedule a one-off or recurring autonomous prompt |
+| `list_scheduled_prompts` / `cancel_scheduled_prompt` | Inspect and cancel scheduled prompts |
+| `update_world_model` | Store structured household facts, aliases, routines, activities, goals |
+| `remove_world_model_entry` | Remove structured world-model entries |
+| `list_world_entities` | Inspect the household world model |
+
+Important behavioral split:
+
+- use **profile tools** for stable always-present facts
+- use **world-model tools** for structured household entities and relationships
+- use **episodic memory** for softer or more situational facts
+
+---
+
+## World Model in Agent Context
+
+The world model is now part of every conversation run.
+
+It provides canonical grounding for:
+
+- household members
+- member interests, goals, and activities
+- places / rooms / zones
+- devices and their locations
+- linked calendars
+- routines
+- household facts
+
+The formatter keeps this compact enough to include in the prompt on every run. If the model needs more detail than the compact section provides, it can call `list_world_entities`.
 
 ---
 
 ## Memory Extraction
 
-After each completed conversation turn, a background task runs a lightweight LLM call to extract any new facts worth remembering. The extraction prompt looks for:
+After a successful conversation run, background tasks persist:
 
-- New facts about a family member (preferences, habits, schedule)
-- New facts about the home (new devices, changed routines, room assignments)
-- Commitments made (agent promised to do something)
-- Corrections to existing memories (user corrected something the agent said)
+- a text-only message pair for summarization
+- the full turn message list for model history reuse
+- extracted episodic memories
+- a conversation summary when thresholds are exceeded
 
-Extracted facts are stored in the episodic memory store and indexed for semantic retrieval.
+Memory extraction remains conservative:
 
-**Extraction is conservative** — it only stores clearly stated facts, not inferences. If unsure, it does not store.
-
----
-
-## Conversation Isolation vs. Shared Context
-
-Each user has their own conversation thread. The agent does not share conversation history between users. However, the **household profile and episodic memories are shared** — if one family member tells the agent something about the household, others benefit from that context.
-
-This means:
-
-- Personal conversations stay private
-- Household knowledge is collective
+- it stores clearly stated durable facts
+- it should not store transient device states or temporary outages
+- structured household facts should prefer `update_world_model` over `store_memory`
 
 ---
 
-## Cross-User Reminders
+## Conversation Isolation vs Shared Context
 
-When a user asks the agent to remind another household member:
+Current scoping rules:
 
-1. Agent calls `set_reminder` tool with `target_user` field set to the other member
-2. Stored in scheduler with target user ID, message, and time
-3. At trigger time, message is sent directly to the target user via their registered channel
-4. The original requester is not notified unless they ask
+- conversation history is per user
+- user profiles are per user
+- personal episodic memories are per user
+- household profiles are shared across the household
+- the household world model is shared across the household
+- household-scoped episodic memories are shared across the household
 
-The reminder message is delivered as-is, or the agent can be asked to rephrase it.
+The agent should never surface one user's personal conversation history or personal memories to another user.
+
+---
+
+## Scheduled and Autonomous Behavior
+
+The agent can now create autonomous future work in two main ways:
+
+- reminders
+- scheduled prompts
+
+Scheduled prompts are distinct from reminders:
+
+- a reminder sends saved text later
+- a scheduled prompt runs the agent later and delivers the fresh generated answer
+
+This is the current low-risk mechanism for proactive behavior.
 
 ---
 
 ## Guardrails and Limitations
 
-- The agent **does not execute irreversible home actions** (e.g., unlocking doors, disabling alarms) without explicit confirmation.
-- The agent **does not share one user's personal conversation** with another user.
-- The agent **does not make up device states** — it queries Homey for current state.
-- The agent **surfaces uncertainty** — if it does not know something, it says so rather than guessing.
+- The agent does not assume live Homey state; it queries tools for that.
+- High-impact actions can require explicit confirmation through the Policy Gate.
+- Scheduled unattended actions are blocked if policy evaluation says they require confirmation.
+- The agent can update the world model, but writes are still conservative and fully inspectable through admin endpoints.
+- `home_context.md` is not currently a live runtime context source.
 
 ---
 
 ## LLM Routing
 
-The agent uses a `LLMRouter` class to select the appropriate model per task type. PydanticAI handles the mechanics of calling each provider; the router decides which model to use.
+`LLMRouter` selects models by task type.
 
-### Task Types and Default Models
+Current task classes:
 
-| Task type | Default model | Rationale |
-| --- | --- | --- |
-| `CONVERSATION` | Claude Sonnet 4.5 | Primary — reasoning, tool use, natural language |
-| `HOME_CONTROL` | Claude Sonnet 4.5 | Tool use quality matters for device actions |
-| `PLANNING` | Claude Sonnet 4.5 | Multi-step reasoning |
-| `MEMORY_EXTRACTION` | Claude Haiku 4.5 | Background task, lightweight, cheap |
-| `SUMMARIZATION` | Claude Haiku 4.5 | Background task, no tool use needed |
-| `EMBEDDING` | OpenAI text-embedding-3-small | Best-in-class for the price |
-| `FALLBACK` | GPT-4o | Used if Anthropic API is unavailable |
+| Task type | Typical model slot |
+| --- | --- |
+| `CONVERSATION` | primary model |
+| `HOME_CONTROL` | primary model |
+| `PLANNING` | primary model |
+| `MEMORY_EXTRACTION` | background model when enabled |
+| `SUMMARIZATION` | background model when enabled |
+| `EMBEDDING` | embedding model |
 
-### Fallback Behaviour
+Current routing notes:
 
-If the primary model call fails (API error, timeout, rate limit):
+- background extraction and summarization prefer the cheaper background model slot
+- the primary slot is used otherwise
+- the fallback slot is used when enabled and needed
+- each slot can now bind to its own API key/provider
 
-1. Log the failure to `agent_run_log`
-2. Retry once with the same model after 2 seconds
-3. If still failing: switch to fallback model and retry
-4. If fallback also fails: return a graceful error message to the user
-
-### Feature Flags
-
-Model routing respects the `FeatureFlags` settings object (loaded from `.env`). Flags relevant to LLM routing:
-
-| Flag | Default | Effect |
-| --- | --- | --- |
-| `FEATURE_CHEAP_BACKGROUND_MODELS` | `true` | Use Haiku/Mini for background tasks; disable to use Sonnet for everything |
-| `FEATURE_FALLBACK_MODEL` | `true` | Enable automatic fallback to secondary provider |
-| `FEATURE_LOCAL_MODEL` | `false` | Route background tasks to a local Ollama model (future) |
-
-All model names and feature flags are configured via `.env`. See `.env.example` for full reference.
+See [`app/agent/llm_router.py`](/Users/kristian/Documents/code/homeAgent/app/agent/llm_router.py).
 
 ---
 
 ## Extending the Agent
 
-To add a new capability:
+To add a capability:
 
-1. Define a new tool function with `@agent.tool` decorator in `app/agent/tools/`
-2. Register it in `app/agent/agent.py`
-3. Update this document with the new tool entry in the tools table
-4. If the tool is a new integration, create a guide in `docs/integrations/`
+1. add or update a tool module in [`app/agent/tools`](/Users/kristian/Documents/code/homeAgent/app/agent/tools)
+2. register it in [`app/agent/agent.py`](/Users/kristian/Documents/code/homeAgent/app/agent/agent.py)
+3. update this document if the new capability changes runtime behavior or the durable context model
