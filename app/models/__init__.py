@@ -7,7 +7,7 @@ from app.models.memory import (
     HouseholdProfile,
     UserProfile,
 )
-from app.models.tasks import Task
+from app.models.tasks import Task, TaskLink, TaskStep
 from app.models.users import ActionPolicy, ChannelMapping, Household, User
 from app.models.world import (
     CalendarEntity,
@@ -20,6 +20,7 @@ from app.models.world import (
     Relationship,
     RoutineEntity,
     WorldFact,
+    WorldModelProposal,
 )
 
 __all__ = [
@@ -37,6 +38,8 @@ __all__ = [
     "AgentRunLog",
     "PendingAction",
     "Task",
+    "TaskLink",
+    "TaskStep",
     "HouseholdMember",
     "MemberInterest",
     "MemberGoal",
@@ -47,4 +50,5 @@ __all__ = [
     "RoutineEntity",
     "Relationship",
     "WorldFact",
+    "WorldModelProposal",
 ]

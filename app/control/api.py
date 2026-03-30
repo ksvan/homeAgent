@@ -616,6 +616,121 @@ def _apply_accepted_proposal(p: object) -> None:
 
 
 # ---------------------------------------------------------------------------
+# Task endpoints
+# ---------------------------------------------------------------------------
+
+@router.get("/tasks", dependencies=_auth)
+async def admin_tasks() -> dict[str, Any]:
+    """List all non-terminal tasks with steps and links."""
+    from sqlmodel import select
+
+    from app.db import users_session
+    from app.models.tasks import TERMINAL_STATUSES, Task, TaskLink, TaskStep
+    from app.models.users import User
+
+    with users_session() as session:
+        tasks = session.exec(
+            select(Task)
+            .where(Task.status.notin_(TERMINAL_STATUSES))  # type: ignore[attr-defined]
+            .order_by(Task.updated_at.desc())  # type: ignore[union-attr]
+        ).all()
+
+        # Also fetch recently completed tasks (last 20)
+        recent_done = session.exec(
+            select(Task)
+            .where(Task.status.in_(TERMINAL_STATUSES))  # type: ignore[attr-defined]
+            .order_by(Task.updated_at.desc())  # type: ignore[union-attr]
+            .limit(20)
+        ).all()
+
+        all_tasks = list(tasks) + list(recent_done)
+        task_ids = [t.id for t in all_tasks]
+
+        steps_by_task: dict[str, list] = {}
+        links_by_task: dict[str, list] = {}
+        if task_ids:
+            all_steps = session.exec(
+                select(TaskStep).where(TaskStep.task_id.in_(task_ids))  # type: ignore[attr-defined]
+            ).all()
+            all_links = session.exec(
+                select(TaskLink).where(TaskLink.task_id.in_(task_ids))  # type: ignore[attr-defined]
+            ).all()
+            for s in all_steps:
+                steps_by_task.setdefault(s.task_id, []).append(s)
+            for ln in all_links:
+                links_by_task.setdefault(ln.task_id, []).append(ln)
+
+        # Resolve user names
+        user_ids = {t.user_id for t in all_tasks}
+        user_names: dict[str, str] = {}
+        if user_ids:
+            users = session.exec(select(User).where(User.id.in_(list(user_ids)))).all()
+            user_names = {u.id: u.name for u in users}
+
+    result = []
+    for t in all_tasks:
+        steps = sorted(steps_by_task.get(t.id, []), key=lambda s: s.step_index)
+        links = links_by_task.get(t.id, [])
+        result.append({
+            "id": t.id,
+            "title": t.title,
+            "task_kind": t.task_kind or "legacy",
+            "status": t.status,
+            "summary": t.summary,
+            "awaiting_input_hint": t.awaiting_input_hint,
+            "current_step": t.current_step,
+            "user": user_names.get(t.user_id, t.user_id[:8]),
+            "created_at": t.created_at.isoformat() if t.created_at else None,
+            "updated_at": t.updated_at.isoformat() if t.updated_at else None,
+            "steps": [
+                {"index": s.step_index, "title": s.title, "status": s.status, "type": s.step_type}
+                for s in steps
+            ],
+            "links": [
+                {"entity_type": ln.entity_type, "entity_id": ln.entity_id, "role": ln.role}
+                for ln in links
+            ],
+        })
+
+    return {"tasks": result}
+
+
+class _TaskActionBody(BaseModel):
+    action: str  # "cancel" | "resume"
+
+
+@router.post("/tasks/{task_id}/action", dependencies=_auth)
+async def admin_task_action(task_id: str, body: _TaskActionBody) -> dict[str, str]:
+    """Admin cancel or resume a task."""
+    from app.control.events import emit
+    from app.tasks.repository import TaskRepository
+
+    repo = TaskRepository()
+    task = repo.get_task(task_id)
+    if task is None:
+        return {"error": "Task not found"}
+
+    if body.action == "cancel":
+        try:
+            repo.transition_status(task_id, "CANCELLED")
+            repo.update_task(task_id, summary="Cancelled by admin")
+            emit("task.cancel", {"task_id": task_id, "reason": "admin"})
+            return {"status": "cancelled"}
+        except ValueError as exc:
+            return {"error": str(exc)}
+    elif body.action == "resume":
+        try:
+            repo.transition_status(task_id, "ACTIVE")
+            repo.update_task(task_id, awaiting_input_hint=None)
+            emit("task.update", {"task_id": task_id, "summary": "Resumed by admin"})
+            return {"status": "resumed"}
+        except ValueError as exc:
+            return {"error": str(exc)}
+    else:
+        return {"error": f"Unknown action: {body.action}"}
+
+
+# ---------------------------------------------------------------------------
 # Embedded admin UI
 # ---------------------------------------------------------------------------
 
@@ -754,6 +869,7 @@ header { background: var(--surface); border-bottom: 1px solid var(--border); pad
   <button class="tab" data-tab="details">Details</button>
   <button class="tab" data-tab="scheduler">Scheduler</button>
   <button class="tab" data-tab="world">World Model</button>
+  <button class="tab" data-tab="tasks">Tasks</button>
 </div>
 
 <div id="tab-live" class="tab-panel active">
@@ -925,6 +1041,26 @@ header { background: var(--surface); border-bottom: 1px solid var(--border); pad
   </div>
 </div>
 
+<div id="tab-tasks" class="tab-panel">
+  <div class="details-body">
+    <div class="details-toolbar">
+      <button class="details-btn" id="refresh-tasks">&#8635; Refresh</button>
+      <span id="tasks-updated" style="font-size:11px;color:var(--dim)"></span>
+    </div>
+    <section class="details-section">
+      <h3>Active Tasks <span id="tasks-active-count" style="font-size:10px;color:var(--dim)"></span></h3>
+      <table class="mem-table">
+        <thead><tr><th>Title</th><th style="width:70px">Kind</th><th style="width:90px">Status</th><th>Summary</th><th style="width:80px">User</th><th style="width:130px">Updated</th><th style="width:80px"></th></tr></thead>
+        <tbody id="tasks-table-body"><tr><td colspan="7" style="color:var(--dim);padding:12px 10px">Loading...</td></tr></tbody>
+      </table>
+    </section>
+    <section class="details-section" id="task-detail-section" style="display:none">
+      <h3>Task Detail</h3>
+      <div id="task-detail-content"></div>
+    </section>
+  </div>
+</div>
+
 <script>
 // Token management: strip ?token= from the address bar on first load so it
 // never enters browser history or bookmarks. Store in sessionStorage and use
@@ -991,6 +1127,13 @@ function addEvent(type, data) {
     'mem.summarize':['b-mem','MEM'],
     'world.update': ['b-mem','WORLD'],
     'world.proposal':['b-mem','WORLD'],
+    'task.create':  ['b-sched','TASK'],
+    'task.update':  ['b-sched','TASK'],
+    'task.await_input':['b-sched','TASK'],
+    'task.complete':['b-done','TASK'],
+    'task.cancel':  ['b-error','TASK'],
+    'task.link':    ['b-sched','TASK'],
+    'task.schedule_resume':['b-sched','TASK'],
     'cmd.dispatch': ['b-cmd','CMD'],
   };
   const [cls, label] = badges[type] || ['b-start', type];
@@ -1040,6 +1183,12 @@ function addEvent(type, data) {
     body = '<strong>' + (data.type || 'proposal') + '</strong> ' + st
       + ' <span class="d">' + Math.round((data.confidence || 0) * 100) + '% — ' + (data.reason || '') + '</span>';
     loadProposals();
+  } else if (type.startsWith('task.')) {
+    const action = type.split('.')[1] || '';
+    const title = data.title || data.summary || data.prompt_hint || data.reason || '';
+    body = '<strong>' + action + '</strong>'
+      + (title ? ' <span class="d">— ' + title.slice(0, 100) + '</span>' : '');
+    loadTasks();
   } else if (type === 'cmd.dispatch') {
     const dur = data.duration_ms ? ' <span class="d">' + data.duration_ms + 'ms</span>' : '';
     const who = data.user_id ? ' <span class="d">by ' + data.user_id.slice(0, 8) + '</span>' : '';
@@ -1144,6 +1293,7 @@ document.querySelectorAll('.tab').forEach(btn => {
     if (btn.dataset.tab === 'details') loadMemory();
     if (btn.dataset.tab === 'scheduler') loadScheduler();
     if (btn.dataset.tab === 'world') { loadWorldModel(); loadProposals(); }
+    if (btn.dataset.tab === 'tasks') loadTasks();
   });
 });
 
@@ -1449,6 +1599,83 @@ async function wmBulkAcceptConfident() {
     loadWorldModel();
   } catch(e) {}
 }
+
+// --- Tasks tab ---
+async function loadTasks() {
+  try {
+    const r = await fetch('/admin/tasks', {headers: _authHeaders});
+    if (!r.ok) return;
+    const d = await r.json();
+    const tasks = d.tasks || [];
+    const active = tasks.filter(t => t.status !== 'COMPLETED' && t.status !== 'FAILED' && t.status !== 'CANCELLED');
+    document.getElementById('tasks-active-count').textContent = active.length ? '(' + active.length + ')' : '';
+    document.getElementById('tasks-updated').textContent = 'Updated ' + new Date().toLocaleTimeString();
+    const tbody = document.getElementById('tasks-table-body');
+    if (!tasks.length) {
+      tbody.innerHTML = '<tr><td colspan="7" style="color:var(--dim);padding:12px 10px">No tasks</td></tr>';
+      return;
+    }
+    const statusColor = {ACTIVE:'var(--green)',AWAITING_INPUT:'var(--yellow)',AWAITING_CONFIRMATION:'var(--yellow)',COMPLETED:'var(--dim)',FAILED:'var(--red)',CANCELLED:'var(--dim)'};
+    tbody.innerHTML = tasks.map(function(t) {
+      const sc = statusColor[t.status] || 'var(--dim)';
+      const updated = t.updated_at ? new Date(t.updated_at).toLocaleString() : '';
+      const actions = (t.status === 'ACTIVE' || t.status === 'AWAITING_INPUT' || t.status === 'AWAITING_CONFIRMATION')
+        ? '<button onclick="taskAction(\\'' + esc(t.id) + '\\',\\'cancel\\')" style="background:none;border:none;color:var(--red);cursor:pointer;font-size:11px">Cancel</button>'
+          + (t.status !== 'ACTIVE' ? ' <button onclick="taskAction(\\'' + esc(t.id) + '\\',\\'resume\\')" style="background:none;border:none;color:var(--green);cursor:pointer;font-size:11px">Resume</button>' : '')
+        : '';
+      return '<tr onclick="showTaskDetail(\\'' + esc(t.id) + '\\')" style="cursor:pointer">'
+        + '<td>' + esc(t.title || '') + '</td>'
+        + '<td><span class="scope-tag">' + esc(t.task_kind || '') + '</span></td>'
+        + '<td><span style="color:' + sc + '">' + esc(t.status) + '</span></td>'
+        + '<td style="color:var(--dim);font-size:12px">' + esc(t.summary || '') + '</td>'
+        + '<td>' + esc(t.user || '') + '</td>'
+        + '<td style="font-size:11px;color:var(--dim)">' + esc(updated) + '</td>'
+        + '<td>' + actions + '</td></tr>';
+    }).join('');
+  } catch(e) {}
+}
+var _tasksData = {};
+async function showTaskDetail(taskId) {
+  try {
+    const r = await fetch('/admin/tasks', {headers: _authHeaders});
+    if (!r.ok) return;
+    const d = await r.json();
+    const t = (d.tasks || []).find(function(x) { return x.id === taskId; });
+    if (!t) return;
+    document.getElementById('task-detail-section').style.display = '';
+    var html = '<div style="margin-bottom:12px"><strong>' + esc(t.title) + '</strong>'
+      + ' <span class="scope-tag">' + esc(t.task_kind || '') + '</span>'
+      + ' <span style="font-size:11px;color:var(--dim)">ID: ' + esc(t.id.slice(0,8)) + '</span></div>';
+    if (t.summary) html += '<div style="margin-bottom:8px">Summary: ' + esc(t.summary) + '</div>';
+    if (t.awaiting_input_hint) html += '<div style="margin-bottom:8px;color:var(--yellow)">Waiting for: ' + esc(t.awaiting_input_hint) + '</div>';
+    if (t.steps && t.steps.length) {
+      html += '<div style="margin-bottom:8px"><strong>Steps:</strong></div><div style="margin-left:12px">';
+      t.steps.forEach(function(s) {
+        var icon = {done:'[x]', active:'[>]', failed:'[!]', cancelled:'[-]'}[s.status] || '[ ]';
+        html += '<div style="font-size:12px;margin-bottom:2px"><code>' + icon + '</code> ' + esc(s.title) + ' <span style="color:var(--dim)">(' + esc(s.type) + ')</span></div>';
+      });
+      html += '</div>';
+    }
+    if (t.links && t.links.length) {
+      html += '<div style="margin-top:8px"><strong>Linked entities:</strong></div><div style="margin-left:12px">';
+      t.links.forEach(function(ln) {
+        html += '<div style="font-size:12px;margin-bottom:2px">' + esc(ln.entity_type) + ': ' + esc(ln.entity_id) + ' (' + esc(ln.role) + ')</div>';
+      });
+      html += '</div>';
+    }
+    document.getElementById('task-detail-content').innerHTML = html;
+  } catch(e) {}
+}
+async function taskAction(taskId, action) {
+  try {
+    await fetch('/admin/tasks/' + taskId + '/action', {
+      method:'POST', headers:{..._authHeaders,'Content-Type':'application/json'},
+      body: JSON.stringify({action: action})
+    });
+    loadTasks();
+  } catch(e) {}
+}
+document.getElementById('refresh-tasks').addEventListener('click', loadTasks);
 
 // Stream via fetch + ReadableStream (replaces EventSource which breaks in Safari)
 async function connectSSE() {

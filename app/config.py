@@ -17,6 +17,9 @@ class FeatureFlags(BaseModel):
     voice: bool = False
     multi_home: bool = False
     local_model: bool = False
+    world_model_tools: bool = True
+    world_model_proposals: bool = False
+    multi_step_tasks: bool = False
 
 
 class Settings(BaseSettings):
@@ -73,6 +76,9 @@ class Settings(BaseSettings):
     feature_voice: bool = False
     feature_multi_home: bool = False
     feature_local_model: bool = False
+    feature_world_model_tools: bool = True
+    feature_world_model_proposals: bool = False
+    feature_multi_step_tasks: bool = False
 
     @property
     def features(self) -> FeatureFlags:
@@ -85,6 +91,9 @@ class Settings(BaseSettings):
             voice=self.feature_voice,
             multi_home=self.feature_multi_home,
             local_model=self.feature_local_model,
+            world_model_tools=self.feature_world_model_tools,
+            world_model_proposals=self.feature_world_model_proposals,
+            multi_step_tasks=self.feature_multi_step_tasks,
         )
 
     # ------------------------------------------------------------------

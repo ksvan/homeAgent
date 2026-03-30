@@ -17,21 +17,28 @@ def register_memory_tools(agent: Agent[AgentDeps, str]) -> None:
         scope: str = "household",
         importance: str = "normal",
     ) -> str:
-        """Store a stable fact in long-term memory so it can be recalled in future conversations.
+        """Store a soft, nuanced fact in long-term episodic memory.
 
-        Call this ONLY when the user explicitly asks you to remember something, or when
-        you learn a stable fact that should persist across conversations.
+        Use this for personal preferences, communication style, soft observations,
+        and situational facts that don't fit a structured category.
+
+        IMPORTANT: For structured household facts, use update_world_model instead!
+        Prefer update_world_model for:
+          - Device purposes or aliases ("the hallway plug shows total power")
+          - Place aliases ("kontor means the upstairs office")
+          - Member interests, activities, goals
+          - Routine definitions ("night mode keeps heating unchanged")
+
+        Use store_memory only for:
+          - Personal preferences ("prefers concise answers")
+          - Communication style observations
+          - Soft patterns that don't map to a world-model entity
 
         DO NOT store:
           - Current time, date, or day of the week (always read from your system context)
           - Device states or availability (fetched live from Homey)
           - Error states or service unavailability (temporary, not facts)
           - Anything that will be wrong or misleading tomorrow
-
-        Good examples:
-          - "The smart plug in the hallway closet shows total house power consumption."
-          - "Kristian prefers concise answers and checks in during his morning commute."
-          - "The guest bedroom thermostat is set to 18°C by default."
 
         Args:
             content: The fact to remember, written as a complete, standalone sentence.

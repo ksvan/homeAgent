@@ -17,6 +17,7 @@ class TaskType(str, Enum):
     PLANNING = "PLANNING"
     MEMORY_EXTRACTION = "MEMORY_EXTRACTION"
     SUMMARIZATION = "SUMMARIZATION"
+    WORLD_MODEL_EXTRACTION = "WORLD_MODEL_EXTRACTION"
     EMBEDDING = "EMBEDDING"
 
 
@@ -43,7 +44,7 @@ class LLMRouter:
         features = s.features
 
         # Background tasks → cheap model when feature is enabled
-        if task_type in (TaskType.MEMORY_EXTRACTION, TaskType.SUMMARIZATION):
+        if task_type in (TaskType.MEMORY_EXTRACTION, TaskType.SUMMARIZATION, TaskType.WORLD_MODEL_EXTRACTION):
             if features.cheap_background_models:
                 key = _resolve_key(s.model_background_api_key, s.model_background, s)
                 if key:

@@ -149,3 +149,24 @@ class WorldFact(SQLModel, table=True):
     source: str = "migration_seed"
     created_at: datetime = Field(default_factory=_now)
     updated_at: datetime = Field(default_factory=_now)
+
+
+# ---------------------------------------------------------------------------
+# Phase 4 — World Model Proposals
+# ---------------------------------------------------------------------------
+
+
+class WorldModelProposal(SQLModel, table=True):
+    id: str = Field(default_factory=_uuid, primary_key=True)
+    household_id: str = Field(index=True)
+    proposal_type: str  # "fact" | "alias" | "interest" | "activity" | "goal" | "routine"
+    entity_type: Optional[str] = None  # target entity type (e.g. "device", "member")
+    entity_id: Optional[str] = None  # target entity id
+    payload_json: str  # JSON with proposed change details
+    reason: str  # one-sentence explanation from the extractor
+    confidence: float = 0.5
+    source_run_id: Optional[str] = None  # agent run that spawned this
+    status: str = Field(default="pending", index=True)  # pending | accepted | rejected | auto_applied
+    created_at: datetime = Field(default_factory=_now)
+    reviewed_at: Optional[datetime] = None
+    reviewed_by: Optional[str] = None  # "admin" | "auto"

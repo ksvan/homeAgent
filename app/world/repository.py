@@ -25,6 +25,7 @@ from app.models.world import (
     Relationship,
     RoutineEntity,
     WorldFact,
+    WorldModelProposal,
 )
 
 logger = logging.getLogger(__name__)
@@ -217,6 +218,86 @@ class WorldModelRepository:
 
     # ------------------------------------------------------------------
     # Upsert methods (used by sync)
+    # ------------------------------------------------------------------
+
+    # ------------------------------------------------------------------
+    # Name-based lookup (used by agent tools to resolve natural language)
+    # ------------------------------------------------------------------
+
+    @staticmethod
+    def find_member_by_name(household_id: str, name: str) -> HouseholdMember | None:
+        """Case-insensitive lookup by name or alias."""
+        with users_session() as session:
+            members = session.exec(
+                select(HouseholdMember)
+                .where(HouseholdMember.household_id == household_id,
+                       HouseholdMember.is_active == True)  # noqa: E712
+            ).all()
+            needle = name.lower()
+            for m in members:
+                if m.name.lower() == needle:
+                    return m
+                try:
+                    aliases = json.loads(m.aliases_json) if m.aliases_json else []
+                except (json.JSONDecodeError, TypeError):
+                    aliases = []
+                if any(a.lower() == needle for a in aliases):
+                    return m
+        return None
+
+    @staticmethod
+    def find_place_by_name(household_id: str, name: str) -> Place | None:
+        """Case-insensitive lookup by name or alias."""
+        with users_session() as session:
+            places = session.exec(
+                select(Place).where(Place.household_id == household_id)
+            ).all()
+            needle = name.lower()
+            for p in places:
+                if p.name.lower() == needle:
+                    return p
+                try:
+                    aliases = json.loads(p.aliases_json) if p.aliases_json else []
+                except (json.JSONDecodeError, TypeError):
+                    aliases = []
+                if any(a.lower() == needle for a in aliases):
+                    return p
+        return None
+
+    @staticmethod
+    def find_device_by_name(household_id: str, name: str) -> DeviceEntity | None:
+        """Case-insensitive lookup by name or alias."""
+        with users_session() as session:
+            devices = session.exec(
+                select(DeviceEntity).where(DeviceEntity.household_id == household_id)
+            ).all()
+            needle = name.lower()
+            for d in devices:
+                if d.name.lower() == needle:
+                    return d
+                try:
+                    aliases = json.loads(d.aliases_json) if d.aliases_json else []
+                except (json.JSONDecodeError, TypeError):
+                    aliases = []
+                if any(a.lower() == needle for a in aliases):
+                    return d
+        return None
+
+    @staticmethod
+    def find_routine_by_name(household_id: str, name: str) -> RoutineEntity | None:
+        """Case-insensitive lookup by name."""
+        with users_session() as session:
+            routines = session.exec(
+                select(RoutineEntity).where(RoutineEntity.household_id == household_id)
+            ).all()
+            needle = name.lower()
+            for r in routines:
+                if r.name.lower() == needle:
+                    return r
+        return None
+
+    # ------------------------------------------------------------------
+    # Upsert methods (used by sync and agent tools)
     # ------------------------------------------------------------------
 
     @staticmethod
@@ -520,3 +601,411 @@ class WorldModelRepository:
             session.commit()
             session.refresh(fact)
             return fact
+
+    @staticmethod
+    def upsert_interest(
+        household_id: str,
+        *,
+        member_id: str,
+        name: str,
+        notes: str = "",
+        source: str = "user_explicit",
+    ) -> MemberInterest:
+        """Upsert a MemberInterest by (member_id, name)."""
+        now = datetime.now(timezone.utc)
+        with users_session() as session:
+            existing = session.exec(
+                select(MemberInterest)
+                .where(MemberInterest.member_id == member_id,
+                       MemberInterest.name == name)
+            ).first()
+
+            if existing:
+                existing.notes = notes
+                existing.source = source
+                existing.updated_at = now
+                session.add(existing)
+                session.commit()
+                session.refresh(existing)
+                return existing
+
+            interest = MemberInterest(
+                household_id=household_id,
+                member_id=member_id,
+                name=name,
+                notes=notes,
+                source=source,
+            )
+            session.add(interest)
+            session.commit()
+            session.refresh(interest)
+            return interest
+
+    @staticmethod
+    def upsert_activity(
+        household_id: str,
+        *,
+        member_id: str,
+        name: str,
+        schedule_hint: str = "",
+        notes: str = "",
+        source: str = "user_explicit",
+    ) -> MemberActivity:
+        """Upsert a MemberActivity by (member_id, name)."""
+        now = datetime.now(timezone.utc)
+        with users_session() as session:
+            existing = session.exec(
+                select(MemberActivity)
+                .where(MemberActivity.member_id == member_id,
+                       MemberActivity.name == name)
+            ).first()
+
+            if existing:
+                existing.schedule_hint = schedule_hint or existing.schedule_hint
+                existing.notes = notes or existing.notes
+                existing.source = source
+                existing.updated_at = now
+                session.add(existing)
+                session.commit()
+                session.refresh(existing)
+                return existing
+
+            activity = MemberActivity(
+                household_id=household_id,
+                member_id=member_id,
+                name=name,
+                schedule_hint=schedule_hint,
+                notes=notes,
+                source=source,
+            )
+            session.add(activity)
+            session.commit()
+            session.refresh(activity)
+            return activity
+
+    @staticmethod
+    def upsert_goal(
+        household_id: str,
+        *,
+        member_id: str,
+        name: str,
+        notes: str = "",
+        source: str = "user_explicit",
+    ) -> MemberGoal:
+        """Upsert a MemberGoal by (member_id, name)."""
+        now = datetime.now(timezone.utc)
+        with users_session() as session:
+            existing = session.exec(
+                select(MemberGoal)
+                .where(MemberGoal.member_id == member_id,
+                       MemberGoal.name == name)
+            ).first()
+
+            if existing:
+                existing.notes = notes or existing.notes
+                existing.source = source
+                existing.updated_at = now
+                session.add(existing)
+                session.commit()
+                session.refresh(existing)
+                return existing
+
+            goal = MemberGoal(
+                household_id=household_id,
+                member_id=member_id,
+                name=name,
+                notes=notes,
+                source=source,
+            )
+            session.add(goal)
+            session.commit()
+            session.refresh(goal)
+            return goal
+
+    @staticmethod
+    def upsert_relationship(
+        household_id: str,
+        *,
+        subject_type: str,
+        subject_id: str,
+        predicate: str,
+        object_type: str,
+        object_id: str,
+        metadata_json: str = "{}",
+        confidence: float = 1.0,
+        source: str = "user_explicit",
+    ) -> Relationship:
+        """Upsert a Relationship by full natural key."""
+        now = datetime.now(timezone.utc)
+        with users_session() as session:
+            existing = session.exec(
+                select(Relationship)
+                .where(
+                    Relationship.household_id == household_id,
+                    Relationship.subject_type == subject_type,
+                    Relationship.subject_id == subject_id,
+                    Relationship.predicate == predicate,
+                    Relationship.object_type == object_type,
+                    Relationship.object_id == object_id,
+                )
+            ).first()
+
+            if existing:
+                existing.metadata_json = metadata_json
+                existing.confidence = confidence
+                existing.source = source
+                existing.updated_at = now
+                session.add(existing)
+                session.commit()
+                session.refresh(existing)
+                return existing
+
+            rel = Relationship(
+                household_id=household_id,
+                subject_type=subject_type,
+                subject_id=subject_id,
+                predicate=predicate,
+                object_type=object_type,
+                object_id=object_id,
+                metadata_json=metadata_json,
+                confidence=confidence,
+                source=source,
+            )
+            session.add(rel)
+            session.commit()
+            session.refresh(rel)
+            return rel
+
+    # ------------------------------------------------------------------
+    # Alias management
+    # ------------------------------------------------------------------
+
+    @staticmethod
+    def add_alias(
+        household_id: str, entity_type: str, entity_id: str, alias: str,
+    ) -> bool:
+        """Append an alias to an entity's aliases_json. Returns True if changed."""
+        model_map: dict[str, type] = {
+            "householdmember": HouseholdMember,
+            "place": Place,
+            "deviceentity": DeviceEntity,
+        }
+        model_cls = model_map.get(entity_type.lower())
+        if model_cls is None:
+            return False
+
+        with users_session() as session:
+            entity = session.get(model_cls, entity_id)
+            if entity is None or getattr(entity, "household_id", None) != household_id:
+                return False
+
+            try:
+                aliases = json.loads(entity.aliases_json) if entity.aliases_json else []
+            except (json.JSONDecodeError, TypeError):
+                aliases = []
+
+            if alias.lower() in (a.lower() for a in aliases):
+                return False
+
+            aliases.append(alias)
+            entity.aliases_json = json.dumps(aliases)
+            entity.updated_at = datetime.now(timezone.utc)
+            session.add(entity)
+            session.commit()
+        return True
+
+    @staticmethod
+    def remove_alias(
+        household_id: str, entity_type: str, entity_id: str, alias: str,
+    ) -> bool:
+        """Remove an alias from an entity's aliases_json. Returns True if changed."""
+        model_map: dict[str, type] = {
+            "householdmember": HouseholdMember,
+            "place": Place,
+            "deviceentity": DeviceEntity,
+        }
+        model_cls = model_map.get(entity_type.lower())
+        if model_cls is None:
+            return False
+
+        with users_session() as session:
+            entity = session.get(model_cls, entity_id)
+            if entity is None or getattr(entity, "household_id", None) != household_id:
+                return False
+
+            try:
+                aliases = json.loads(entity.aliases_json) if entity.aliases_json else []
+            except (json.JSONDecodeError, TypeError):
+                aliases = []
+
+            needle = alias.lower()
+            new_aliases = [a for a in aliases if a.lower() != needle]
+            if len(new_aliases) == len(aliases):
+                return False
+
+            entity.aliases_json = json.dumps(new_aliases)
+            entity.updated_at = datetime.now(timezone.utc)
+            session.add(entity)
+            session.commit()
+        return True
+
+    # ------------------------------------------------------------------
+    # Delete methods
+    # ------------------------------------------------------------------
+
+    _DELETABLE_MODELS: dict[str, type] = {
+        "memberinterest": MemberInterest,
+        "memberactivity": MemberActivity,
+        "membergoal": MemberGoal,
+        "routineentity": RoutineEntity,
+        "relationship": Relationship,
+        "worldfact": WorldFact,
+    }
+
+    @staticmethod
+    def delete_entity(entity_type: str, entity_id: str) -> bool:
+        """Delete a world-model entity by type and ID. Returns True if deleted."""
+        model_cls = WorldModelRepository._DELETABLE_MODELS.get(entity_type.lower())
+        if model_cls is None:
+            return False
+
+        with users_session() as session:
+            entity = session.get(model_cls, entity_id)
+            if entity is None:
+                return False
+            session.delete(entity)
+            session.commit()
+        return True
+
+    @staticmethod
+    def delete_interest(member_id: str, name: str) -> bool:
+        with users_session() as session:
+            item = session.exec(
+                select(MemberInterest)
+                .where(MemberInterest.member_id == member_id,
+                       MemberInterest.name == name)
+            ).first()
+            if item is None:
+                return False
+            session.delete(item)
+            session.commit()
+        return True
+
+    @staticmethod
+    def delete_activity(member_id: str, name: str) -> bool:
+        with users_session() as session:
+            item = session.exec(
+                select(MemberActivity)
+                .where(MemberActivity.member_id == member_id,
+                       MemberActivity.name == name)
+            ).first()
+            if item is None:
+                return False
+            session.delete(item)
+            session.commit()
+        return True
+
+    @staticmethod
+    def delete_goal(member_id: str, name: str) -> bool:
+        with users_session() as session:
+            item = session.exec(
+                select(MemberGoal)
+                .where(MemberGoal.member_id == member_id,
+                       MemberGoal.name == name)
+            ).first()
+            if item is None:
+                return False
+            session.delete(item)
+            session.commit()
+        return True
+
+    @staticmethod
+    def delete_fact(household_id: str, scope: str, key: str) -> bool:
+        with users_session() as session:
+            item = session.exec(
+                select(WorldFact)
+                .where(WorldFact.household_id == household_id,
+                       WorldFact.scope == scope,
+                       WorldFact.key == key)
+            ).first()
+            if item is None:
+                return False
+            session.delete(item)
+            session.commit()
+        return True
+
+    # ------------------------------------------------------------------
+    # Proposals  (Phase 4)
+    # ------------------------------------------------------------------
+
+    @staticmethod
+    def create_proposal(
+        household_id: str,
+        proposal_type: str,
+        payload: dict,
+        reason: str,
+        confidence: float = 0.5,
+        entity_type: str | None = None,
+        entity_id: str | None = None,
+        source_run_id: str | None = None,
+        status: str = "pending",
+    ) -> WorldModelProposal:
+        p = WorldModelProposal(
+            household_id=household_id,
+            proposal_type=proposal_type,
+            entity_type=entity_type,
+            entity_id=entity_id,
+            payload_json=json.dumps(payload),
+            reason=reason,
+            confidence=confidence,
+            source_run_id=source_run_id,
+            status=status,
+            reviewed_at=datetime.now(timezone.utc) if status == "auto_applied" else None,
+            reviewed_by="auto" if status == "auto_applied" else None,
+        )
+        with users_session() as session:
+            session.add(p)
+            session.commit()
+            session.refresh(p)
+        return p
+
+    @staticmethod
+    def get_pending_proposals(household_id: str) -> list[WorldModelProposal]:
+        with users_session() as session:
+            return list(
+                session.exec(
+                    select(WorldModelProposal)
+                    .where(
+                        WorldModelProposal.household_id == household_id,
+                        WorldModelProposal.status == "pending",
+                    )
+                    .order_by(WorldModelProposal.created_at.desc())  # type: ignore[union-attr]
+                ).all()
+            )
+
+    @staticmethod
+    def get_recent_proposals(household_id: str, limit: int = 50) -> list[WorldModelProposal]:
+        with users_session() as session:
+            return list(
+                session.exec(
+                    select(WorldModelProposal)
+                    .where(WorldModelProposal.household_id == household_id)
+                    .order_by(WorldModelProposal.created_at.desc())  # type: ignore[union-attr]
+                    .limit(limit)
+                ).all()
+            )
+
+    @staticmethod
+    def review_proposal(proposal_id: str, decision: str, reviewed_by: str = "admin") -> WorldModelProposal | None:
+        """Accept or reject a proposal. If accepted, the caller applies the change."""
+        with users_session() as session:
+            p = session.get(WorldModelProposal, proposal_id)
+            if p is None or p.status != "pending":
+                return None
+            p.status = decision  # "accepted" or "rejected"
+            p.reviewed_at = datetime.now(timezone.utc)
+            p.reviewed_by = reviewed_by
+            session.add(p)
+            session.commit()
+            session.refresh(p)
+            return p

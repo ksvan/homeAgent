@@ -192,6 +192,7 @@ async def handle_incoming_message(
                     user_profile_text=ctx.user_profile_text,
                     household_profile_text=ctx.household_profile_text,
                     world_model_text=ctx.world_model_text,
+                    active_task_text=ctx.active_task_text,
                     conversation_summary=ctx.conversation_summary,
                     relevant_memories=ctx.relevant_memories,
                     user_id=user.id,
@@ -330,6 +331,19 @@ async def handle_incoming_message(
             maybe_summarize_conversation(user.id)
         ).add_done_callback(_task_done("summarize_conversation"))
 
+        if get_settings().features.world_model_proposals:
+            from app.world.extraction import extract_and_propose_world_updates
+
+            asyncio.ensure_future(
+                extract_and_propose_world_updates(
+                    household_id=user.household_id,
+                    user_id=user.id,
+                    run_id=run_id,
+                    new_messages=new_messages,
+                    world_model_text=ctx.world_model_text,
+                )
+            ).add_done_callback(_task_done("world_model_extraction"))
+
         return response
 
 
@@ -410,12 +424,26 @@ def _estimate_context_chars(ctx: object) -> int:
 
     if not isinstance(ctx, AgentContext):
         return 0
-    total = (
-        len(ctx.user_profile_text)
-        + len(ctx.household_profile_text)
-        + len(ctx.conversation_summary or "")
-        + sum(len(m) for m in ctx.relevant_memories)
-    )
+
+    from app.agent.prompts import load_persona, load_instructions
+    from app.config import get_settings
+
+    settings = get_settings()
+    prompt_vars: dict[str, str] = {
+        "agent_name": settings.agent_name,
+        "household_name": "",
+        "current_date": "",
+        "current_time": "",
+        "timezone": settings.household_timezone,
+    }
+
+    total = len(load_persona(prompt_vars)) + len(load_instructions(prompt_vars))
+    total += len(ctx.user_profile_text)
+    total += len(ctx.household_profile_text)
+    total += len(getattr(ctx, "world_model_text", "") or "")
+    total += len(getattr(ctx, "active_task_text", "") or "")
+    total += len(ctx.conversation_summary or "")
+    total += sum(len(m) for m in ctx.relevant_memories)
     for msg in ctx.recent_messages:
         for part in msg.parts:
             if hasattr(part, "content"):
