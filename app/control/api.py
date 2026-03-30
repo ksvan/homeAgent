@@ -8,6 +8,7 @@ from typing import Any, AsyncGenerator
 
 from fastapi import APIRouter, Depends
 from fastapi.responses import HTMLResponse, StreamingResponse
+from pydantic import BaseModel
 
 from app.control.auth import require_admin_auth
 
@@ -28,8 +29,11 @@ def signal_stream_shutdown() -> None:
 
 
 @router.get("", response_class=HTMLResponse)
-async def admin_page() -> str:
-    return _ADMIN_HTML
+async def admin_page() -> HTMLResponse:
+    return HTMLResponse(
+        content=_ADMIN_HTML,
+        headers={"Cache-Control": "no-store, must-revalidate"},
+    )
 
 
 @router.get("/stats", dependencies=_auth)
@@ -124,6 +128,9 @@ async def admin_stream() -> StreamingResponse:
     async def event_generator() -> AsyncGenerator[str, None]:
         q = subscribe()
         try:
+            # Flush an SSE comment immediately so the browser fires onopen
+            # (EventSource needs at least one body byte before triggering it)
+            yield ": ok\n\n"
             # Replay recent history to new client
             for event in get_recent_events():
                 yield _format_sse(event)
@@ -324,6 +331,291 @@ async def admin_world_model() -> dict[str, Any]:
 
 
 # ---------------------------------------------------------------------------
+# World-model write endpoints
+# ---------------------------------------------------------------------------
+
+class _FactBody(BaseModel):
+    scope: str
+    key: str
+    value: str
+
+class _AliasBody(BaseModel):
+    entity_type: str   # "place" | "deviceentity" | "householdmember"
+    entity_id: str
+    alias: str
+
+class _RoutineBody(BaseModel):
+    name: str
+    description: str = ""
+    kind: str = ""
+
+class _MemberBody(BaseModel):
+    name: str
+    role: str = "member"  # "admin" | "member" | "child" | "guest"
+
+class _MemberDetailBody(BaseModel):
+    detail_type: str   # "interest" | "activity" | "goal"
+    member_id: str
+    name: str
+    schedule_hint: str = ""
+    notes: str = ""
+
+
+def _get_household_id() -> str:
+    from sqlmodel import select
+    from app.db import users_session
+    from app.models.users import Household
+    with users_session() as session:
+        household = session.exec(select(Household)).first()
+    return household.id if household else ""
+
+
+@router.put("/world-model/member", dependencies=_auth)
+async def admin_upsert_member(body: _MemberBody) -> dict[str, Any]:
+    from app.world.repository import WorldModelRepository as repo
+    from app.control.events import emit
+    hid = _get_household_id()
+    if not hid:
+        return {"error": "No household found"}
+    member = repo.upsert_member(
+        hid, name=body.name, role=body.role,
+        source="admin_authored",
+    )
+    emit("world.update", {"entity_type": "member", "action": "upsert", "name": member.name})
+    return {"ok": True, "name": member.name, "role": member.role}
+
+
+@router.put("/world-model/fact", dependencies=_auth)
+async def admin_upsert_fact(body: _FactBody) -> dict[str, Any]:
+    from app.world.repository import WorldModelRepository as repo
+    from app.control.events import emit
+    hid = _get_household_id()
+    if not hid:
+        return {"error": "No household found"}
+    repo.upsert_world_fact(
+        hid, scope=body.scope, key=body.key, value=body.value,
+        source="admin_authored", overwrite=True,
+    )
+    emit("world.update", {"entity_type": "fact", "action": "upsert", "key": body.key})
+    return {"ok": True, "scope": body.scope, "key": body.key}
+
+
+@router.delete("/world-model/fact/{fact_id}", dependencies=_auth)
+async def admin_delete_fact(fact_id: str) -> dict[str, Any]:
+    from app.world.repository import WorldModelRepository as repo
+    from app.control.events import emit
+    ok = repo.delete_entity("worldfact", fact_id)
+    if ok:
+        emit("world.update", {"entity_type": "fact", "action": "delete", "id": fact_id})
+    return {"ok": ok}
+
+
+@router.put("/world-model/routine", dependencies=_auth)
+async def admin_upsert_routine(body: _RoutineBody) -> dict[str, Any]:
+    from app.world.repository import WorldModelRepository as repo
+    from app.control.events import emit
+    hid = _get_household_id()
+    if not hid:
+        return {"error": "No household found"}
+    repo.upsert_routine(
+        hid, name=body.name, description=body.description,
+        kind=body.kind, source="admin_authored",
+    )
+    emit("world.update", {"entity_type": "routine", "action": "upsert", "name": body.name})
+    return {"ok": True, "name": body.name}
+
+
+@router.put("/world-model/alias", dependencies=_auth)
+async def admin_add_alias(body: _AliasBody) -> dict[str, Any]:
+    from app.world.repository import WorldModelRepository as repo
+    from app.control.events import emit
+    hid = _get_household_id()
+    if not hid:
+        return {"error": "No household found"}
+    ok = repo.add_alias(hid, body.entity_type, body.entity_id, body.alias)
+    if ok:
+        emit("world.update", {"entity_type": body.entity_type, "action": "alias_added", "alias": body.alias})
+    return {"ok": ok}
+
+
+@router.put("/world-model/member-detail", dependencies=_auth)
+async def admin_upsert_member_detail(body: _MemberDetailBody) -> dict[str, Any]:
+    from app.world.repository import WorldModelRepository as repo
+    from app.control.events import emit
+    hid = _get_household_id()
+    if not hid:
+        return {"error": "No household found"}
+
+    if body.detail_type == "interest":
+        repo.upsert_interest(hid, member_id=body.member_id, name=body.name,
+                             notes=body.notes, source="admin_authored")
+    elif body.detail_type == "activity":
+        repo.upsert_activity(hid, member_id=body.member_id, name=body.name,
+                             schedule_hint=body.schedule_hint, notes=body.notes,
+                             source="admin_authored")
+    elif body.detail_type == "goal":
+        repo.upsert_goal(hid, member_id=body.member_id, name=body.name,
+                         notes=body.notes, source="admin_authored")
+    else:
+        return {"error": f"Unknown detail_type: {body.detail_type}"}
+
+    emit("world.update", {"entity_type": body.detail_type, "action": "upsert", "name": body.name})
+    return {"ok": True, "detail_type": body.detail_type, "name": body.name}
+
+
+@router.delete("/world-model/entity/{entity_type}/{entity_id}", dependencies=_auth)
+async def admin_delete_entity(entity_type: str, entity_id: str) -> dict[str, Any]:
+    from app.world.repository import WorldModelRepository as repo
+    from app.control.events import emit
+    ok = repo.delete_entity(entity_type, entity_id)
+    if ok:
+        emit("world.update", {"entity_type": entity_type, "action": "delete", "id": entity_id})
+    return {"ok": ok}
+
+
+# ---------------------------------------------------------------------------
+# World-model proposals  (Phase 4)
+# ---------------------------------------------------------------------------
+
+
+@router.get("/world-model/proposals", dependencies=_auth)
+async def admin_list_proposals() -> dict[str, Any]:
+    from app.world.repository import WorldModelRepository as repo
+    hid = _get_household_id()
+    if not hid:
+        return {"proposals": []}
+    proposals = repo.get_recent_proposals(hid)
+    return {
+        "proposals": [
+            {
+                "id": p.id,
+                "proposal_type": p.proposal_type,
+                "entity_type": p.entity_type,
+                "payload": json.loads(p.payload_json),
+                "reason": p.reason,
+                "confidence": p.confidence,
+                "status": p.status,
+                "created_at": p.created_at.isoformat() if p.created_at else None,
+                "reviewed_at": p.reviewed_at.isoformat() if p.reviewed_at else None,
+                "reviewed_by": p.reviewed_by,
+            }
+            for p in proposals
+        ],
+        "pending_count": sum(1 for p in proposals if p.status == "pending"),
+    }
+
+
+class _ProposalDecision(BaseModel):
+    decision: str  # "accepted" | "rejected"
+
+
+@router.post("/world-model/proposals/{proposal_id}/review", dependencies=_auth)
+async def admin_review_proposal(proposal_id: str, body: _ProposalDecision) -> dict[str, Any]:
+    from app.control.events import emit
+    from app.world.repository import WorldModelRepository as repo
+
+    if body.decision not in ("accepted", "rejected"):
+        return {"error": "decision must be 'accepted' or 'rejected'"}
+
+    p = repo.review_proposal(proposal_id, body.decision)
+    if p is None:
+        return {"error": "Proposal not found or already reviewed"}
+
+    if body.decision == "accepted":
+        _apply_accepted_proposal(p)
+
+    emit("world.update", {"action": "proposal_reviewed", "proposal_id": proposal_id, "decision": body.decision})
+    return {"ok": True, "status": p.status}
+
+
+class _BulkDecision(BaseModel):
+    proposal_ids: list[str]
+    decision: str  # "accepted" | "rejected"
+
+
+@router.post("/world-model/proposals/bulk", dependencies=_auth)
+async def admin_bulk_review(body: _BulkDecision) -> dict[str, Any]:
+    from app.control.events import emit
+    from app.world.repository import WorldModelRepository as repo
+
+    if body.decision not in ("accepted", "rejected"):
+        return {"error": "decision must be 'accepted' or 'rejected'"}
+
+    reviewed = 0
+    for pid in body.proposal_ids:
+        p = repo.review_proposal(pid, body.decision)
+        if p is not None:
+            if body.decision == "accepted":
+                _apply_accepted_proposal(p)
+            reviewed += 1
+
+    if reviewed:
+        emit("world.update", {"action": "bulk_review", "count": reviewed, "decision": body.decision})
+    return {"ok": True, "reviewed": reviewed}
+
+
+def _apply_accepted_proposal(p: object) -> None:
+    """Apply an accepted proposal to the world model."""
+    import json as _json
+
+    from app.world.repository import WorldModelRepository as repo
+
+    payload = _json.loads(p.payload_json)  # type: ignore[union-attr]
+    ptype = p.proposal_type  # type: ignore[union-attr]
+    hid = p.household_id  # type: ignore[union-attr]
+
+    try:
+        if ptype == "fact":
+            val = payload.get("value", "")
+            repo.upsert_world_fact(
+                household_id=hid,
+                scope=payload.get("scope", "household"),
+                key=payload["key"],
+                value_json=_json.dumps(val) if not isinstance(val, str) else val,
+                source="proposal_accepted",
+            )
+        elif ptype == "alias":
+            entity_type = payload.get("entity_type", "")
+            entity_name = payload.get("entity_name", "")
+            alias = payload.get("alias", "")
+            finder = {
+                "member": repo.find_member_by_name,
+                "place": repo.find_place_by_name,
+                "device": repo.find_device_by_name,
+            }.get(entity_type)
+            if finder and alias:
+                entity = finder(hid, entity_name)
+                if entity:
+                    repo.add_alias(hid, entity_type, entity.id, alias)
+        elif ptype == "interest":
+            member = repo.find_member_by_name(hid, payload.get("member_name", ""))
+            if member:
+                repo.upsert_interest(hid, member.id, name=payload["name"],
+                                     notes=payload.get("notes", ""), source="proposal_accepted")
+        elif ptype == "activity":
+            member = repo.find_member_by_name(hid, payload.get("member_name", ""))
+            if member:
+                repo.upsert_activity(hid, member.id, name=payload["name"],
+                                     schedule_hint=payload.get("schedule_hint", ""),
+                                     notes=payload.get("notes", ""), source="proposal_accepted")
+        elif ptype == "goal":
+            member = repo.find_member_by_name(hid, payload.get("member_name", ""))
+            if member:
+                repo.upsert_goal(hid, member.id, name=payload["name"],
+                                 notes=payload.get("notes", ""), source="proposal_accepted")
+        elif ptype == "routine":
+            repo.upsert_routine(
+                household_id=hid,
+                name=payload["name"],
+                description=payload.get("description", ""),
+                kind=payload.get("kind", "custom"),
+                source="proposal_accepted",
+            )
+    except Exception:
+        logger.warning("Failed to apply accepted proposal %s", p.id, exc_info=True)  # type: ignore[union-attr]
+
+
+# ---------------------------------------------------------------------------
 # Embedded admin UI
 # ---------------------------------------------------------------------------
 
@@ -421,6 +713,22 @@ header { background: var(--surface); border-bottom: 1px solid var(--border); pad
 .mem-table td { padding: 8px 10px; border-bottom: 1px solid var(--border); vertical-align: top; line-height: 1.4; }
 .mem-table tr:last-child td { border-bottom: none; }
 .scope-tag { color: var(--dim); font-size: 11px; white-space: nowrap; }
+.wm-del { background:none;border:none;color:#e55;cursor:pointer;font-size:14px;padding:0 4px;opacity:0.5; }
+.wm-del:hover { opacity:1; }
+.wm-add-link { color:var(--accent);cursor:pointer;font-size:11px;margin-left:6px;text-decoration:none; }
+.wm-add-link:hover { text-decoration:underline; }
+.proposal-card { background:var(--surface);border:1px solid var(--border);border-radius:6px;padding:10px 12px;margin-bottom:8px;font-size:12px; }
+.proposal-card .pc-head { display:flex;align-items:center;gap:8px;margin-bottom:4px; }
+.proposal-card .pc-type { background:var(--accent);color:#fff;padding:1px 6px;border-radius:3px;font-size:10px;font-weight:600;text-transform:uppercase; }
+.proposal-card .pc-conf { color:var(--dim);font-size:10px; }
+.proposal-card .pc-reason { color:var(--text);margin-bottom:6px; }
+.proposal-card .pc-payload { color:var(--dim);font-size:11px;font-family:monospace;word-break:break-all; }
+.proposal-card .pc-actions { margin-top:6px;display:flex;gap:6px; }
+.proposal-card .pc-actions button { border:none;padding:3px 10px;border-radius:4px;cursor:pointer;font-size:11px; }
+.pc-accept { background:#238636;color:#fff; }
+.pc-accept:hover { background:#2ea043; }
+.pc-reject { background:#da3633;color:#fff; }
+.pc-reject:hover { background:#e5534b; }
 .time-tag { color: var(--dim); font-size: 11px; white-space: nowrap; }
 .profile-kv { display: grid; grid-template-columns: auto 1fr; gap: 4px 14px; font-size: 13px; padding: 4px 0; }
 .profile-key { color: var(--dim); }
@@ -553,10 +861,18 @@ header { background: var(--surface); border-bottom: 1px solid var(--border); pad
       <button class="details-btn" id="refresh-world">&#8635; Refresh</button>
       <span id="world-updated" style="font-size:11px;color:var(--dim)"></span>
     </div>
+    <section class="details-section" id="proposals-section" style="display:none">
+      <h3>Pending Proposals <span id="wm-proposal-count" class="scope-tag" style="font-size:10px"></span></h3>
+      <div id="wm-proposals"></div>
+      <div style="margin-top:6px">
+        <button id="accept-all-confident" class="details-btn" style="font-size:11px" onclick="wmBulkAcceptConfident()">Accept all high-confidence</button>
+      </div>
+    </section>
     <div style="display:grid;grid-template-columns:1fr 1fr;gap:0 24px">
       <section class="details-section">
         <h3>Members <span id="wm-member-count" style="font-size:10px;color:var(--dim)"></span></h3>
         <div id="wm-members"><span style="color:var(--dim)">—</span></div>
+        <div style="margin-top:4px"><a class="wm-add-link" onclick="wmAddMember()">+ member</a></div>
       </section>
       <section class="details-section">
         <h3>Places</h3>
@@ -581,16 +897,29 @@ header { background: var(--surface); border-bottom: 1px solid var(--border); pad
       <section class="details-section">
         <h3>Routines</h3>
         <table class="mem-table">
-          <thead><tr><th>Name</th><th>Description</th><th>Kind</th></tr></thead>
-          <tbody id="wm-routines"><tr><td colspan="3" style="color:var(--dim);padding:12px 10px">—</td></tr></tbody>
+          <thead><tr><th>Name</th><th>Description</th><th>Kind</th><th style="width:36px"></th></tr></thead>
+          <tbody id="wm-routines"><tr><td colspan="4" style="color:var(--dim);padding:12px 10px">—</td></tr></tbody>
+          <tfoot><tr>
+            <td><input id="wm-add-routine-name" placeholder="name" style="width:100%;background:var(--bg);color:var(--fg);border:1px solid var(--border);padding:2px 4px;font-size:12px"></td>
+            <td><input id="wm-add-routine-desc" placeholder="description" style="width:100%;background:var(--bg);color:var(--fg);border:1px solid var(--border);padding:2px 4px;font-size:12px"></td>
+            <td><input id="wm-add-routine-kind" placeholder="kind" style="width:100%;background:var(--bg);color:var(--fg);border:1px solid var(--border);padding:2px 4px;font-size:12px"></td>
+            <td><button onclick="wmAddRoutine()" style="background:none;border:none;color:var(--accent);cursor:pointer;font-size:14px" title="Add routine">+</button></td>
+          </tr></tfoot>
         </table>
       </section>
     </div>
     <section class="details-section">
       <h3>Facts</h3>
       <table class="mem-table">
-        <thead><tr><th style="width:120px">Scope</th><th style="width:200px">Key</th><th>Value</th><th style="width:100px">Source</th></tr></thead>
-        <tbody id="wm-facts"><tr><td colspan="4" style="color:var(--dim);padding:12px 10px">—</td></tr></tbody>
+        <thead><tr><th style="width:120px">Scope</th><th style="width:200px">Key</th><th>Value</th><th style="width:100px">Source</th><th style="width:36px"></th></tr></thead>
+        <tbody id="wm-facts"><tr><td colspan="5" style="color:var(--dim);padding:12px 10px">—</td></tr></tbody>
+        <tfoot><tr>
+          <td><input id="wm-add-fact-scope" placeholder="scope" value="household" style="width:100%;background:var(--bg);color:var(--fg);border:1px solid var(--border);padding:2px 4px;font-size:12px"></td>
+          <td><input id="wm-add-fact-key" placeholder="key" style="width:100%;background:var(--bg);color:var(--fg);border:1px solid var(--border);padding:2px 4px;font-size:12px"></td>
+          <td><input id="wm-add-fact-value" placeholder="value" style="width:100%;background:var(--bg);color:var(--fg);border:1px solid var(--border);padding:2px 4px;font-size:12px"></td>
+          <td></td>
+          <td><button onclick="wmAddFact()" style="background:none;border:none;color:var(--accent);cursor:pointer;font-size:14px" title="Add fact">+</button></td>
+        </tr></tfoot>
       </table>
     </section>
   </div>
@@ -660,6 +989,8 @@ function addEvent(type, data) {
     'job.error':    ['b-error','SCHED'],
     'mem.extract':  ['b-mem','MEM'],
     'mem.summarize':['b-mem','MEM'],
+    'world.update': ['b-mem','WORLD'],
+    'world.proposal':['b-mem','WORLD'],
     'cmd.dispatch': ['b-cmd','CMD'],
   };
   const [cls, label] = badges[type] || ['b-start', type];
@@ -701,6 +1032,14 @@ function addEvent(type, data) {
     const snippet = data.summary ? data.summary.slice(0, 120) + (data.summary.length > 120 ? '…' : '') : '';
     body = '<strong>compressed ' + n + ' msgs</strong>'
       + (snippet ? ' <span class="d">— ' + snippet + '</span>' : '');
+  } else if (type === 'world.update') {
+    body = '<strong>' + (data.action || 'update') + '</strong>'
+      + (data.entity_type ? ' <span class="d">' + data.entity_type + '</span>' : '');
+  } else if (type === 'world.proposal') {
+    const st = data.status === 'auto_applied' ? '<span style="color:var(--green)">auto-applied</span>' : '<span class="d">pending</span>';
+    body = '<strong>' + (data.type || 'proposal') + '</strong> ' + st
+      + ' <span class="d">' + Math.round((data.confidence || 0) * 100) + '% — ' + (data.reason || '') + '</span>';
+    loadProposals();
   } else if (type === 'cmd.dispatch') {
     const dur = data.duration_ms ? ' <span class="d">' + data.duration_ms + 'ms</span>' : '';
     const who = data.user_id ? ' <span class="d">by ' + data.user_id.slice(0, 8) + '</span>' : '';
@@ -804,7 +1143,7 @@ document.querySelectorAll('.tab').forEach(btn => {
     document.getElementById('tab-' + btn.dataset.tab).classList.add('active');
     if (btn.dataset.tab === 'details') loadMemory();
     if (btn.dataset.tab === 'scheduler') loadScheduler();
-    if (btn.dataset.tab === 'world') loadWorldModel();
+    if (btn.dataset.tab === 'world') { loadWorldModel(); loadProposals(); }
   });
 });
 
@@ -932,7 +1271,12 @@ async function loadWorldModel() {
           if (actsByMember[m.id]) sub.push('activities: ' + actsByMember[m.id].join(', '));
           if (goalsByMember[m.id]) sub.push('goals: ' + goalsByMember[m.id].join(', '));
           const subHtml = sub.length ? '<div style="margin-left:16px;color:var(--dim);font-size:12px">' + sub.map(s => '· ' + esc(s)).join('<br>') + '</div>' : '';
-          return '<div style="margin-bottom:6px"><strong>' + esc(m.name) + '</strong> <span class="scope-tag">' + esc(m.role) + '</span>' + aliases + subHtml + '</div>';
+          const addBtns = '<div style="margin-left:16px;margin-top:2px">'
+            + '<a class="wm-add-link" onclick="wmAddMemberDetail(\\'interest\\',\\'' + m.id + '\\')">+ interest</a>'
+            + '<a class="wm-add-link" onclick="wmAddMemberDetail(\\'activity\\',\\'' + m.id + '\\')">+ activity</a>'
+            + '<a class="wm-add-link" onclick="wmAddMemberDetail(\\'goal\\',\\'' + m.id + '\\')">+ goal</a>'
+            + '</div>';
+          return '<div style="margin-bottom:6px"><strong>' + esc(m.name) + '</strong> <span class="scope-tag">' + esc(m.role) + '</span>' + aliases + subHtml + addBtns + '</div>';
         }).join('')
       : '<span style="color:var(--dim)">No members</span>';
 
@@ -981,9 +1325,10 @@ async function loadWorldModel() {
       ? routines.map(r =>
           '<tr><td>' + esc(r.name) + '</td>' +
           '<td style="color:var(--dim)">' + esc(r.description || '—') + '</td>' +
-          '<td class="scope-tag">' + esc(r.kind || '—') + '</td></tr>'
+          '<td class="scope-tag">' + esc(r.kind || '—') + '</td>' +
+          '<td><button onclick="wmDeleteEntity(\\'routineentity\\',\\'' + esc(r.id) + '\\')" class="wm-del" title="Delete">×</button></td></tr>'
         ).join('')
-      : '<tr><td colspan="3" style="color:var(--dim);padding:12px 10px">No routines</td></tr>';
+      : '<tr><td colspan="4" style="color:var(--dim);padding:12px 10px">No routines</td></tr>';
 
     // Facts
     const facts = d.facts || [];
@@ -993,9 +1338,10 @@ async function loadWorldModel() {
           return '<tr><td class="scope-tag">' + esc(f.scope) + '</td>' +
             '<td>' + esc(f.key) + '</td>' +
             '<td>' + esc(String(val)) + '</td>' +
-            '<td class="scope-tag">' + esc(f.source || '—') + '</td></tr>';
+            '<td class="scope-tag">' + esc(f.source || '—') + '</td>' +
+            '<td><button onclick="wmDeleteEntity(\\'worldfact\\',\\'' + esc(f.id) + '\\')" class="wm-del" title="Delete">×</button></td></tr>';
         }).join('')
-      : '<tr><td colspan="4" style="color:var(--dim);padding:12px 10px">No facts</td></tr>';
+      : '<tr><td colspan="5" style="color:var(--dim);padding:12px 10px">No facts</td></tr>';
 
     document.getElementById('world-updated').textContent = 'Updated ' + new Date().toLocaleTimeString();
   } catch(e) {}
@@ -1003,35 +1349,156 @@ async function loadWorldModel() {
 
 document.getElementById('refresh-world').addEventListener('click', loadWorldModel);
 
-fetchStats();
-setInterval(fetchStats, 10000);
+// World model inline editing helpers
+async function wmDeleteEntity(entityType, entityId) {
+  if (!confirm('Delete this entry?')) return;
+  await fetch('/admin/world-model/entity/' + entityType + '/' + entityId, {method:'DELETE', headers:_authHeaders});
+  loadWorldModel();
+}
+async function wmAddFact() {
+  const scope = document.getElementById('wm-add-fact-scope').value.trim();
+  const key = document.getElementById('wm-add-fact-key').value.trim();
+  const value = document.getElementById('wm-add-fact-value').value.trim();
+  if (!key) return;
+  await fetch('/admin/world-model/fact', {method:'PUT', headers:{..._authHeaders,'Content-Type':'application/json'}, body:JSON.stringify({scope:scope||'household',key,value})});
+  document.getElementById('wm-add-fact-key').value = '';
+  document.getElementById('wm-add-fact-value').value = '';
+  loadWorldModel();
+}
+async function wmAddRoutine() {
+  const name = document.getElementById('wm-add-routine-name').value.trim();
+  const description = document.getElementById('wm-add-routine-desc').value.trim();
+  const kind = document.getElementById('wm-add-routine-kind').value.trim();
+  if (!name) return;
+  await fetch('/admin/world-model/routine', {method:'PUT', headers:{..._authHeaders,'Content-Type':'application/json'}, body:JSON.stringify({name,description,kind})});
+  document.getElementById('wm-add-routine-name').value = '';
+  document.getElementById('wm-add-routine-desc').value = '';
+  document.getElementById('wm-add-routine-kind').value = '';
+  loadWorldModel();
+}
+async function wmAddMember() {
+  const name = prompt('Member name:');
+  if (!name) return;
+  const role = prompt('Role (member, child, guest):', 'member');
+  if (!role) return;
+  await fetch('/admin/world-model/member', {method:'PUT', headers:{..._authHeaders,'Content-Type':'application/json'}, body:JSON.stringify({name, role})});
+  loadWorldModel();
+}
+async function wmAddMemberDetail(detailType, memberId) {
+  const name = prompt(detailType.charAt(0).toUpperCase() + detailType.slice(1) + ' name:');
+  if (!name) return;
+  await fetch('/admin/world-model/member-detail', {method:'PUT', headers:{..._authHeaders,'Content-Type':'application/json'}, body:JSON.stringify({detail_type:detailType,member_id:memberId,name})});
+  loadWorldModel();
+}
+async function wmDeleteMemberDetail(detailType, entityId) {
+  if (!confirm('Delete this ' + detailType + '?')) return;
+  await fetch('/admin/world-model/entity/' + 'member' + detailType + '/' + entityId, {method:'DELETE', headers:_authHeaders});
+  loadWorldModel();
+}
 
-// SSE
-function connectSSE() {
-  const es = new EventSource('/admin/stream' + _authQ);
+// Proposals
+async function loadProposals() {
+  try {
+    const r = await fetch('/admin/world-model/proposals', {headers: _authHeaders});
+    if (!r.ok) return;
+    const d = await r.json();
+    const sec = document.getElementById('proposals-section');
+    const cnt = document.getElementById('wm-proposal-count');
+    const container = document.getElementById('wm-proposals');
+    const pending = (d.proposals || []).filter(p => p.status === 'pending');
+    if (!pending.length) { sec.style.display = 'none'; return; }
+    sec.style.display = '';
+    cnt.textContent = pending.length;
+    container.innerHTML = pending.map(p => {
+      const confPct = Math.round(p.confidence * 100);
+      const payloadStr = JSON.stringify(p.payload, null, 1);
+      return '<div class="proposal-card" id="prop-' + esc(p.id) + '">'
+        + '<div class="pc-head"><span class="pc-type">' + esc(p.proposal_type) + '</span>'
+        + '<span class="pc-conf">' + confPct + '% confidence</span></div>'
+        + '<div class="pc-reason">' + esc(p.reason) + '</div>'
+        + '<div class="pc-payload">' + esc(payloadStr) + '</div>'
+        + '<div class="pc-actions">'
+        + '<button class="pc-accept" onclick="wmReviewProposal(\\'' + esc(p.id) + '\\',\\'accepted\\')">Accept</button>'
+        + '<button class="pc-reject" onclick="wmReviewProposal(\\'' + esc(p.id) + '\\',\\'rejected\\')">Reject</button>'
+        + '</div></div>';
+    }).join('');
+  } catch(e) {}
+}
+async function wmReviewProposal(id, decision) {
+  await fetch('/admin/world-model/proposals/' + id + '/review', {
+    method:'POST', headers:{..._authHeaders,'Content-Type':'application/json'},
+    body: JSON.stringify({decision})
+  });
+  const card = document.getElementById('prop-' + id);
+  if (card) card.style.display = 'none';
+  loadProposals();
+  if (decision === 'accepted') loadWorldModel();
+}
+async function wmBulkAcceptConfident() {
+  try {
+    const r = await fetch('/admin/world-model/proposals', {headers: _authHeaders});
+    if (!r.ok) return;
+    const d = await r.json();
+    const ids = (d.proposals || []).filter(p => p.status === 'pending' && p.confidence >= 0.7).map(p => p.id);
+    if (!ids.length) return;
+    await fetch('/admin/world-model/proposals/bulk', {
+      method:'POST', headers:{..._authHeaders,'Content-Type':'application/json'},
+      body: JSON.stringify({proposal_ids: ids, decision: 'accepted'})
+    });
+    loadProposals();
+    loadWorldModel();
+  } catch(e) {}
+}
+
+// Stream via fetch + ReadableStream (replaces EventSource which breaks in Safari)
+async function connectSSE() {
   const pulse = document.getElementById('pulse');
   const label = document.getElementById('conn-label');
-
-  es.onopen = () => {
+  try {
+    const resp = await fetch('/admin/stream', {headers: _authHeaders});
+    if (resp.status === 401) {
+      pulse.className = 'pulse off';
+      label.className = 'err';
+      label.textContent = 'Auth required';
+      document.querySelector('.tab-panel.active').innerHTML =
+        '<div style="padding:40px 20px;color:var(--dim);text-align:center">' +
+        '<p style="font-size:15px;margin-bottom:8px">Authentication required</p>' +
+        '<p style="font-size:12px">Access with <code>?token=APP_SECRET_KEY</code> in the URL</p></div>';
+      return; // don't retry
+    }
+    if (!resp.ok) throw new Error('HTTP ' + resp.status);
     pulse.className = 'pulse';
     label.className = 'ok';
     label.textContent = 'Connected';
-  };
-  es.onerror = () => {
+    const reader = resp.body.getReader();
+    const dec = new TextDecoder();
+    let buf = '';
+    while (true) {
+      const {done, value} = await reader.read();
+      if (done) break;
+      buf += dec.decode(value, {stream: true});
+      const parts = buf.split('\\n\\n');
+      buf = parts.pop();
+      for (const part of parts) {
+        if (!part.trim() || part.startsWith(':')) continue;
+        let evType = 'message', data = '';
+        for (const line of part.split('\\n')) {
+          if (line.startsWith('event: ')) evType = line.slice(7);
+          else if (line.startsWith('data: ')) data = line.slice(6);
+        }
+        if (data) { try { addEvent(evType, JSON.parse(data)); } catch(_) {} }
+      }
+    }
+  } catch (_) {
     pulse.className = 'pulse off';
     label.className = 'err';
     label.textContent = 'Reconnecting…';
-    es.close();
-    setTimeout(connectSSE, 3000);
-  };
-
-  ['run.start','run.tool_call','run.complete','run.error','job.fire','job.complete','job.error','mem.extract','mem.summarize','cmd.dispatch'].forEach(type => {
-    es.addEventListener(type, e => {
-      try { addEvent(type, JSON.parse(e.data)); } catch(_) {}
-    });
-  });
+  }
+  setTimeout(connectSSE, 3000);
 }
 
+fetchStats();
+setInterval(fetchStats, 10000);
 connectSSE();
 </script>
 </body>
