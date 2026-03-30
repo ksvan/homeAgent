@@ -143,6 +143,102 @@ async def execute_homey_action(
             session.commit()
 
 
+async def resume_task(
+    task_id: str,
+    user_id: str,
+    household_id: str,
+    channel_user_id: str,
+) -> None:
+    """
+    APScheduler job — fires when a task's resume_after time arrives.
+
+    Transitions the task back to ACTIVE, runs the agent with task context,
+    and delivers the response to the user.
+    """
+    import uuid as _uuid
+
+    from app.agent.agent import run_conversation
+    from app.channels.registry import get_channel
+    from app.control.events import emit
+    from app.db import users_session
+    from app.models.tasks import Task
+    from app.models.users import Household, User
+
+    run_id = str(_uuid.uuid4())
+    t0 = _time.monotonic()
+
+    emit("job.fire", {"job": "task_resume", "task_id": task_id}, run_id=run_id)
+    logger.info("Task resume starting: task_id=%s run_id=%s", task_id, run_id)
+
+    # Load task and check it's still resumable
+    with users_session() as session:
+        task = session.get(Task, task_id)
+        if task is None or task.status in ("COMPLETED", "FAILED", "CANCELLED"):
+            logger.info("Task resume skipped (terminal state): task_id=%s", task_id)
+            return
+
+        # Transition back to ACTIVE
+        if task.status in ("AWAITING_INPUT", "AWAITING_CONFIRMATION"):
+            task.status = "ACTIVE"
+            task.awaiting_input_hint = None
+            task.resume_after = None
+            from datetime import datetime, timezone
+            task.updated_at = datetime.now(timezone.utc)
+            session.add(task)
+            session.commit()
+
+    # Resolve display names
+    user_name = "user"
+    household_name = "the household"
+    try:
+        with users_session() as session:
+            user = session.get(User, user_id)
+            household = session.get(Household, household_id)
+            if user:
+                user_name = user.name
+            if household:
+                household_name = household.name
+    except Exception:
+        pass
+
+    # Build a prompt that references the task
+    prompt = f"[Task resume] The scheduled follow-up time has arrived for task {task_id}. Please review the task state and continue or report back to the user."
+
+    channel = get_channel()
+    success = False
+    try:
+        from app.tasks.service import get_active_task_context
+
+        result = await run_conversation(
+            text=prompt,
+            user_name=user_name,
+            household_name=household_name,
+            active_task_text=get_active_task_context(user_id),
+            user_id=user_id,
+            household_id=household_id,
+            channel_user_id=channel_user_id,
+            run_id=run_id,
+        )
+        response = result.output
+        success = True
+    except Exception:
+        response = "A scheduled task follow-up failed to run. You may want to check on it."
+        logger.error("Task resume failed: task_id=%s", task_id, exc_info=True)
+
+    duration_ms = int((_time.monotonic() - t0) * 1000)
+    emit(
+        "job.complete" if success else "job.error",
+        {"job": "task_resume", "task_id": task_id, "duration_ms": duration_ms, "success": success},
+        run_id=run_id,
+    )
+
+    if channel and channel_user_id:
+        try:
+            await channel.send_message(channel_user_id, response)
+        except Exception:
+            logger.warning("Could not deliver task resume response: task_id=%s", task_id, exc_info=True)
+
+
 async def fire_scheduled_prompt(
     prompt_id: str,
     user_id: str,

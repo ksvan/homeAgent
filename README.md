@@ -13,6 +13,8 @@ Developed by Claude, with assistance from me and Codex.
 - **Chat naturally** — talk to it like any LLM, through Telegram
 - **Control your home** — "turn off the living room lights", "set the thermostat to 21 degrees"
 - **Remember your family** — learns preferences, routines, and context over time
+- **Household world model** — maintains structured knowledge about members, places, devices, routines, and facts
+- **Multi-step tasks** — plans, tracks, and resumes work across multiple conversation turns
 - **Cross-user features** — ask it to remind a family member about something
 - **Personal assistant** — find restaurants, answer questions, set reminders
 - **Event-driven** — reacts to home events, runs scheduled tasks
@@ -187,11 +189,19 @@ homeAgent/
 ├── app/                    # Application source
 │   ├── agent/              # Pydantic AI agent, tools, context assembly
 │   ├── channels/           # Channel adapters (Telegram, future WhatsApp)
+│   ├── control/            # Admin dashboard, SSE events, auth
 │   ├── memory/             # Memory layers: profiles, episodic, vector
+│   ├── models/             # SQLModel database models
 │   ├── scheduler/          # APScheduler jobs and cron tasks
+│   ├── tasks/              # Multi-step task orchestration
+│   ├── world/              # Household world model
 │   ├── api/                # FastAPI routes and webhook handlers
-│   └── models/             # SQLModel database models
+│   └── homey/              # Homey MCP client and state cache
+├── services/               # Co-located service containers
+│   ├── tools-mcp/          # Sandboxed bash/python/scrape/search
+│   └── prometheus-mcp/     # Prometheus metrics MCP server
 ├── docs/                   # Design documentation
+├── prompts/                # Agent persona, instructions, home context
 ├── data/                   # Runtime data (git-ignored)
 │   ├── db/                 # SQLite databases
 │   └── chroma/             # Vector store
@@ -223,6 +233,9 @@ docker buildx build \
 - [Architecture Diagrams](docs/architecture-diagrams.md)
 - [Agent Design](docs/agent-design.md)
 - [Memory Design](docs/memory-design.md)
+- [Household World Model](docs/household-world-model-design.md)
+- [Multi-Step Tasks](docs/multi-step-task-design.md)
+- [Observability](docs/observability.md)
 - [Slash Commands](docs/slash-commands-design.md)
 - [Tech Stack](docs/tech-stack.md)
 - [Telegram Integration](docs/integrations/telegram.md)
@@ -230,4 +243,4 @@ docker buildx build \
 
 ## Other relevant
 
-- Folder prompts contains input and guidance examples for the llms. This needs to be updated to fit your context and preferences. More context could also be helpful, just samples provided now. Including on localization.
+- Folder `prompts/` contains persona, instructions, and home context templates for the LLM. Update these to fit your household and preferences.

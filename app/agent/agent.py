@@ -27,6 +27,7 @@ class AgentDeps:
     user_profile_text: str = ""
     household_profile_text: str = ""
     world_model_text: str = ""
+    active_task_text: str = ""
     conversation_summary: str | None = None
     relevant_memories: list[str] = field(default_factory=list)
     # M5: for policy gate — available inside process_tool_call callback via ctx.deps
@@ -91,6 +92,8 @@ def _make_conversation_agent() -> Agent[AgentDeps, str]:
             extra_sections.append(d.household_profile_text)
         if d.world_model_text:
             extra_sections.append(d.world_model_text)
+        if d.active_task_text:
+            extra_sections.append(d.active_task_text)
         if d.conversation_summary:
             extra_sections.append(f"## Conversation Summary\n{d.conversation_summary}")
         if d.relevant_memories:
@@ -110,12 +113,16 @@ def _make_conversation_agent() -> Agent[AgentDeps, str]:
     from app.agent.tools.memory import register_memory_tools
     from app.agent.tools.reminders import register_reminder_tools
     from app.agent.tools.scheduled_prompts import register_scheduled_prompt_tools
+    from app.agent.tools.tasks import register_task_tools
+    from app.agent.tools.world_model import register_world_model_tools
 
     register_reminder_tools(a)
     register_action_tools(a)
     register_memory_tools(a)
     register_calendar_tools(a)
     register_scheduled_prompt_tools(a)
+    register_world_model_tools(a)
+    register_task_tools(a)
 
     return a
 
@@ -148,6 +155,7 @@ async def run_conversation(
     user_profile_text: str = "",
     household_profile_text: str = "",
     world_model_text: str = "",
+    active_task_text: str = "",
     conversation_summary: str | None = None,
     relevant_memories: list[str] | None = None,
     user_id: str = "",
@@ -182,6 +190,7 @@ async def run_conversation(
         user_profile_text=user_profile_text,
         household_profile_text=household_profile_text,
         world_model_text=world_model_text,
+        active_task_text=active_task_text,
         conversation_summary=conversation_summary,
         relevant_memories=relevant_memories or [],
         user_id=user_id,

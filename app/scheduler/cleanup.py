@@ -8,8 +8,10 @@ logger = logging.getLogger(__name__)
 _CLEANUP_JOB_ID = "cleanup_old_logs"
 _MEMORY_PURGE_JOB_ID = "cleanup_stale_memories"
 _TASK_PURGE_JOB_ID = "cleanup_old_tasks"
+_STALE_TASK_JOB_ID = "cleanup_stale_tasks"
 _TURNS_PURGE_JOB_ID = "cleanup_old_turns"
 _TASK_RETENTION_DAYS = 8
+_STALE_TASK_DAYS = 7
 _TURNS_MAX_KEEP = 50  # maximum ConversationTurn rows retained per user
 
 
@@ -146,6 +148,47 @@ async def purge_old_tasks() -> None:
         logger.exception("purge_old_tasks failed")
 
 
+async def purge_stale_tasks() -> None:
+    """
+    Auto-cancel tasks stuck in AWAITING_INPUT or AWAITING_CONFIRMATION
+    for more than _STALE_TASK_DAYS. Runs daily via APScheduler.
+    """
+    try:
+        from sqlmodel import col, select
+
+        from app.db import users_session
+        from app.models.tasks import Task
+
+        cutoff = datetime.now(timezone.utc) - timedelta(days=_STALE_TASK_DAYS)
+        stale_statuses = ("AWAITING_INPUT", "AWAITING_CONFIRMATION")
+
+        with users_session() as session:
+            stale = session.exec(
+                select(Task).where(
+                    Task.status.in_(stale_statuses),  # type: ignore[attr-defined]
+                    col(Task.updated_at) < cutoff,
+                )
+            ).all()
+
+            for task in stale:
+                task.status = "CANCELLED"
+                task.summary = f"Auto-cancelled: stale for {_STALE_TASK_DAYS}+ days"
+                task.completed_at = datetime.now(timezone.utc)
+                session.add(task)
+
+            session.commit()
+
+        if stale:
+            from app.control.events import emit
+            for task in stale:
+                emit("task.auto_cancel", {"task_id": task.id, "title": task.title})
+            logger.info("Stale task cleanup: cancelled %d task(s)", len(stale))
+        else:
+            logger.debug("Stale task cleanup: nothing to cancel")
+    except Exception:
+        logger.exception("purge_stale_tasks failed")
+
+
 async def purge_old_turns() -> None:
     """
     Keep only the most recent _TURNS_MAX_KEEP ConversationTurn rows per user.
@@ -205,6 +248,7 @@ async def register_cleanup_jobs() -> None:
         (purge_old_logs,       _CLEANUP_JOB_ID,       0),
         (purge_stale_memories, _MEMORY_PURGE_JOB_ID,  1),
         (purge_old_tasks,      _TASK_PURGE_JOB_ID,    2),
+        (purge_stale_tasks,    _STALE_TASK_JOB_ID,    2.5),
         (purge_old_turns,      _TURNS_PURGE_JOB_ID,   3),
     ]:
         try:
