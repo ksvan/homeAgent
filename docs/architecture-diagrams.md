@@ -8,6 +8,7 @@ SVG exports currently in the repo:
 - `docs/diagrams/architecture-detailed.svg`
 - `docs/diagrams/main-path-startup-and-one-message.svg`
 - `docs/diagrams/dev-vs-prod-from-start-sh.svg`
+- `docs/diagrams/agent-flow.svg`
 
 Preview:
 
@@ -15,6 +16,7 @@ Preview:
 ![Detailed Architecture](diagrams/architecture-detailed.svg)
 ![Main Path: Startup and One Message](diagrams/main-path-startup-and-one-message.svg)
 ![start.sh Mode Matrix](diagrams/dev-vs-prod-from-start-sh.svg)
+![Agent Flow](diagrams/agent-flow.svg)
 
 ---
 
