@@ -27,3 +27,42 @@ class ScheduledPrompt(SQLModel, table=True):
     run_at: Optional[datetime] = Field(default=None, nullable=True)  # set when recurrence="once"
     enabled: bool = True
     created_at: datetime = Field(default_factory=_now)
+
+    # --- Proactive behaviour metadata (V1) ---
+    behavior_kind: Optional[str] = Field(default=None, nullable=True)
+    goal: Optional[str] = Field(default=None, nullable=True)
+    config_json: Optional[str] = Field(default=None, nullable=True)
+    delivery_policy_json: Optional[str] = Field(default=None, nullable=True)
+
+    # --- Last-run state ---
+    last_fired_at: Optional[datetime] = Field(default=None, nullable=True)
+    last_delivered_at: Optional[datetime] = Field(default=None, nullable=True)
+    last_status: Optional[str] = Field(default=None, nullable=True)
+    last_result_hash: Optional[str] = Field(default=None, nullable=True)
+    last_result_preview: Optional[str] = Field(default=None, nullable=True)
+
+
+class ScheduledPromptRun(SQLModel, table=True):
+    """Audit/history row — one per scheduled prompt firing."""
+
+    id: str = Field(default_factory=_uuid, primary_key=True)
+    prompt_id: str = Field(index=True)
+    fired_at: datetime
+    finished_at: Optional[datetime] = None
+    status: str  # "delivered" | "skipped" | "failed"
+    skip_reason: Optional[str] = None
+    run_id: Optional[str] = None  # agent run UUID if the agent was invoked
+    output_hash: Optional[str] = None
+    output_preview: Optional[str] = None
+    created_at: datetime = Field(default_factory=_now)
+
+
+class ScheduledPromptLink(SQLModel, table=True):
+    """Links a scheduled prompt to a world-model entity."""
+
+    id: str = Field(default_factory=_uuid, primary_key=True)
+    prompt_id: str = Field(index=True)
+    entity_type: str  # "member" | "calendar" | "device" | "place" | "routine" | "task"
+    entity_id: str
+    role: str = "subject"  # "subject" | "source" | "target" | "focus"
+    created_at: datetime = Field(default_factory=_now)

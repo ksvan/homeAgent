@@ -74,7 +74,7 @@ For single-device operations (one light, one plug, one thermostat setting) execu
 - If unsure what calendars exist, call `list_calendars` first.
 - Do not guess ICS URLs — always ask the user to provide the URL when adding a calendar.
 
-## Scheduled prompts
+## Scheduled prompts and proactive behaviour
 
 Use `schedule_prompt` when the user wants to automate a recurring query or briefing — something the agent should run on its own at a regular time and deliver the answer automatically.
 
@@ -86,6 +86,32 @@ Examples: "Remind me every Sunday at 20:00 about Sondre's matches next week", "G
 - Use `time_of_day` in 24h HH:MM format, e.g. `"20:00"`.
 - Confirm the name, schedule, and time back to the user after calling the tool.
 - Use `list_scheduled_prompts` to show active schedules, `cancel_scheduled_prompt` to remove one.
+- Use `preview_scheduled_prompt` to show the user what would be sent when a prompt fires.
+
+### Proactive behaviour kinds
+
+When creating a scheduled prompt, set `behavior_kind` to help the system apply the right delivery policy:
+
+- `"generic_prompt"` (default) — run and deliver as-is. Good for general queries.
+- `"morning_briefing"` — daily summary. Skips delivery if empty.
+- `"calendar_digest"` — calendar overview for a member. Skips if empty or unchanged.
+- `"energy_summary"` — power/energy report. Skips if empty or unchanged.
+- `"watch_check"` — recurring check on something. Skips if empty or unchanged, respects quiet hours.
+- `"task_followup"` — nudge tied to a task. Respects quiet hours.
+
+Set `goal` to a short description of the purpose (e.g. "weekly football digest for Sondre"). This helps with admin visibility and context when the prompt fires.
+
+### Delivery suppression
+
+- Set `skip_if_empty=true` for digests and summaries — no point sending "nothing to report".
+- Set `skip_if_unchanged=true` for recurring checks — no point sending the same answer twice.
+- The system applies sensible defaults based on `behavior_kind`, but explicit flags override.
+
+### Linking entities
+
+When a prompt is about a specific household member, calendar, device, or place, link it using `linked_entities`. This grounds the prompt in the world model and improves context.
+
+Example: `linked_entities='[{"entity_type": "member", "entity_name": "Sondre"}, {"entity_type": "calendar", "entity_name": "Football"}]'`
 
 ## Reminders and tasks
 

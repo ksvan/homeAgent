@@ -80,12 +80,23 @@ async def create_scheduled_prompt(
     recurrence: str,
     time_of_day: str,
     run_at: object = None,
+    *,
+    behavior_kind: str | None = None,
+    goal: str | None = None,
+    delivery_policy_json: str | None = None,
+    links: list[dict] | None = None,
 ) -> str:
     """
     Persist a ScheduledPrompt record and register the APScheduler job.
 
     For recurring prompts (daily/weekly/monthly), uses CronTrigger.
     For one-shot prompts (recurrence="once"), uses DateTrigger with run_at.
+
+    Optional proactive behaviour fields:
+        behavior_kind: e.g. "calendar_digest", "morning_briefing". NULL = generic_prompt.
+        goal: Short human-readable reason for this prompt.
+        delivery_policy_json: JSON string with delivery policy overrides.
+        links: List of ``{entity_type, entity_id, role}`` dicts to link to world-model entities.
 
     Returns the prompt_id which can be used to cancel the prompt.
     Raises ValueError for invalid recurrence / time_of_day / run_at.
@@ -94,7 +105,7 @@ async def create_scheduled_prompt(
     from apscheduler import ConflictPolicy
 
     from app.db import users_session
-    from app.models.scheduled_prompts import ScheduledPrompt
+    from app.models.scheduled_prompts import ScheduledPrompt, ScheduledPromptLink
     from app.scheduler.engine import get_scheduler
     from app.scheduler.jobs import fire_scheduled_prompt
 
@@ -111,8 +122,22 @@ async def create_scheduled_prompt(
             recurrence=recurrence,
             time_of_day=time_of_day,
             run_at=run_at,
+            behavior_kind=behavior_kind,
+            goal=goal,
+            delivery_policy_json=delivery_policy_json,
         )
         session.add(sp)
+        session.flush()  # generate ID before creating links
+
+        if links:
+            for link_dict in links:
+                session.add(ScheduledPromptLink(
+                    prompt_id=sp.id,
+                    entity_type=link_dict["entity_type"],
+                    entity_id=link_dict["entity_id"],
+                    role=link_dict.get("role", "subject"),
+                ))
+
         session.commit()
         session.refresh(sp)
         prompt_id = sp.id

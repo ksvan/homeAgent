@@ -240,10 +240,10 @@ async def admin_memory() -> dict[str, Any]:
 async def admin_scheduler() -> dict[str, Any]:
     import json as _json
 
-    from sqlmodel import select
+    from sqlmodel import col, select
 
     from app.db import users_session
-    from app.models.scheduled_prompts import ScheduledPrompt
+    from app.models.scheduled_prompts import ScheduledPrompt, ScheduledPromptLink
     from app.models.tasks import Task
     from app.scheduler.scheduled_prompts import recurrence_label
 
@@ -256,6 +256,21 @@ async def admin_scheduler() -> dict[str, Any]:
             .where(ScheduledPrompt.enabled == True)  # noqa: E712
             .order_by(ScheduledPrompt.created_at)
         ).all()
+        # Batch-load all links for enabled prompts
+        sp_ids = [sp.id for sp in sps]
+        all_links = (
+            session.exec(
+                select(ScheduledPromptLink).where(col(ScheduledPromptLink.prompt_id).in_(sp_ids))
+            ).all()
+            if sp_ids
+            else []
+        )
+
+    links_by_prompt: dict[str, list] = {}
+    for ln in all_links:
+        links_by_prompt.setdefault(ln.prompt_id, []).append(
+            {"entity_type": ln.entity_type, "entity_id": ln.entity_id, "role": ln.role}
+        )
 
     reminders = []
     actions = []
@@ -277,18 +292,85 @@ async def admin_scheduler() -> dict[str, Any]:
                 "scheduled_at": ctx.get("scheduled_at", ""),
             })
 
-    scheduled_prompts = [
-        {
+    scheduled_prompts = []
+    for sp in sps:
+        scheduled_prompts.append({
             "id": sp.id,
             "user_id": sp.user_id,
             "name": sp.name,
             "recurrence": recurrence_label(sp.recurrence, sp.time_of_day),
             "prompt": sp.prompt[:120] + ("…" if len(sp.prompt) > 120 else ""),
-        }
-        for sp in sps
-    ]
+            "behavior_kind": sp.behavior_kind or "generic_prompt",
+            "goal": sp.goal or "",
+            "last_status": sp.last_status,
+            "last_fired_at": sp.last_fired_at.isoformat() if sp.last_fired_at else None,
+            "last_delivered_at": sp.last_delivered_at.isoformat() if sp.last_delivered_at else None,
+            "last_result_preview": sp.last_result_preview or "",
+            "linked_entities": links_by_prompt.get(sp.id, []),
+        })
 
     return {"reminders": reminders, "actions": actions, "scheduled_prompts": scheduled_prompts}
+
+
+@router.get("/scheduler/runs/{prompt_id}", dependencies=_auth)
+async def admin_scheduler_runs(prompt_id: str) -> dict[str, Any]:
+    """Return the last 20 run-history rows for a scheduled prompt."""
+    from sqlmodel import col, select
+
+    from app.db import users_session
+    from app.models.scheduled_prompts import ScheduledPromptRun
+
+    with users_session() as session:
+        runs = session.exec(
+            select(ScheduledPromptRun)
+            .where(col(ScheduledPromptRun.prompt_id) == prompt_id)
+            .order_by(col(ScheduledPromptRun.fired_at).desc())
+            .limit(20)
+        ).all()
+
+    return {
+        "runs": [
+            {
+                "id": r.id,
+                "fired_at": r.fired_at.isoformat() if r.fired_at else None,
+                "finished_at": r.finished_at.isoformat() if r.finished_at else None,
+                "status": r.status,
+                "skip_reason": r.skip_reason,
+                "run_id": r.run_id,
+                "output_preview": r.output_preview or "",
+            }
+            for r in runs
+        ]
+    }
+
+
+@router.post("/scheduler/{prompt_id}/run-now", dependencies=_auth)
+async def admin_run_prompt_now(prompt_id: str) -> dict[str, str]:
+    """Fire a scheduled prompt immediately (for debugging)."""
+    import asyncio
+
+    from app.db import users_session
+    from app.models.scheduled_prompts import ScheduledPrompt
+    from app.scheduler.jobs import fire_scheduled_prompt
+
+    with users_session() as session:
+        sp = session.get(ScheduledPrompt, prompt_id)
+        if sp is None:
+            return {"status": "error", "message": "Prompt not found"}
+        if not sp.enabled:
+            return {"status": "error", "message": "Prompt is disabled"}
+        kwargs = {
+            "prompt_id": sp.id,
+            "user_id": sp.user_id,
+            "household_id": sp.household_id,
+            "channel_user_id": sp.channel_user_id,
+            "prompt_text": sp.prompt,
+            "name": sp.name,
+            "is_one_shot": False,
+        }
+
+    asyncio.ensure_future(fire_scheduled_prompt(**kwargs))
+    return {"status": "ok", "message": f"Fired '{sp.name}'"}
 
 
 @router.get("/world-model", dependencies=_auth)
@@ -964,9 +1046,28 @@ header { background: var(--surface); border-bottom: 1px solid var(--border); pad
     <section class="details-section">
       <h3>Scheduled Prompts</h3>
       <table class="mem-table">
-        <thead><tr><th style="width:180px">Name</th><th style="width:160px">Schedule</th><th>Prompt</th><th style="width:72px">ID</th></tr></thead>
-        <tbody id="sched-prompts"><tr><td colspan="4" style="color:var(--dim);padding:12px 10px">—</td></tr></tbody>
+        <thead><tr><th style="width:160px">Name</th><th style="width:100px">Kind</th><th style="width:140px">Schedule</th><th style="width:60px">Status</th><th style="width:110px">Last Fired</th><th style="width:72px">ID</th></tr></thead>
+        <tbody id="sched-prompts"><tr><td colspan="6" style="color:var(--dim);padding:12px 10px">—</td></tr></tbody>
       </table>
+      <div id="sched-prompt-detail" style="display:none;margin-top:8px;padding:10px 12px;background:var(--card);border:1px solid var(--border);border-radius:6px">
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px">
+          <strong id="spd-name"></strong>
+          <div>
+            <button class="details-btn" style="font-size:11px" id="spd-run-now">Run Now</button>
+            <button class="details-btn" style="font-size:11px" id="spd-close">Close</button>
+          </div>
+        </div>
+        <div style="font-size:12px;color:var(--dim);margin-bottom:6px">
+          <span id="spd-goal"></span>
+          <span id="spd-links"></span>
+        </div>
+        <div id="spd-preview" style="font-size:12px;color:var(--dim);margin-bottom:8px;white-space:pre-wrap;max-height:80px;overflow:auto"></div>
+        <h4 style="margin:0 0 4px;font-size:12px">Run History</h4>
+        <table class="mem-table" style="font-size:11px">
+          <thead><tr><th>Fired</th><th>Status</th><th>Reason</th><th>Preview</th></tr></thead>
+          <tbody id="spd-runs"><tr><td colspan="4" style="color:var(--dim);padding:6px">Loading…</td></tr></tbody>
+        </table>
+      </div>
     </section>
   </div>
 </div>
@@ -1134,6 +1235,10 @@ function addEvent(type, data) {
     'task.cancel':  ['b-error','TASK'],
     'task.link':    ['b-sched','TASK'],
     'task.schedule_resume':['b-sched','TASK'],
+    'proactive.fire':    ['b-sched','PROACTIVE'],
+    'proactive.deliver': ['b-done','PROACTIVE'],
+    'proactive.skip':    ['b-mem','PROACTIVE'],
+    'proactive.fail':    ['b-error','PROACTIVE'],
     'cmd.dispatch': ['b-cmd','CMD'],
   };
   const [cls, label] = badges[type] || ['b-start', type];
@@ -1189,6 +1294,14 @@ function addEvent(type, data) {
     body = '<strong>' + action + '</strong>'
       + (title ? ' <span class="d">— ' + title.slice(0, 100) + '</span>' : '');
     loadTasks();
+  } else if (type.startsWith('proactive.')) {
+    const action = type.split('.')[1] || '';
+    const pName = data.name || '';
+    const kind = data.behavior_kind ? ' <span class="d">[' + data.behavior_kind + ']</span>' : '';
+    const reason = data.reason ? ' <span class="d">— ' + data.reason + '</span>' : '';
+    const dur = data.duration_ms ? ' <span class="d">' + data.duration_ms + 'ms</span>' : '';
+    body = '<strong>' + action + '</strong> ' + pName + kind + reason + dur;
+    loadScheduler();
   } else if (type === 'cmd.dispatch') {
     const dur = data.duration_ms ? ' <span class="d">' + data.duration_ms + 'ms</span>' : '';
     const who = data.user_id ? ' <span class="d">by ' + data.user_id.slice(0, 8) + '</span>' : '';
@@ -1376,16 +1489,64 @@ async function loadScheduler() {
       : '<tr><td colspan="5" style="color:var(--dim);padding:12px 10px">No active actions</td></tr>';
 
     const sp = d.scheduled_prompts || [];
+    window._schedPrompts = sp;
+    const statusBadge = s => {
+      if (!s) return '<span style="color:var(--dim)">—</span>';
+      const colors = {delivered:'var(--green)',skipped:'#c90',failed:'var(--red)'};
+      return '<span style="color:' + (colors[s]||'var(--dim)') + '">' + s + '</span>';
+    };
     document.getElementById('sched-prompts').innerHTML = sp.length
       ? sp.map(p =>
-          '<tr><td>' + esc(p.name) + '</td>' +
+          '<tr style="cursor:pointer" onclick="showPromptDetail(\\'' + p.id + '\\')">' +
+          '<td>' + esc(p.name) + '</td>' +
+          '<td class="mem-id">' + esc(p.behavior_kind || 'generic_prompt') + '</td>' +
           '<td class="time-tag">' + esc(p.recurrence) + '</td>' +
-          '<td style="color:var(--dim)">' + esc(p.prompt) + '</td>' +
+          '<td>' + statusBadge(p.last_status) + '</td>' +
+          '<td class="time-tag">' + (p.last_fired_at ? fmtTime(p.last_fired_at) : '—') + '</td>' +
           '<td class="mem-id">' + esc(p.id.slice(0,8)) + '</td></tr>'
         ).join('')
-      : '<tr><td colspan="4" style="color:var(--dim);padding:12px 10px">No scheduled prompts</td></tr>';
+      : '<tr><td colspan="6" style="color:var(--dim);padding:12px 10px">No scheduled prompts</td></tr>';
   } catch(e) {}
 }
+
+async function showPromptDetail(promptId) {
+  const sp = (window._schedPrompts || []).find(p => p.id === promptId);
+  if (!sp) return;
+  const det = document.getElementById('sched-prompt-detail');
+  det.style.display = 'block';
+  det.dataset.promptId = promptId;
+  document.getElementById('spd-name').textContent = sp.name + ' [' + (sp.behavior_kind || 'generic_prompt') + ']';
+  document.getElementById('spd-goal').textContent = sp.goal ? 'Goal: ' + sp.goal : '';
+  const links = (sp.linked_entities || []).map(l => l.entity_type + ':' + l.entity_id).join(', ');
+  document.getElementById('spd-links').textContent = links ? ' | Linked: ' + links : '';
+  document.getElementById('spd-preview').textContent = sp.last_result_preview || '(no result yet)';
+  document.getElementById('spd-runs').innerHTML = '<tr><td colspan="4" style="color:var(--dim);padding:6px">Loading…</td></tr>';
+  try {
+    const r = await fetch('/admin/scheduler/runs/' + promptId, {headers: _authHeaders});
+    if (!r.ok) return;
+    const d = await r.json();
+    const runs = d.runs || [];
+    document.getElementById('spd-runs').innerHTML = runs.length
+      ? runs.map(r =>
+          '<tr><td class="time-tag">' + (r.fired_at ? fmtTime(r.fired_at) : '—') + '</td>' +
+          '<td>' + esc(r.status) + '</td>' +
+          '<td style="color:var(--dim)">' + esc(r.skip_reason || '') + '</td>' +
+          '<td style="color:var(--dim);max-width:200px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">' + esc(r.output_preview || '').slice(0,80) + '</td></tr>'
+        ).join('')
+      : '<tr><td colspan="4" style="color:var(--dim);padding:6px">No runs yet</td></tr>';
+  } catch(e) {}
+}
+
+document.getElementById('spd-close').addEventListener('click', () => {
+  document.getElementById('sched-prompt-detail').style.display = 'none';
+});
+document.getElementById('spd-run-now').addEventListener('click', async () => {
+  const id = document.getElementById('sched-prompt-detail').dataset.promptId;
+  if (!id) return;
+  try {
+    await fetch('/admin/scheduler/' + id + '/run-now', {method:'POST', headers: _authHeaders});
+  } catch(e) {}
+});
 
 document.getElementById('refresh-scheduler').addEventListener('click', loadScheduler);
 

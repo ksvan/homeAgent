@@ -285,26 +285,82 @@ async def _fire_scheduled_prompt_inner(
     is_one_shot: bool = False,
 ) -> None:
     import uuid as _uuid
+    from datetime import datetime, timezone
 
     from app.agent.agent import run_conversation
     from app.channels.registry import get_channel
     from app.control.events import emit
     from app.db import users_session
+    from app.models.scheduled_prompts import ScheduledPrompt, ScheduledPromptLink
     from app.models.users import Household, User
+    from app.scheduler.delivery import (
+        evaluate_postflight,
+        evaluate_preflight,
+        parse_delivery_policy,
+        record_run,
+    )
+    from app.scheduler.envelope import build_prompt_envelope
 
     run_id = str(_uuid.uuid4())
     t0 = _time.monotonic()
+    fired_at = datetime.now(timezone.utc)
 
     logger.info(
         "Scheduled prompt starting: prompt_id=%s name=%r run_id=%s", prompt_id, name, run_id
     )
+
+    # --- Load fresh prompt + links from DB (may have updated since registration) ---
+    sp: ScheduledPrompt | None = None
+    links: list[ScheduledPromptLink] = []
+    try:
+        from sqlmodel import col, select
+
+        with users_session() as session:
+            sp = session.get(ScheduledPrompt, prompt_id)
+            if sp:
+                links = list(session.exec(
+                    select(ScheduledPromptLink).where(
+                        col(ScheduledPromptLink.prompt_id) == prompt_id
+                    )
+                ).all())
+    except Exception:
+        logger.error("Failed to load prompt_id=%s from DB", prompt_id, exc_info=True)
+
+    if sp is None or not sp.enabled:
+        logger.info("Scheduled prompt skipped (disabled/deleted): prompt_id=%s", prompt_id)
+        return
+
+    behavior_kind = sp.behavior_kind or "generic_prompt"
+
     emit(
-        "job.fire",
-        {"job": "scheduled_prompt", "name": name[:80], "prompt": prompt_text[:80]},
+        "proactive.fire",
+        {"job": "scheduled_prompt", "name": name[:80], "behavior_kind": behavior_kind},
         run_id=run_id,
     )
 
-    # Resolve display names from DB
+    # --- Preflight evaluation ---
+    try:
+        policy = parse_delivery_policy(sp)
+        should_proceed, skip_reason = evaluate_preflight(sp, policy, fired_at)
+    except Exception:
+        logger.warning("Preflight evaluation failed — proceeding", exc_info=True)
+        policy = {"skip_if_empty": False, "skip_if_unchanged": False}
+        should_proceed, skip_reason = True, None
+
+    if not should_proceed:
+        logger.info(
+            "Scheduled prompt preflight skip: prompt_id=%s reason=%s", prompt_id, skip_reason
+        )
+        record_run(prompt_id, run_id, "skipped", skip_reason, None, fired_at)
+        duration_ms = int((_time.monotonic() - t0) * 1000)
+        emit(
+            "proactive.skip",
+            {"name": name[:80], "behavior_kind": behavior_kind, "reason": skip_reason, "duration_ms": duration_ms},
+            run_id=run_id,
+        )
+        return
+
+    # --- Resolve display names ---
     user_name = "user"
     household_name = "the household"
     try:
@@ -322,11 +378,20 @@ async def _fire_scheduled_prompt_inner(
         )
         raise
 
+    # --- Build prompt envelope ---
+    try:
+        envelope = build_prompt_envelope(sp, links=links)
+    except Exception:
+        logger.warning("Envelope build failed — falling back to raw prompt", exc_info=True)
+        envelope = prompt_text
+
+    # --- Run the agent ---
     channel = get_channel()
     success = False
+    response = ""
     try:
         result = await run_conversation(
-            text=prompt_text,
+            text=envelope,
             user_name=user_name,
             household_name=household_name,
             user_id=user_id,
@@ -347,40 +412,77 @@ async def _fire_scheduled_prompt_inner(
         )
 
     duration_ms = int((_time.monotonic() - t0) * 1000)
+    finished_at = datetime.now(timezone.utc)
+
+    if not success:
+        record_run(prompt_id, run_id, "failed", None, response, fired_at, finished_at)
+        emit(
+            "proactive.fail",
+            {"name": name[:80], "behavior_kind": behavior_kind, "duration_ms": duration_ms},
+            run_id=run_id,
+        )
+        # Still deliver the error message to the user
+        if channel and channel_user_id:
+            try:
+                await channel.send_message(channel_user_id, response)
+            except Exception:
+                logger.error(
+                    "Could not deliver scheduled prompt error: prompt_id=%s", prompt_id, exc_info=True
+                )
+    else:
+        # --- Postflight evaluation ---
+        try:
+            status, post_skip_reason = evaluate_postflight(response, sp, policy)
+        except Exception:
+            logger.warning("Postflight evaluation failed — delivering", exc_info=True)
+            status, post_skip_reason = "delivered", None
+
+        record_run(prompt_id, run_id, status, post_skip_reason, response, fired_at, finished_at)
+
+        if status == "skipped":
+            logger.info(
+                "Scheduled prompt postflight skip: prompt_id=%s reason=%s", prompt_id, post_skip_reason
+            )
+            emit(
+                "proactive.skip",
+                {"name": name[:80], "behavior_kind": behavior_kind, "reason": post_skip_reason, "duration_ms": duration_ms},
+                run_id=run_id,
+            )
+        else:
+            # --- Deliver ---
+            if channel and channel_user_id:
+                try:
+                    await channel.send_message(channel_user_id, response)
+                except Exception:
+                    logger.error(
+                        "Could not deliver scheduled prompt response: prompt_id=%s channel_user_id=%s",
+                        prompt_id, channel_user_id, exc_info=True,
+                    )
+            elif not channel:
+                logger.error(
+                    "Scheduled prompt: no active channel — response not delivered: prompt_id=%s", prompt_id
+                )
+
+            emit(
+                "proactive.deliver",
+                {"name": name[:80], "behavior_kind": behavior_kind, "duration_ms": duration_ms},
+                run_id=run_id,
+            )
+
+    # Emit legacy job event for backward compat with admin UI
     emit(
         "job.complete" if success else "job.error",
-        {
-            "job": "scheduled_prompt",
-            "name": name[:80],
-            "duration_ms": duration_ms,
-            "success": success,
-        },
+        {"job": "scheduled_prompt", "name": name[:80], "duration_ms": duration_ms, "success": success},
         run_id=run_id,
     )
-
-    if channel and channel_user_id:
-        try:
-            await channel.send_message(channel_user_id, response)
-        except Exception:
-            logger.error(
-                "Could not deliver scheduled prompt response: prompt_id=%s channel_user_id=%s",
-                prompt_id, channel_user_id, exc_info=True,
-            )
-    elif not channel:
-        logger.error(
-            "Scheduled prompt: no active channel — response not delivered: prompt_id=%s", prompt_id
-        )
 
     # One-shot prompts self-delete after firing (success or failure).
     if is_one_shot:
         try:
-            from app.db import users_session
-            from app.models.scheduled_prompts import ScheduledPrompt
-
             with users_session() as s:
-                sp = s.get(ScheduledPrompt, prompt_id)
-                if sp:
-                    s.delete(sp)
+                sp_rec = s.get(ScheduledPrompt, prompt_id)
+                if sp_rec:
+                    s.delete(sp_rec)
                     s.commit()
             logger.info("One-shot prompt deleted after firing: prompt_id=%s name=%r", prompt_id, name)
         except Exception:

@@ -10,9 +10,11 @@ _MEMORY_PURGE_JOB_ID = "cleanup_stale_memories"
 _TASK_PURGE_JOB_ID = "cleanup_old_tasks"
 _STALE_TASK_JOB_ID = "cleanup_stale_tasks"
 _TURNS_PURGE_JOB_ID = "cleanup_old_turns"
+_PROMPT_RUN_PURGE_JOB_ID = "cleanup_old_prompt_runs"
 _TASK_RETENTION_DAYS = 8
 _STALE_TASK_DAYS = 7
-_TURNS_MAX_KEEP = 50  # maximum ConversationTurn rows retained per user
+_TURNS_MAX_KEEP = 200  # maximum ConversationTurn rows retained per user
+_PROMPT_RUN_RETENTION_DAYS = 14
 
 
 async def purge_old_logs() -> None:
@@ -232,6 +234,33 @@ async def purge_old_turns() -> None:
         logger.exception("purge_old_turns failed")
 
 
+async def purge_old_prompt_runs() -> None:
+    """
+    Delete ScheduledPromptRun rows older than _PROMPT_RUN_RETENTION_DAYS.
+    Runs daily via APScheduler.
+    """
+    try:
+        from sqlmodel import col, delete
+
+        from app.db import users_session
+        from app.models.scheduled_prompts import ScheduledPromptRun
+
+        cutoff = datetime.now(timezone.utc) - timedelta(days=_PROMPT_RUN_RETENTION_DAYS)
+
+        with users_session() as session:
+            result = session.exec(
+                delete(ScheduledPromptRun).where(col(ScheduledPromptRun.created_at) < cutoff)
+            )
+            session.commit()
+
+        if result.rowcount:
+            logger.info("Prompt run purge: removed %d old run(s)", result.rowcount)
+        else:
+            logger.debug("Prompt run purge: nothing to remove")
+    except Exception:
+        logger.exception("purge_old_prompt_runs failed")
+
+
 async def register_cleanup_jobs() -> None:
     """Schedule the daily log-retention and memory-purge jobs. Safe to call even if the
     scheduler already has the jobs registered (conflicts are silently ignored)."""
@@ -250,6 +279,7 @@ async def register_cleanup_jobs() -> None:
         (purge_old_tasks,      _TASK_PURGE_JOB_ID,    2),
         (purge_stale_tasks,    _STALE_TASK_JOB_ID,    2.5),
         (purge_old_turns,      _TURNS_PURGE_JOB_ID,   3),
+        (purge_old_prompt_runs, _PROMPT_RUN_PURGE_JOB_ID, 3.5),
     ]:
         try:
             await scheduler.add_schedule(

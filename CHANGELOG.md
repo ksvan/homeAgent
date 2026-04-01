@@ -10,6 +10,24 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 
 ### Added
 
+#### Proactive Scheduled Behaviour
+
+Evolves the existing scheduled-prompt system into a structured proactive behaviour layer with delivery suppression, run history, world-model entity linking, and enhanced admin visibility.
+
+- **`alembic/versions/0010_users_db_proactive_behaviour.py`** (new) — Migration adding 9 metadata columns to `scheduledprompt` (behavior_kind, goal, config_json, delivery_policy_json, last_fired_at, last_delivered_at, last_status, last_result_hash, last_result_preview) and creating `scheduledpromptrun` audit table.
+- **`alembic/versions/0011_users_db_scheduled_prompt_links.py`** (new) — Migration creating `scheduledpromptlink` table for world-model entity linking.
+- **`app/models/scheduled_prompts.py`** — Extended `ScheduledPrompt` with behaviour metadata and last-run state. Added `ScheduledPromptRun` (audit history) and `ScheduledPromptLink` (entity linking) models.
+- **`app/scheduler/delivery.py`** (new) — Delivery policy engine: `parse_delivery_policy()` with per-kind defaults, `evaluate_preflight()` (quiet hours, cooldown, daily cap), `evaluate_postflight()` (skip-if-empty, skip-if-unchanged via SHA-256 hash), `record_run()` for audit trail. Failures degrade gracefully to "deliver as before".
+- **`app/scheduler/envelope.py`** (new) — Structured prompt envelope builder. Generic prompts get a minimal header; structured kinds get a full envelope with kind, goal, schedule, delivery policy, and linked entities.
+- **`app/scheduler/jobs.py`** — `_fire_scheduled_prompt_inner()` now loads fresh prompt from DB, runs preflight evaluation, builds envelope, runs postflight evaluation, records run history, and emits `proactive.fire`/`proactive.deliver`/`proactive.skip`/`proactive.fail` events.
+- **`app/scheduler/scheduled_prompts.py`** — `create_scheduled_prompt()` accepts optional `behavior_kind`, `goal`, `delivery_policy_json`, and `links` parameters. Links are persisted in the same transaction.
+- **`app/scheduler/cleanup.py`** — Added `purge_old_prompt_runs()` with 14-day retention, registered as daily cleanup job.
+- **`app/agent/tools/scheduled_prompts.py`** — `schedule_prompt` tool extended with `behavior_kind`, `goal`, `skip_if_empty`, `skip_if_unchanged`, `linked_entities` parameters. `list_scheduled_prompts` now shows kind, goal, and last status. New `preview_scheduled_prompt` tool shows resolved envelope and delivery policy without firing.
+- **`app/control/api.py`** — Extended `GET /admin/scheduler` with behaviour metadata, status, and linked entities. New `GET /admin/scheduler/runs/{prompt_id}` for run history. New `POST /admin/scheduler/{prompt_id}/run-now` for immediate firing. Admin UI shows status badges (green/yellow/red), expandable detail with run history, linked entities, and "Run Now" button. SSE rendering for `proactive.*` events.
+- **`prompts/instructions.md`** — Added guidance on behaviour kinds, delivery suppression, and entity linking.
+- **`app/models/__init__.py`** — Added `ScheduledPrompt`, `ScheduledPromptRun`, `ScheduledPromptLink`, `ConversationTurn` to exports (fixing pre-existing gaps).
+- **`docs/proactive-scheduled-behaviour-design.md`** (new) — Full design document.
+
 #### Household World Model (Phase 1+2)
 
 Structured world model layer that complements episodic memory with queryable household entities. Automatically built from existing data on startup; injected as a compact `## Household Model` section into every agent system prompt.
