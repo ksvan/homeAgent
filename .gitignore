@@ -6,6 +6,7 @@ skills/*
 agents/*
 skills/
 agents/
+excl work/
 # ------------------------------------------------------------
 # Secrets — never commit these
 # The pattern .env.* catches all variants (.env.production,
@@ -72,6 +73,7 @@ logs/
 .vscode/
 *.code-workspace
 .claude/
+CLAUDE.md
 
 # ------------------------------------------------------------
 # Test / coverage
