@@ -88,7 +88,7 @@ Each incoming webhook request is assigned a `trace_id` (UUID) at the FastAPI mid
 }
 ```
 
-Current implementation returns `"healthy"` when all three DBs are reachable and `"degraded"` otherwise. It does not currently mark MCP disconnections alone as unhealthy.
+The implementation returns `"healthy"` when all three DBs are reachable **and** Homey MCP is connected. It returns `"degraded"` if any DB is unreachable or if Homey MCP is disconnected.
 
 Docker Compose healthcheck:
 
@@ -163,6 +163,23 @@ COST_ESTIMATE_GPT4O_INPUT=0.0000025
 COST_ESTIMATE_GPT4O_OUTPUT=0.00001
 COST_ESTIMATE_EMBEDDING=0.00000002
 ```
+
+---
+
+## SSE Event Types
+
+The admin dashboard receives real-time events via Server-Sent Events. Key event types:
+
+| Event type | Payload | When |
+|---|---|---|
+| `run.start` | `{user_id, household_id}` | Agent run begins |
+| `run.complete` | `{model, tokens_input, tokens_output, duration_ms}` | Agent run finishes |
+| `run.background_error` | `{task, error}` | Fire-and-forget background task failed |
+| `world.update` | `{entity_type, action, name}` | World model entity created/updated |
+| `job.scheduled` | `{job_id, trigger_time}` | Scheduler job added |
+| `memory.stored` | `{importance, source_run_id}` | Episodic memory saved |
+
+The ring buffer holds the last 150 events. Subscriber queues (maxsize=200) log a warning on overflow rather than silently dropping.
 
 ---
 

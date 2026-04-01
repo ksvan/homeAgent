@@ -2,6 +2,7 @@ services:
   tools:
     build: services/tools-mcp
     restart: unless-stopped
+    stop_grace_period: 30s
     env_file: .env
     environment:
       MCP_PORT: "9001"
@@ -9,6 +10,8 @@ services:
     volumes:
       # Isolated workspace — tools can read/write here but NOT /app/data
       - ./data/workspace:/workspace
+    mem_limit: 1g
+    cpus: 1
     healthcheck:
       test: ["CMD", "python", "-c", "import socket; s=socket.create_connection(('localhost',9001),5); s.close()"]
       interval: 30s
@@ -19,9 +22,12 @@ services:
   prometheus-mcp:
     build: services/prometheus-mcp
     restart: unless-stopped
+    stop_grace_period: 30s
     env_file: .env          # reads PROMETHEUS_URL from .env
     environment:
       MCP_PORT: "9000"
+    mem_limit: 512m
+    cpus: 0.5
     healthcheck:
       test: ["CMD", "python", "-c", "import socket; s=socket.create_connection(('localhost',9000),5); s.close()"]
       interval: 30s
@@ -32,6 +38,7 @@ services:
   homeagent:
     build: .
     restart: unless-stopped
+    stop_grace_period: 30s
     env_file: .env
     environment:
       APP_ENV: production
@@ -45,6 +52,8 @@ services:
     ports:
       - "8080:8080"   # webhook endpoint (cloudflared proxies this to the internet)
       - "9090:9090"   # admin dashboard — LAN only, not in cloudflared ingress
+    mem_limit: 2g
+    cpus: 2
     healthcheck:
       test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8080/health')"]
       interval: 30s
@@ -60,12 +69,15 @@ services:
   cloudflared:
     image: cloudflare/cloudflared:latest
     restart: unless-stopped
+    stop_grace_period: 15s
     # TUNNEL_TOKEN is read natively by cloudflared — no --token flag needed.
     # The ingress rule (domain → http://homeagent:8080) is configured in the
     # Cloudflare Zero Trust dashboard under the tunnel's Public Hostname tab.
     command: tunnel --no-autoupdate run
     environment:
       TUNNEL_TOKEN: ${CLOUDFLARE_TUNNEL_TOKEN}
+    mem_limit: 256m
+    cpus: 0.5
     depends_on:
       homeagent:
         condition: service_healthy

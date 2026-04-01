@@ -37,7 +37,11 @@ def _raw_memory_conn() -> Generator[sqlite3.Connection, None, None]:
 
 
 def _get_embedding(text: str) -> list[float] | None:
-    """Return an embedding vector for *text* via the OpenAI API, or None on failure."""
+    """Return an embedding vector for *text* via the OpenAI API, or None on failure.
+
+    This is a synchronous call — use ``_get_embedding_async`` from async code
+    to avoid blocking the event loop.
+    """
     import time
 
     global _embedding_failures, _embedding_open_until
@@ -71,6 +75,13 @@ def _get_embedding(text: str) -> list[float] | None:
         else:
             logger.warning("Embedding request failed — skipping vector indexing", exc_info=True)
         return None
+
+
+async def _get_embedding_async(text: str) -> list[float] | None:
+    """Non-blocking wrapper around ``_get_embedding`` for async callers."""
+    import asyncio
+
+    return await asyncio.to_thread(_get_embedding, text)
 
 
 def _pack_embedding(floats: list[float]) -> bytes:
@@ -163,6 +174,63 @@ def store_memory(
         return ""
 
     embedding = _get_embedding(content) if is_vec_available() else None
+
+    # Dedup: skip insert if a sufficiently similar memory already exists in scope
+    if embedding is not None:
+        duplicate = _find_duplicate(household_id, user_id, embedding)
+        if duplicate is not None:
+            with memory_session() as session:
+                record = session.exec(
+                    select(EpisodicMemory).where(EpisodicMemory.id == duplicate.id)
+                ).first()
+                if record:
+                    record.last_used_at = _now()
+                    session.add(record)
+                    session.commit()
+            logger.debug(
+                "Dedup: skipped near-duplicate memory, refreshed id=%s", duplicate.id[:8]
+            )
+            return duplicate.id
+
+    with memory_session() as session:
+        record = EpisodicMemory(
+            household_id=household_id,
+            user_id=user_id,
+            content=content,
+            source_run_id=source_run_id,
+            importance=importance,
+        )
+        session.add(record)
+        session.commit()
+        session.refresh(record)
+        memory_id = record.id
+
+    if embedding is not None:
+        _insert_into_vec(memory_id, embedding)
+
+    return memory_id
+
+
+async def async_store_memory(
+    household_id: str,
+    content: str,
+    user_id: str | None = None,
+    source_run_id: str | None = None,
+    importance: str = "normal",
+) -> str:
+    """Async variant of ``store_memory`` — offloads the embedding HTTP call
+    to a thread so it doesn't block the event loop.
+
+    Use this from async callers (background extraction, agent tools).
+    """
+    import asyncio
+
+    from app.memory.pii import contains_pii
+
+    if contains_pii(content):
+        return ""
+
+    embedding = (await asyncio.to_thread(_get_embedding, content)) if is_vec_available() else None
 
     # Dedup: skip insert if a sufficiently similar memory already exists in scope
     if embedding is not None:

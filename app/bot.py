@@ -317,6 +317,10 @@ async def handle_incoming_message(
             def _cb(fut: asyncio.Future) -> None:  # type: ignore[type-arg]
                 if not fut.cancelled() and (exc := fut.exception()):
                     logger.error("Background task %r failed: %s", label, exc, exc_info=exc)
+                    from app.control.events import emit as _emit
+                    _emit("run.background_error", {
+                        "task": label, "error": str(exc),
+                    }, run_id=run_id)
             return _cb
 
         asyncio.ensure_future(

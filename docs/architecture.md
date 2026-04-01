@@ -287,6 +287,8 @@ pending_action
 5. Run events and persistence behave like a normal conversation turn
 ```
 
+Detailed evolution proposal: [proactive-scheduled-behaviour-design.md](proactive-scheduled-behaviour-design.md)
+
 ## Data Flow: Startup
 
 ```text
@@ -419,6 +421,40 @@ The world-model admin endpoints are served from the same FastAPI app; there is n
 The service is considered degraded when one or more components are unavailable but the process is still functioning.
 
 See [observability.md](observability.md) and [graceful-degradation.md](graceful-degradation.md).
+
+---
+
+## Resilience Patterns
+
+### SQLite pragmas
+
+All database connections (`app/db.py`) apply `busy_timeout=5000` and `foreign_keys=ON` in addition to WAL mode. This prevents transient `SQLITE_BUSY` errors under concurrent webhook load and enforces referential integrity.
+
+### MCP startup retry
+
+All three MCP clients retry connection up to 3 times with 5-second backoff and a 10-second per-attempt timeout. If a service is unreachable after retries, its tools are disabled for the session rather than hanging.
+
+### Async embedding offload
+
+The `async_store_memory()` path in `app/memory/episodic.py` offloads blocking OpenAI embedding calls to a thread via `asyncio.to_thread()`, preventing event loop stalls during background memory extraction.
+
+### Background task error surfacing
+
+Fire-and-forget tasks (memory extraction, summarization, world model sync) emit `run.background_error` events on failure, visible in the admin dashboard SSE stream. Previously these failures were only logged.
+
+### Docker resource limits
+
+All containers have explicit `mem_limit`, `cpus`, and `stop_grace_period` in `docker-compose.yml` to prevent unbounded resource consumption and ensure clean shutdown.
+
+### Health check semantics
+
+`GET /health` returns `"degraded"` (not `"healthy"`) when Homey MCP is disconnected or any DB is unavailable. This enables external monitoring to detect partial outages.
+
+---
+
+## CI Pipeline
+
+Lint (`ruff check app/`) and unit tests (`pytest tests/unit/`) run on every push and PR to `main` via GitHub Actions. See [ci.md](ci.md) and [testing.md](testing.md).
 
 ---
 

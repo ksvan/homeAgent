@@ -50,13 +50,13 @@ def register_memory_tools(agent: Agent[AgentDeps, str]) -> None:
                 - "normal"    — retained for ~3 months (general observations, situational facts)
                 - "ephemeral" — retained for ~1 month (short-lived context, one-off details)
         """
-        from app.memory.episodic import store_memory as _store_memory
+        from app.memory.episodic import async_store_memory
 
         user_id = ctx.deps.user_id if scope == "personal" else None
         household_id = ctx.deps.household_id
 
         try:
-            _store_memory(
+            await async_store_memory(
                 household_id=household_id,
                 content=content,
                 user_id=user_id,

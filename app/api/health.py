@@ -39,8 +39,13 @@ async def health() -> dict[str, object]:
     tools_status = "ok" if get_tools_mcp() is not None else "disconnected"
     scheduler_status = "ok" if get_scheduler() is not None else "stopped"
 
-    all_ok = all(s == "ok" for s in (db_users, db_memory, db_cache))
-    status = "healthy" if all_ok else "degraded"
+    dbs_ok = all(s == "ok" for s in (db_users, db_memory, db_cache))
+    if not dbs_ok:
+        status = "degraded"
+    elif mcp_status == "disconnected":
+        status = "degraded"  # Homey is the primary service
+    else:
+        status = "healthy"
 
     try:
         pkg_version = version("homeagent")

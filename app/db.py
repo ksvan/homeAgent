@@ -40,6 +40,8 @@ def _make_engine(db_name: str) -> Engine:
     @event.listens_for(engine, "connect")
     def _enable_wal(dbapi_conn: sqlite3.Connection, _: object) -> None:
         dbapi_conn.execute("PRAGMA journal_mode=WAL")
+        dbapi_conn.execute("PRAGMA busy_timeout=5000")
+        dbapi_conn.execute("PRAGMA foreign_keys=ON")
 
     return engine
 

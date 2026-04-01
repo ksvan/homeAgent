@@ -111,7 +111,7 @@ async def extract_and_store_memories(
         return
 
     from app.control.events import emit
-    from app.memory.episodic import store_memory
+    from app.memory.episodic import async_store_memory
 
     stored_facts: list[str] = []
     for fact in facts:
@@ -122,7 +122,7 @@ async def extract_and_store_memories(
         if not content:
             continue
         try:
-            store_memory(
+            await async_store_memory(
                 household_id=household_id,
                 content=content,
                 source_run_id=run_id,

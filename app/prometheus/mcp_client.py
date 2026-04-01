@@ -55,25 +55,53 @@ def _create_mcp_server() -> MCPServerStreamableHTTP | None:
     )
 
 
+_MCP_CONNECT_TIMEOUT = 10  # seconds per attempt
+_MCP_MAX_RETRIES = 3
+_MCP_RETRY_BACKOFF = 5  # seconds between retries
+
+
 async def start_mcp() -> MCPServerStreamableHTTP | None:
-    """Connect to the Prometheus MCP server. Called during FastAPI lifespan startup."""
+    """Connect to the Prometheus MCP server. Called during FastAPI lifespan startup.
+
+    Retries up to 3 times with backoff.
+    """
+    import asyncio
+
     global _mcp_server
     server = _create_mcp_server()
     if server is None:
         return None
-    try:
-        await server.__aenter__()
-        await server.list_tools()  # probe: confirms the server is reachable
-        _mcp_server = server
-        logger.info("Prometheus MCP connection established (%s)", get_settings().prometheus_mcp_url)
-        return server
-    except Exception:
-        logger.warning("Prometheus MCP not reachable — metrics tools disabled")
+
+    for attempt in range(1, _MCP_MAX_RETRIES + 1):
         try:
-            await server.__aexit__(None, None, None)
-        except Exception:
-            pass
-        return None
+            await server.__aenter__()
+            await asyncio.wait_for(
+                server.list_tools(),
+                timeout=_MCP_CONNECT_TIMEOUT,
+            )
+            _mcp_server = server
+            logger.info("Prometheus MCP connection established (%s)", get_settings().prometheus_mcp_url)
+            return server
+        except (asyncio.TimeoutError, Exception) as exc:
+            try:
+                await server.__aexit__(None, None, None)
+            except Exception:
+                pass
+            if attempt < _MCP_MAX_RETRIES:
+                logger.warning(
+                    "Prometheus MCP not reachable (attempt %d/%d: %s) — retrying in %ds",
+                    attempt, _MCP_MAX_RETRIES, exc, _MCP_RETRY_BACKOFF,
+                )
+                await asyncio.sleep(_MCP_RETRY_BACKOFF)
+                server = _create_mcp_server()
+                if server is None:
+                    return None
+            else:
+                logger.warning(
+                    "Prometheus MCP not reachable after %d attempts — metrics tools disabled",
+                    _MCP_MAX_RETRIES,
+                )
+    return None
 
 
 async def stop_mcp() -> None:
