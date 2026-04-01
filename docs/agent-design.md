@@ -225,6 +225,8 @@ Scheduled prompts are distinct from reminders:
 
 This is the current low-risk mechanism for proactive behavior.
 
+Detailed evolution proposal: [proactive-scheduled-behaviour-design.md](proactive-scheduled-behaviour-design.md)
+
 ---
 
 ## Guardrails and Limitations
