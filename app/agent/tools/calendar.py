@@ -50,7 +50,12 @@ def _parse_events(ics_text: str, start: date, end: date) -> list[dict[str, Any]]
             }
         )
 
-    return sorted(events, key=lambda x: x["dt"] if isinstance(x["dt"], datetime) else datetime.combine(x["dt"], datetime.min.time(), tzinfo=timezone.utc))  # type: ignore[arg-type]
+    return sorted(  # type: ignore[arg-type]
+        events,
+        key=lambda x: x["dt"]
+        if isinstance(x["dt"], datetime)
+        else datetime.combine(x["dt"], datetime.min.time(), tzinfo=timezone.utc),
+    )
 
 
 def _format_event(ev: dict[str, Any], member_label: str | None) -> str:
@@ -118,7 +123,10 @@ def register_calendar_tools(agent: Agent[AgentDeps, str]) -> None:
                 )
             ).first()
             if existing:
-                return f"A calendar with this URL already exists: '{existing.name}' (ID: {existing.id})"
+                return (
+                    f"A calendar with this URL already exists: "
+                    f"'{existing.name}' (ID: {existing.id})"
+                )
 
             cal = Calendar(
                 household_id=ctx.deps.household_id,
@@ -205,7 +213,7 @@ def register_calendar_tools(agent: Agent[AgentDeps, str]) -> None:
             start = date.fromisoformat(start_iso)
             end = date.fromisoformat(end_iso)
         except ValueError:
-            return f"Invalid date format. Use ISO-8601, e.g. '2026-03-10'."
+            return "Invalid date format. Use ISO-8601, e.g. '2026-03-10'."
 
         if end < start:
             return "end_iso must be on or after start_iso."
@@ -242,7 +250,11 @@ def register_calendar_tools(agent: Agent[AgentDeps, str]) -> None:
             for ev in events:
                 all_events.append((ev["dt"], cal.member_name, _format_event(ev, cal.member_name)))
 
-        all_events.sort(key=lambda x: x[0] if isinstance(x[0], datetime) else datetime.combine(x[0], datetime.min.time(), tzinfo=timezone.utc))  # type: ignore[arg-type]
+        all_events.sort(  # type: ignore[arg-type]
+            key=lambda x: x[0]
+            if isinstance(x[0], datetime)
+            else datetime.combine(x[0], datetime.min.time(), tzinfo=timezone.utc),
+        )
 
         if not all_events:
             member_clause = f" for {member_name}" if member_name else ""

@@ -235,7 +235,8 @@ async def restore_scheduled_prompts() -> None:
     for sp in prompts:
         # One-shot prompts whose fire time has passed are stale — delete them.
         if sp.recurrence == "once":
-            from datetime import datetime, timezone as _tz
+            from datetime import datetime
+            from datetime import timezone as _tz
             if sp.run_at is None or sp.run_at <= datetime.now(_tz.utc):
                 with users_session() as s:
                     stale = s.get(ScheduledPrompt, sp.id)

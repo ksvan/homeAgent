@@ -28,7 +28,8 @@ class _ContextStats(SlashCommand):
     help = "Show context size breakdown for the next LLM call"
 
     async def run(self, ctx: SlashCommandContext) -> str:
-        from datetime import datetime, timezone as _utc
+        from datetime import datetime
+        from datetime import timezone as _utc
 
         from app.agent.context import assemble_context
         from app.agent.prompts import load_instructions, load_persona
@@ -187,7 +188,7 @@ class _ScheduledPrompts(SlashCommand):
     help = "List recurring scheduled prompts (or: /prompts run <id>)"
 
     async def run(self, ctx: SlashCommandContext) -> str:
-        from sqlmodel import col, select
+        from sqlmodel import select
 
         from app.db import users_session
         from app.models.scheduled_prompts import ScheduledPrompt
@@ -351,5 +352,8 @@ class _Users(SlashCommand):
 
 
 # Register all commands in display order
-for _cmd in [_Help(), _ContextStats(), _History(), _Schedule(), _ScheduledPrompts(), _Status(), _Users()]:
+for _cmd in [
+    _Help(), _ContextStats(), _History(), _Schedule(),
+    _ScheduledPrompts(), _Status(), _Users(),
+]:
     registry.register(_cmd)

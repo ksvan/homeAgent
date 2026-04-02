@@ -45,9 +45,11 @@ def register_world_model_tools(agent: Agent[AgentDeps, str]) -> None:
             details: A JSON string with type-specific fields:
                 member:   {"name": "...", "role": "member|child|guest"}
                 fact:     {"scope": "device|routine|household|member", "key": "...", "value": "..."}
-                alias:    {"entity_type": "place|device|member", "entity_name": "...", "alias": "..."}
+                alias:    {"entity_type": "place|device|member", "entity_name": "...",
+                           "alias": "..."}
                 interest: {"member_name": "...", "name": "...", "notes": ""}
-                activity: {"member_name": "...", "name": "...", "schedule": "", "notes": ""}
+                activity: {"member_name": "...", "name": "...", "schedule": "",
+                           "notes": ""}
                 goal:     {"member_name": "...", "name": "...", "notes": ""}
                 routine:  {"name": "...", "description": "...", "kind": "mode|schedule|procedure"}
         """
@@ -125,7 +127,15 @@ def register_world_model_tools(agent: Agent[AgentDeps, str]) -> None:
             ok = repo.add_alias(household_id, internal_type, entity.id, alias)
             if not ok:
                 return f"Alias '{alias}' already exists for {entity.name}."
-            emit("world.update", {"entity_type": etype, "action": "alias_added", "name": entity.name, "alias": alias})
+            emit(
+                "world.update",
+                {
+                    "entity_type": etype,
+                    "action": "alias_added",
+                    "name": entity.name,
+                    "alias": alias,
+                },
+            )
             logger.info("World model alias added: %s '%s' -> '%s'", etype, entity.name, alias)
             return f"Added alias '{alias}' for {etype} '{entity.name}'."
 
@@ -141,7 +151,15 @@ def register_world_model_tools(agent: Agent[AgentDeps, str]) -> None:
                 household_id, member_id=member.id, name=name,
                 notes=d.get("notes", ""), source="user_explicit",
             )
-            emit("world.update", {"entity_type": "interest", "action": "upsert", "member": member.name, "name": name})
+            emit(
+                "world.update",
+                {
+                    "entity_type": "interest",
+                    "action": "upsert",
+                    "member": member.name,
+                    "name": name,
+                },
+            )
             logger.info("World model interest upserted: %s -> %s", member.name, name)
             return f"Stored interest '{name}' for {member.name}."
 
@@ -158,7 +176,15 @@ def register_world_model_tools(agent: Agent[AgentDeps, str]) -> None:
                 schedule_hint=d.get("schedule", ""), notes=d.get("notes", ""),
                 source="user_explicit",
             )
-            emit("world.update", {"entity_type": "activity", "action": "upsert", "member": member.name, "name": name})
+            emit(
+                "world.update",
+                {
+                    "entity_type": "activity",
+                    "action": "upsert",
+                    "member": member.name,
+                    "name": name,
+                },
+            )
             logger.info("World model activity upserted: %s -> %s", member.name, name)
             return f"Stored activity '{name}' for {member.name}."
 
@@ -174,7 +200,15 @@ def register_world_model_tools(agent: Agent[AgentDeps, str]) -> None:
                 household_id, member_id=member.id, name=name,
                 notes=d.get("notes", ""), source="user_explicit",
             )
-            emit("world.update", {"entity_type": "goal", "action": "upsert", "member": member.name, "name": name})
+            emit(
+                "world.update",
+                {
+                    "entity_type": "goal",
+                    "action": "upsert",
+                    "member": member.name,
+                    "name": name,
+                },
+            )
             logger.info("World model goal upserted: %s -> %s", member.name, name)
             return f"Stored goal '{name}' for {member.name}."
 
@@ -192,7 +226,10 @@ def register_world_model_tools(agent: Agent[AgentDeps, str]) -> None:
             logger.info("World model routine upserted: %s", name)
             return f"Stored routine '{name}'."
 
-        return f"Unknown update_type '{update_type}'. Use: member, fact, alias, interest, activity, goal, routine."
+        return (
+            f"Unknown update_type '{update_type}'. "
+            "Use: member, fact, alias, interest, activity, goal, routine."
+        )
 
     @agent.tool
     async def remove_world_model_entry(
@@ -212,7 +249,8 @@ def register_world_model_tools(agent: Agent[AgentDeps, str]) -> None:
             entry_type: One of "fact", "alias", "interest", "activity", "goal".
             identifier: A JSON string identifying what to remove:
                 fact:     {"scope": "...", "key": "..."}
-                alias:    {"entity_type": "place|device|member", "entity_name": "...", "alias": "..."}
+                alias:    {"entity_type": "place|device|member",
+                           "entity_name": "...", "alias": "..."}
                 interest: {"member_name": "...", "name": "..."}
                 activity: {"member_name": "...", "name": "..."}
                 goal:     {"member_name": "...", "name": "..."}
@@ -265,7 +303,13 @@ def register_world_model_tools(agent: Agent[AgentDeps, str]) -> None:
                 return f"Could not find {etype} named '{ename}'."
             ok = repo.remove_alias(household_id, internal_type, entity.id, alias)
             if ok:
-                emit("world.update", {"entity_type": etype, "action": "alias_removed", "name": entity.name, "alias": alias})
+                emit(
+                    "world.update",
+                    {
+                        "entity_type": etype, "action": "alias_removed",
+                        "name": entity.name, "alias": alias,
+                    },
+                )
                 return f"Removed alias '{alias}' from {etype} '{entity.name}'."
             return f"Alias '{alias}' not found on {entity.name}."
 
@@ -284,7 +328,13 @@ def register_world_model_tools(agent: Agent[AgentDeps, str]) -> None:
             }[entry_type]
             ok = deleter(member.id, name)
             if ok:
-                emit("world.update", {"entity_type": entry_type, "action": "delete", "member": member.name, "name": name})
+                emit(
+                    "world.update",
+                    {
+                        "entity_type": entry_type, "action": "delete",
+                        "member": member.name, "name": name,
+                    },
+                )
                 return f"Removed {entry_type} '{name}' from {member.name}."
             return f"{entry_type.title()} '{name}' not found for {member.name}."
 
@@ -411,4 +461,7 @@ def register_world_model_tools(agent: Agent[AgentDeps, str]) -> None:
                 lines.append(f"- {c.name}{cat}{owner}")
             return "Calendars:\n" + "\n".join(lines) if lines else "No calendars."
 
-        return f"Unknown entity_type '{entity_type}'. Use: all, members, places, devices, routines, facts, calendars."
+        return (
+            f"Unknown entity_type '{entity_type}'."
+            " Use: all, members, places, devices, routines, facts, calendars."
+        )

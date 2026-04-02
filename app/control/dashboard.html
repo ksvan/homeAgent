@@ -1,0 +1,1075 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>HomeAgent — Admin</title>
+<style>
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+:root {
+  --bg: #0d1117; --surface: #161b22; --border: #30363d;
+  --text: #c9d1d9; --dim: #adbac7; --accent: #7c5cfc;
+  --green: #3fb950; --blue: #58a6ff; --red: #f85149; --yellow: #d29922;
+}
+body { background: var(--bg); color: var(--text); font-family: ui-monospace, 'SF Mono', Menlo, monospace; font-size: 13px; line-height: 1.5; height: 100vh; display: flex; flex-direction: column; overflow: hidden; }
+
+/* Header */
+header { background: var(--surface); border-bottom: 1px solid var(--border); padding: 10px 20px; display: flex; align-items: center; gap: 12px; flex-shrink: 0; }
+.logo { color: var(--accent); font-weight: 700; font-size: 14px; letter-spacing: 0.04em; }
+.pulse { width: 7px; height: 7px; border-radius: 50%; background: var(--green); box-shadow: 0 0 0 0 rgba(63,185,80,.4); animation: pulse 2s infinite; }
+.pulse.off { background: var(--red); box-shadow: none; animation: none; }
+@keyframes pulse { 0%,100%{box-shadow:0 0 0 0 rgba(63,185,80,.4)} 50%{box-shadow:0 0 0 5px rgba(63,185,80,0)} }
+#conn-label { font-size: 11px; color: var(--dim); }
+#conn-label.ok { color: var(--green); }
+#conn-label.err { color: var(--red); }
+.hdr-right { margin-left: auto; display: flex; gap: 20px; align-items: center; }
+.hdr-stat { font-size: 11px; color: var(--dim); }
+.hdr-stat span { color: var(--text); }
+
+/* Layout */
+.layout { display: grid; grid-template-columns: 300px 1fr; flex: 1; min-height: 0; gap: 1px; background: var(--border); }
+
+/* Sidebar */
+.sidebar { background: var(--bg); overflow-y: auto; padding: 14px 12px; display: flex; flex-direction: column; gap: 10px; }
+.card { background: var(--surface); border: 1px solid var(--border); border-radius: 6px; padding: 12px 14px; }
+.card-title { font-size: 10px; text-transform: uppercase; letter-spacing: 0.1em; color: var(--dim); margin-bottom: 10px; }
+.stat-row { display: flex; justify-content: space-between; padding: 2px 0; }
+.stat-l { color: var(--dim); }
+.stat-v { color: var(--text); font-weight: 500; }
+.stat-v.hi { color: var(--accent); }
+.bar-row { display: flex; align-items: center; gap: 8px; margin: 3px 0; }
+.bar-name { color: var(--dim); width: 130px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; flex-shrink: 0; }
+.bar-track { flex: 1; height: 3px; background: var(--border); border-radius: 2px; overflow: hidden; }
+.bar-fill { height: 100%; background: var(--accent); border-radius: 2px; transition: width .4s ease; }
+.bar-count { color: var(--dim); width: 26px; text-align: right; font-size: 11px; }
+
+/* Stream */
+.stream { background: var(--bg); display: flex; flex-direction: column; min-height: 0; }
+.stream-header { padding: 9px 16px; border-bottom: 1px solid var(--border); display: flex; align-items: center; gap: 10px; background: var(--surface); flex-shrink: 0; }
+.stream-header-label { font-size: 10px; text-transform: uppercase; letter-spacing: 0.1em; color: var(--dim); }
+.btn { background: var(--border); border: none; color: var(--dim); padding: 3px 10px; border-radius: 4px; cursor: pointer; font-size: 11px; font-family: inherit; }
+.btn:hover { color: var(--text); }
+.btn.on { background: #1c2a3a; color: var(--blue); }
+.stream-body { flex: 1; overflow-y: auto; padding: 4px 0; }
+
+/* Events */
+.ev { display: flex; gap: 10px; padding: 5px 16px; align-items: baseline; border-bottom: 1px solid #161b22; }
+.ev:hover { background: var(--surface); }
+.ev-time { color: var(--dim); width: 54px; flex-shrink: 0; font-size: 11px; }
+.badge { flex-shrink: 0; padding: 1px 7px; border-radius: 3px; font-size: 10px; font-weight: 700; letter-spacing: 0.06em; }
+.b-start  { background: #0d2137; color: var(--blue); }
+.b-tool   { background: #0d2614; color: var(--green); }
+.b-done   { background: #1a1240; color: #a78bfa; }
+.b-error  { background: #2d0f0f; color: var(--red); }
+.b-sched  { background: #2b1f00; color: var(--yellow); }
+.b-mem    { background: #0d2424; color: #2dd4bf; }
+.b-cmd    { background: #1f1430; color: #c084fc; }
+.ev-body { flex: 1; color: var(--text); overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+.ev-body .d { color: var(--dim); }
+.ev-body .err { color: var(--red); }
+.run-tag { font-size: 10px; color: var(--dim); margin-left: 6px; }
+
+/* Tab bar */
+.tab-bar { display: flex; gap: 0; padding: 0 20px; border-bottom: 1px solid var(--border); background: var(--surface); flex-shrink: 0; }
+.tab { background: none; border: none; border-bottom: 2px solid transparent; color: var(--dim); padding: 8px 16px; cursor: pointer; font-size: 12px; font-family: inherit; }
+.tab.active { color: var(--text); border-bottom-color: var(--accent); }
+.tab:hover:not(.active) { color: var(--text); }
+
+/* Tab panels */
+.tab-panel { display: none; flex: 1; min-height: 0; flex-direction: column; }
+.tab-panel.active { display: flex; }
+
+/* Details tab */
+.details-body { flex: 1; overflow-y: auto; }
+.details-toolbar { padding: 12px 20px; display: flex; align-items: center; gap: 12px; border-bottom: 1px solid var(--border); flex-shrink: 0; }
+.details-btn { background: var(--surface); border: 1px solid var(--border); color: var(--text); padding: 4px 12px; border-radius: 5px; cursor: pointer; font-size: 12px; font-family: inherit; }
+.details-btn:hover { border-color: var(--accent); }
+.details-section { padding: 0 20px 24px; }
+.details-section h3 { font-size: 10px; color: var(--dim); margin: 20px 0 10px; text-transform: uppercase; letter-spacing: 0.1em; }
+.profiles-row { display: grid; grid-template-columns: 1fr 1fr; }
+.mem-table { width: 100%; border-collapse: collapse; font-size: 13px; }
+.mem-table th { text-align: left; color: var(--dim); font-weight: normal; padding: 5px 10px; border-bottom: 1px solid var(--border); font-size: 10px; text-transform: uppercase; letter-spacing: 0.05em; }
+.mem-table td { padding: 8px 10px; border-bottom: 1px solid var(--border); vertical-align: top; line-height: 1.4; }
+.mem-table tr:last-child td { border-bottom: none; }
+.scope-tag { color: var(--dim); font-size: 11px; white-space: nowrap; }
+.wm-del { background:none;border:none;color:#e55;cursor:pointer;font-size:14px;padding:0 4px;opacity:0.5; }
+.wm-del:hover { opacity:1; }
+.wm-add-link { color:var(--accent);cursor:pointer;font-size:11px;margin-left:6px;text-decoration:none; }
+.wm-add-link:hover { text-decoration:underline; }
+.proposal-card { background:var(--surface);border:1px solid var(--border);border-radius:6px;padding:10px 12px;margin-bottom:8px;font-size:12px; }
+.proposal-card .pc-head { display:flex;align-items:center;gap:8px;margin-bottom:4px; }
+.proposal-card .pc-type { background:var(--accent);color:#fff;padding:1px 6px;border-radius:3px;font-size:10px;font-weight:600;text-transform:uppercase; }
+.proposal-card .pc-conf { color:var(--dim);font-size:10px; }
+.proposal-card .pc-reason { color:var(--text);margin-bottom:6px; }
+.proposal-card .pc-payload { color:var(--dim);font-size:11px;font-family:monospace;word-break:break-all; }
+.proposal-card .pc-actions { margin-top:6px;display:flex;gap:6px; }
+.proposal-card .pc-actions button { border:none;padding:3px 10px;border-radius:4px;cursor:pointer;font-size:11px; }
+.pc-accept { background:#238636;color:#fff; }
+.pc-accept:hover { background:#2ea043; }
+.pc-reject { background:#da3633;color:#fff; }
+.pc-reject:hover { background:#e5534b; }
+.time-tag { color: var(--dim); font-size: 11px; white-space: nowrap; }
+.profile-kv { display: grid; grid-template-columns: auto 1fr; gap: 4px 14px; font-size: 13px; padding: 4px 0; }
+.profile-key { color: var(--dim); }
+.summary-block { font-size: 13px; line-height: 1.5; padding: 8px 12px; background: var(--surface); border: 1px solid var(--border); border-radius: 6px; margin-bottom: 10px; }
+.summary-user { color: var(--dim); font-size: 11px; margin-bottom: 6px; }
+</style>
+</head>
+<body>
+
+<header>
+  <div class="pulse" id="pulse"></div>
+  <span class="logo">HomeAgent</span>
+  <span id="conn-label">connecting…</span>
+  <div class="hdr-right">
+    <span class="hdr-stat" id="hdr-cpu"><span id="v-cpu">—</span> CPU</span>
+    <span class="hdr-stat" id="hdr-mem"><span id="v-mem">—</span> MB</span>
+    <span class="hdr-stat">uptime <span id="v-uptime">—</span></span>
+  </div>
+</header>
+
+<div class="tab-bar">
+  <button class="tab active" data-tab="live">Live</button>
+  <button class="tab" data-tab="details">Details</button>
+  <button class="tab" data-tab="scheduler">Scheduler</button>
+  <button class="tab" data-tab="world">World Model</button>
+  <button class="tab" data-tab="tasks">Tasks</button>
+</div>
+
+<div id="tab-live" class="tab-panel active">
+<div class="layout">
+  <div class="sidebar">
+    <div class="card">
+      <div class="card-title">Runs (last 500)</div>
+      <div class="stat-row"><span class="stat-l">Total</span><span class="stat-v hi" id="s-total">—</span></div>
+      <div class="stat-row"><span class="stat-l">Avg duration</span><span class="stat-v" id="s-avg">—</span></div>
+      <div class="stat-row"><span class="stat-l">Input tokens</span><span class="stat-v" id="s-tin">—</span></div>
+      <div class="stat-row"><span class="stat-l">Output tokens</span><span class="stat-v" id="s-tout">—</span></div>
+    </div>
+    <div class="card">
+      <div class="card-title">Memory</div>
+      <div class="stat-row"><span class="stat-l">Episodic total</span><span class="stat-v hi" id="m-total">—</span></div>
+      <div class="stat-row"><span class="stat-l">Auto-extracted</span><span class="stat-v" id="m-auto">—</span></div>
+      <div class="stat-row"><span class="stat-l">Manual</span><span class="stat-v" id="m-manual">—</span></div>
+      <div class="stat-row"><span class="stat-l">Conv. messages</span><span class="stat-v" id="m-msgs">—</span></div>
+      <div class="stat-row"><span class="stat-l">Summaries</span><span class="stat-v" id="m-sums">—</span></div>
+    </div>
+    <div class="card">
+      <div class="card-title">Models</div>
+      <div id="models-list"></div>
+    </div>
+    <div class="card">
+      <div class="card-title">Tool Usage</div>
+      <div id="tools-list"><span style="color:var(--dim);font-size:11px">No data yet</span></div>
+    </div>
+  </div>
+
+  <div class="stream">
+    <div class="stream-header">
+      <span class="stream-header-label">Live Activity</span>
+      <button class="btn on" id="scroll-btn" onclick="toggleScroll()">Auto-scroll</button>
+      <button class="btn" onclick="clearFeed()">Clear</button>
+      <span style="margin-left:auto;font-size:11px;color:var(--dim)" id="ev-count">0 events</span>
+    </div>
+    <div class="stream-body" id="feed"></div>
+  </div>
+</div>
+</div>
+
+<div id="tab-details" class="tab-panel">
+  <div class="details-body">
+    <div class="details-toolbar">
+      <button class="details-btn" id="refresh-memory">↺ Refresh</button>
+      <span id="memory-updated" style="font-size:11px;color:var(--dim)"></span>
+    </div>
+    <section class="details-section">
+      <h3>Episodic Memories <span id="mem-count" style="font-size:10px;color:var(--dim)"></span></h3>
+      <table class="mem-table">
+        <thead><tr><th style="width:90px">Scope</th><th>Memory</th><th style="width:72px">Tier</th><th style="width:72px">Last used</th><th style="width:72px">Stored</th></tr></thead>
+        <tbody id="mem-tbody"></tbody>
+      </table>
+    </section>
+    <div class="profiles-row">
+      <section class="details-section">
+        <h3>User Profiles</h3>
+        <div id="user-profiles"><span style="color:var(--dim)">—</span></div>
+      </section>
+      <section class="details-section">
+        <h3>Household Profile</h3>
+        <div id="household-profile"><span style="color:var(--dim)">—</span></div>
+      </section>
+    </div>
+    <section class="details-section">
+      <h3>Conversation Summaries</h3>
+      <div id="conv-summaries"><span style="color:var(--dim)">—</span></div>
+    </section>
+  </div>
+</div>
+
+<div id="tab-scheduler" class="tab-panel">
+  <div class="details-body">
+    <div class="details-toolbar">
+      <button class="details-btn" id="refresh-scheduler">&#8635; Refresh</button>
+    </div>
+    <section class="details-section">
+      <h3>Reminders</h3>
+      <table class="mem-table">
+        <thead><tr><th>Due</th><th>Text</th><th style="width:80px">User</th><th style="width:72px">ID</th></tr></thead>
+        <tbody id="sched-reminders"><tr><td colspan="4" style="color:var(--dim);padding:12px 10px">—</td></tr></tbody>
+      </table>
+    </section>
+    <section class="details-section">
+      <h3>Device Actions</h3>
+      <table class="mem-table">
+        <thead><tr><th>Due</th><th>Description</th><th>Tool</th><th style="width:80px">User</th><th style="width:72px">ID</th></tr></thead>
+        <tbody id="sched-actions"><tr><td colspan="5" style="color:var(--dim);padding:12px 10px">—</td></tr></tbody>
+      </table>
+    </section>
+    <section class="details-section">
+      <h3>Scheduled Prompts</h3>
+      <table class="mem-table">
+        <thead><tr><th style="width:160px">Name</th><th style="width:100px">Kind</th><th style="width:140px">Schedule</th><th style="width:60px">Status</th><th style="width:110px">Last Fired</th><th style="width:72px">ID</th></tr></thead>
+        <tbody id="sched-prompts"><tr><td colspan="6" style="color:var(--dim);padding:12px 10px">—</td></tr></tbody>
+      </table>
+      <div id="sched-prompt-detail" style="display:none;margin-top:8px;padding:10px 12px;background:var(--card);border:1px solid var(--border);border-radius:6px">
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px">
+          <strong id="spd-name"></strong>
+          <div>
+            <button class="details-btn" style="font-size:11px" id="spd-run-now">Run Now</button>
+            <button class="details-btn" style="font-size:11px" id="spd-close">Close</button>
+          </div>
+        </div>
+        <div style="font-size:12px;color:var(--dim);margin-bottom:6px">
+          <span id="spd-goal"></span>
+          <span id="spd-links"></span>
+        </div>
+        <div id="spd-preview" style="font-size:12px;color:var(--dim);margin-bottom:8px;white-space:pre-wrap;max-height:80px;overflow:auto"></div>
+        <h4 style="margin:0 0 4px;font-size:12px">Run History</h4>
+        <table class="mem-table" style="font-size:11px">
+          <thead><tr><th>Fired</th><th>Status</th><th>Reason</th><th>Preview</th></tr></thead>
+          <tbody id="spd-runs"><tr><td colspan="4" style="color:var(--dim);padding:6px">Loading…</td></tr></tbody>
+        </table>
+      </div>
+    </section>
+  </div>
+</div>
+
+<div id="tab-world" class="tab-panel">
+  <div class="details-body">
+    <div class="details-toolbar">
+      <button class="details-btn" id="refresh-world">&#8635; Refresh</button>
+      <span id="world-updated" style="font-size:11px;color:var(--dim)"></span>
+    </div>
+    <section class="details-section" id="proposals-section" style="display:none">
+      <h3>Pending Proposals <span id="wm-proposal-count" class="scope-tag" style="font-size:10px"></span></h3>
+      <div id="wm-proposals"></div>
+      <div style="margin-top:6px">
+        <button id="accept-all-confident" class="details-btn" style="font-size:11px" onclick="wmBulkAcceptConfident()">Accept all high-confidence</button>
+      </div>
+    </section>
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:0 24px">
+      <section class="details-section">
+        <h3>Members <span id="wm-member-count" style="font-size:10px;color:var(--dim)"></span></h3>
+        <div id="wm-members"><span style="color:var(--dim)">—</span></div>
+        <div style="margin-top:4px"><a class="wm-add-link" onclick="wmAddMember()">+ member</a></div>
+      </section>
+      <section class="details-section">
+        <h3>Places</h3>
+        <div id="wm-places"><span style="color:var(--dim)">—</span></div>
+      </section>
+    </div>
+    <section class="details-section">
+      <h3>Devices <span id="wm-device-count" style="font-size:10px;color:var(--dim)"></span></h3>
+      <table class="mem-table">
+        <thead><tr><th>Name</th><th>Type</th><th>Place</th><th style="width:80px">Controllable</th></tr></thead>
+        <tbody id="wm-devices"><tr><td colspan="4" style="color:var(--dim);padding:12px 10px">—</td></tr></tbody>
+      </table>
+    </section>
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:0 24px">
+      <section class="details-section">
+        <h3>Calendars</h3>
+        <table class="mem-table">
+          <thead><tr><th>Name</th><th>Category</th><th>Owner</th></tr></thead>
+          <tbody id="wm-calendars"><tr><td colspan="3" style="color:var(--dim);padding:12px 10px">—</td></tr></tbody>
+        </table>
+      </section>
+      <section class="details-section">
+        <h3>Routines</h3>
+        <table class="mem-table">
+          <thead><tr><th>Name</th><th>Description</th><th>Kind</th><th style="width:36px"></th></tr></thead>
+          <tbody id="wm-routines"><tr><td colspan="4" style="color:var(--dim);padding:12px 10px">—</td></tr></tbody>
+          <tfoot><tr>
+            <td><input id="wm-add-routine-name" placeholder="name" style="width:100%;background:var(--bg);color:var(--fg);border:1px solid var(--border);padding:2px 4px;font-size:12px"></td>
+            <td><input id="wm-add-routine-desc" placeholder="description" style="width:100%;background:var(--bg);color:var(--fg);border:1px solid var(--border);padding:2px 4px;font-size:12px"></td>
+            <td><input id="wm-add-routine-kind" placeholder="kind" style="width:100%;background:var(--bg);color:var(--fg);border:1px solid var(--border);padding:2px 4px;font-size:12px"></td>
+            <td><button onclick="wmAddRoutine()" style="background:none;border:none;color:var(--accent);cursor:pointer;font-size:14px" title="Add routine">+</button></td>
+          </tr></tfoot>
+        </table>
+      </section>
+    </div>
+    <section class="details-section">
+      <h3>Facts</h3>
+      <table class="mem-table">
+        <thead><tr><th style="width:120px">Scope</th><th style="width:200px">Key</th><th>Value</th><th style="width:100px">Source</th><th style="width:36px"></th></tr></thead>
+        <tbody id="wm-facts"><tr><td colspan="5" style="color:var(--dim);padding:12px 10px">—</td></tr></tbody>
+        <tfoot><tr>
+          <td><input id="wm-add-fact-scope" placeholder="scope" value="household" style="width:100%;background:var(--bg);color:var(--fg);border:1px solid var(--border);padding:2px 4px;font-size:12px"></td>
+          <td><input id="wm-add-fact-key" placeholder="key" style="width:100%;background:var(--bg);color:var(--fg);border:1px solid var(--border);padding:2px 4px;font-size:12px"></td>
+          <td><input id="wm-add-fact-value" placeholder="value" style="width:100%;background:var(--bg);color:var(--fg);border:1px solid var(--border);padding:2px 4px;font-size:12px"></td>
+          <td></td>
+          <td><button onclick="wmAddFact()" style="background:none;border:none;color:var(--accent);cursor:pointer;font-size:14px" title="Add fact">+</button></td>
+        </tr></tfoot>
+      </table>
+    </section>
+  </div>
+</div>
+
+<div id="tab-tasks" class="tab-panel">
+  <div class="details-body">
+    <div class="details-toolbar">
+      <button class="details-btn" id="refresh-tasks">&#8635; Refresh</button>
+      <span id="tasks-updated" style="font-size:11px;color:var(--dim)"></span>
+    </div>
+    <section class="details-section">
+      <h3>Active Tasks <span id="tasks-active-count" style="font-size:10px;color:var(--dim)"></span></h3>
+      <table class="mem-table">
+        <thead><tr><th>Title</th><th style="width:70px">Kind</th><th style="width:90px">Status</th><th>Summary</th><th style="width:80px">User</th><th style="width:130px">Updated</th><th style="width:80px"></th></tr></thead>
+        <tbody id="tasks-table-body"><tr><td colspan="7" style="color:var(--dim);padding:12px 10px">Loading...</td></tr></tbody>
+      </table>
+    </section>
+    <section class="details-section" id="task-detail-section" style="display:none">
+      <h3>Task Detail</h3>
+      <div id="task-detail-content"></div>
+    </section>
+  </div>
+</div>
+
+<script>
+// Token management: strip ?token= from the address bar on first load so it
+// never enters browser history or bookmarks. Store in sessionStorage and use
+// Bearer header for all fetch() calls. EventSource still uses ?token= since
+// browsers cannot send custom headers for SSE connections.
+(function() {
+  const params = new URLSearchParams(window.location.search);
+  const urlToken = params.get('token');
+  if (urlToken) {
+    sessionStorage.setItem('admin_token', urlToken);
+    params.delete('token');
+    const clean = window.location.pathname + (params.toString() ? '?' + params.toString() : '');
+    history.replaceState(null, '', clean);
+  }
+})();
+const _tok = sessionStorage.getItem('admin_token') || '';
+const _authHeaders = _tok ? {'Authorization': 'Bearer ' + _tok} : {};
+const _authQ = _tok ? '?token=' + encodeURIComponent(_tok) : '';  // SSE only
+
+let autoScroll = true;
+let evCount = 0;
+const MAX_EVENTS = 300;
+
+function toggleScroll() {
+  autoScroll = !autoScroll;
+  const btn = document.getElementById('scroll-btn');
+  btn.classList.toggle('on', autoScroll);
+  btn.textContent = autoScroll ? 'Auto-scroll' : 'Paused';
+}
+
+function clearFeed() {
+  document.getElementById('feed').innerHTML = '';
+  evCount = 0;
+  updateCount();
+}
+
+function updateCount() {
+  document.getElementById('ev-count').textContent = evCount + ' events';
+}
+
+function fmtTime(ts) {
+  return new Date(ts).toLocaleTimeString('en-GB', {hour:'2-digit',minute:'2-digit',second:'2-digit'});
+}
+
+function fmtUptime(s) {
+  const h = Math.floor(s / 3600), m = Math.floor((s % 3600) / 60);
+  return h > 0 ? h + 'h ' + m + 'm' : m + 'm';
+}
+
+function addEvent(type, data) {
+  const feed = document.getElementById('feed');
+  const el = document.createElement('div');
+  el.className = 'ev';
+
+  const badges = {
+    'run.start':    ['b-start','START'],
+    'run.tool_call':['b-tool','TOOL'],
+    'run.complete': ['b-done','DONE'],
+    'run.error':    ['b-error','ERR'],
+    'job.fire':     ['b-sched','SCHED'],
+    'job.complete': ['b-sched','SCHED'],
+    'job.error':    ['b-error','SCHED'],
+    'mem.extract':  ['b-mem','MEM'],
+    'mem.summarize':['b-mem','MEM'],
+    'world.update': ['b-mem','WORLD'],
+    'world.proposal':['b-mem','WORLD'],
+    'task.create':  ['b-sched','TASK'],
+    'task.update':  ['b-sched','TASK'],
+    'task.await_input':['b-sched','TASK'],
+    'task.complete':['b-done','TASK'],
+    'task.cancel':  ['b-error','TASK'],
+    'task.link':    ['b-sched','TASK'],
+    'task.schedule_resume':['b-sched','TASK'],
+    'proactive.fire':    ['b-sched','PROACTIVE'],
+    'proactive.deliver': ['b-done','PROACTIVE'],
+    'proactive.skip':    ['b-mem','PROACTIVE'],
+    'proactive.fail':    ['b-error','PROACTIVE'],
+    'cmd.dispatch': ['b-cmd','CMD'],
+  };
+  const [cls, label] = badges[type] || ['b-start', type];
+
+  let body = '';
+  if (type === 'run.start') {
+    const ctx = data.ctx_tokens ? ' · <span title="' + (data.ctx_chars || 0).toLocaleString() + ' chars · ' + (data.msg_count || 0) + ' msgs">~' + fmtK(data.ctx_tokens) + ' ctx</span>' : '';
+    body = '<strong>' + (data.user_name || 'user') + '</strong> <span class="d">→ ' + shortModel(data.model || '') + ctx + '</span>';
+  } else if (type === 'run.tool_call') {
+    const dur = data.duration_ms ? ' <span class="d">' + data.duration_ms + 'ms</span>' : '';
+    const errPart = data.success === false ? ' <span class="err">' + (data.error || 'failed') + '</span>' : '';
+    body = '<strong>' + (data.tool || '?') + '</strong>' + dur + errPart;
+  } else if (type === 'run.complete') {
+    const tok = (data.input_tokens || 0) + (data.output_tokens || 0);
+    const tokStr = tok ? ' · ' + tok + ' tok' : '';
+    const toolNames = Array.isArray(data.tools) && data.tools.length
+      ? data.tools.join(', ')
+      : (data.tool_count === 0 ? 'no tools' : '');
+    body = '<strong>' + toolNames + '</strong> <span class="d">' + (data.duration_ms || 0) + 'ms' + tokStr + '</span>';
+  } else if (type === 'run.error') {
+    body = '<span class="err">' + (data.error || 'unknown error') + '</span>';
+  } else if (type === 'job.fire') {
+    const desc = data.job === 'reminder' ? (data.text || '') : (data.tool || '') + (data.description ? ' · ' + data.description : '');
+    body = '<span class="d">firing</span> <strong>' + (data.job || '?') + '</strong>' + (desc ? ' <span class="d">· ' + desc + '</span>' : '');
+  } else if (type === 'job.complete') {
+    const dur = data.duration_ms ? ' <span class="d">' + data.duration_ms + 'ms</span>' : '';
+    const desc = data.job === 'reminder' ? (data.text || '') : (data.tool || '');
+    body = '<strong>' + (data.job || '?') + '</strong> <span class="d">done</span>' + (desc ? ' · ' + desc : '') + dur;
+  } else if (type === 'job.error') {
+    const desc = data.description || data.tool || '';
+    body = '<strong>' + (data.job || '?') + '</strong> <span class="err">failed</span>' + (desc ? ' · ' + desc : '');
+  } else if (type === 'mem.extract') {
+    const facts = Array.isArray(data.facts) ? data.facts : [];
+    const lines = facts.map(f => '<span class="d">· </span>' + f).join(' ');
+    body = '<strong>stored ' + facts.length + ' fact' + (facts.length !== 1 ? 's' : '') + '</strong>'
+      + (lines ? ' <span class="d">— ' + lines + '</span>' : '');
+  } else if (type === 'mem.summarize') {
+    const n = data.messages_compressed || 0;
+    const snippet = data.summary ? data.summary.slice(0, 120) + (data.summary.length > 120 ? '…' : '') : '';
+    body = '<strong>compressed ' + n + ' msgs</strong>'
+      + (snippet ? ' <span class="d">— ' + snippet + '</span>' : '');
+  } else if (type === 'world.update') {
+    body = '<strong>' + (data.action || 'update') + '</strong>'
+      + (data.entity_type ? ' <span class="d">' + data.entity_type + '</span>' : '');
+  } else if (type === 'world.proposal') {
+    const st = data.status === 'auto_applied' ? '<span style="color:var(--green)">auto-applied</span>' : '<span class="d">pending</span>';
+    body = '<strong>' + (data.type || 'proposal') + '</strong> ' + st
+      + ' <span class="d">' + Math.round((data.confidence || 0) * 100) + '% — ' + (data.reason || '') + '</span>';
+    loadProposals();
+  } else if (type.startsWith('task.')) {
+    const action = type.split('.')[1] || '';
+    const title = data.title || data.summary || data.prompt_hint || data.reason || '';
+    body = '<strong>' + action + '</strong>'
+      + (title ? ' <span class="d">— ' + title.slice(0, 100) + '</span>' : '');
+    loadTasks();
+  } else if (type.startsWith('proactive.')) {
+    const action = type.split('.')[1] || '';
+    const pName = data.name || '';
+    const kind = data.behavior_kind ? ' <span class="d">[' + data.behavior_kind + ']</span>' : '';
+    const reason = data.reason ? ' <span class="d">— ' + data.reason + '</span>' : '';
+    const dur = data.duration_ms ? ' <span class="d">' + data.duration_ms + 'ms</span>' : '';
+    body = '<strong>' + action + '</strong> ' + pName + kind + reason + dur;
+    loadScheduler();
+  } else if (type === 'cmd.dispatch') {
+    const dur = data.duration_ms ? ' <span class="d">' + data.duration_ms + 'ms</span>' : '';
+    const who = data.user_id ? ' <span class="d">by ' + data.user_id.slice(0, 8) + '</span>' : '';
+    const status = data.success === false ? ' <span class="err">failed</span>' : '';
+    body = '<strong>/' + (data.command || '?') + '</strong>' + who + dur + status;
+  }
+
+  const runTag = data.run_id ? '<span class="run-tag">' + data.run_id.slice(0,8) + '</span>' : '';
+  el.innerHTML =
+    '<span class="ev-time">' + fmtTime(data.ts || new Date().toISOString()) + '</span>' +
+    '<span class="badge ' + cls + '">' + label + '</span>' +
+    '<span class="ev-body">' + body + runTag + '</span>';
+
+  feed.appendChild(el);
+  evCount++;
+  updateCount();
+
+  while (feed.children.length > MAX_EVENTS) feed.removeChild(feed.firstChild);
+  if (autoScroll) feed.scrollTop = feed.scrollHeight;
+}
+
+function shortModel(m) {
+  const parts = m.split('-');
+  return parts.length > 3 ? parts.slice(-3).join('-') : m;
+}
+
+function fmtK(n) {
+  return n >= 1000 ? (n / 1000).toFixed(1) + 'k' : String(n);
+}
+
+// Stats
+async function fetchStats() {
+  try {
+    const r = await fetch('/admin/stats', {headers: _authHeaders});
+    if (!r.ok) return;
+    const d = await r.json();
+    document.getElementById('v-cpu').textContent = d.system.cpu_percent + '%';
+    document.getElementById('v-mem').textContent = d.system.memory_mb;
+    document.getElementById('v-uptime').textContent = fmtUptime(d.system.uptime_seconds);
+    document.getElementById('s-total').textContent = d.runs.total;
+    document.getElementById('s-avg').textContent = d.runs.avg_duration_ms + ' ms';
+    document.getElementById('s-tin').textContent = (d.tokens.input || 0).toLocaleString();
+    document.getElementById('s-tout').textContent = (d.tokens.output || 0).toLocaleString();
+
+    if (d.memory) {
+      document.getElementById('m-total').textContent = d.memory.episodic_total;
+      document.getElementById('m-auto').textContent = d.memory.episodic_auto;
+      document.getElementById('m-manual').textContent = d.memory.episodic_manual;
+      document.getElementById('m-msgs').textContent = d.memory.messages_total;
+      document.getElementById('m-sums').textContent = d.memory.summaries_total;
+    }
+
+    const ml = document.getElementById('models-list');
+    ml.innerHTML = '';
+    for (const [model, count] of Object.entries(d.models)) {
+      const row = document.createElement('div');
+      row.className = 'stat-row';
+      row.innerHTML = '<span class="stat-l" title="' + model + '">' + shortModel(model) + '</span><span class="stat-v">' + count + '</span>';
+      ml.appendChild(row);
+    }
+
+    const tl = document.getElementById('tools-list');
+    const entries = Object.entries(d.tools).sort((a, b) => b[1] - a[1]);
+    if (!entries.length) { tl.innerHTML = '<span style="color:var(--dim);font-size:11px">No data yet</span>'; return; }
+    tl.innerHTML = '';
+    const max = entries[0][1] || 1;
+    for (const [tool, count] of entries) {
+      const row = document.createElement('div');
+      row.className = 'bar-row';
+      const pct = Math.round((count / max) * 100);
+      row.innerHTML =
+        '<span class="bar-name" title="' + tool + '">' + tool + '</span>' +
+        '<div class="bar-track"><div class="bar-fill" style="width:' + pct + '%"></div></div>' +
+        '<span class="bar-count">' + count + '</span>';
+      tl.appendChild(row);
+    }
+  } catch (e) {}
+}
+
+// XSS-safe escaping
+function esc(s) {
+  return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+}
+
+// Relative time display
+function relTime(iso) {
+  if (!iso) return '';
+  const diff = Date.now() - new Date(iso).getTime();
+  if (diff < 60000) return 'just now';
+  if (diff < 3600000) return Math.floor(diff/60000) + 'm ago';
+  if (diff < 86400000) return Math.floor(diff/3600000) + 'h ago';
+  return Math.floor(diff/86400000) + 'd ago';
+}
+
+// Tab switching
+document.querySelectorAll('.tab').forEach(btn => {
+  btn.addEventListener('click', () => {
+    document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
+    document.querySelectorAll('.tab-panel').forEach(p => p.classList.remove('active'));
+    btn.classList.add('active');
+    document.getElementById('tab-' + btn.dataset.tab).classList.add('active');
+    if (btn.dataset.tab === 'details') loadMemory();
+    if (btn.dataset.tab === 'scheduler') loadScheduler();
+    if (btn.dataset.tab === 'world') { loadWorldModel(); loadProposals(); }
+    if (btn.dataset.tab === 'tasks') loadTasks();
+  });
+});
+
+// Memory details loader
+async function loadMemory() {
+  try {
+    const r = await fetch('/admin/memory', {headers: _authHeaders});
+    if (!r.ok) return;
+    const d = await r.json();
+
+    const tierColor = {critical:'#e05252',important:'#e09a32',normal:'var(--dim)',ephemeral:'#6a7a8a'};
+    document.getElementById('mem-count').textContent = '(' + d.episodic.length + ')';
+    document.getElementById('mem-tbody').innerHTML = d.episodic.length
+      ? d.episodic.map(m => {
+          const color = tierColor[m.importance] || 'var(--dim)';
+          return '<tr><td class="scope-tag">' + esc(m.scope) + '</td>' +
+            '<td>' + esc(m.content) + '</td>' +
+            '<td class="time-tag" style="color:' + color + '">' + esc(m.importance) + '</td>' +
+            '<td class="time-tag">' + (m.last_used_at ? relTime(m.last_used_at) : '—') + '</td>' +
+            '<td class="time-tag">' + relTime(m.created_at) + '</td></tr>';
+        }).join('')
+      : '<tr><td colspan="5" style="color:var(--dim);padding:12px 10px">No memories yet</td></tr>';
+
+    document.getElementById('user-profiles').innerHTML = d.user_profiles.length
+      ? d.user_profiles.map(p =>
+          '<div style="margin-bottom:14px">' +
+          '<div class="summary-user">' + esc(p.user) + '</div>' +
+          '<div class="profile-kv">' +
+          Object.entries(p.data).map(([k,v]) =>
+            '<span class="profile-key">' + esc(k) + '</span><span>' + esc(String(v)) + '</span>'
+          ).join('') + '</div></div>'
+        ).join('')
+      : '<span style="color:var(--dim)">No profiles yet</span>';
+
+    const hp = d.household_profile;
+    document.getElementById('household-profile').innerHTML = Object.keys(hp.data).length
+      ? '<div class="profile-kv">' +
+        Object.entries(hp.data).map(([k,v]) =>
+          '<span class="profile-key">' + esc(k) + '</span><span>' + esc(String(v)) + '</span>'
+        ).join('') + '</div>'
+      : '<span style="color:var(--dim)">No profile yet</span>';
+
+    document.getElementById('conv-summaries').innerHTML = d.summaries.length
+      ? d.summaries.map(s =>
+          '<div class="summary-block">' +
+          '<div class="summary-user">' + esc(s.user) + ' — ' + relTime(s.created_at) + '</div>' +
+          '<div>' + esc(s.text) + '</div></div>'
+        ).join('')
+      : '<span style="color:var(--dim)">No summaries yet</span>';
+
+    document.getElementById('memory-updated').textContent =
+      'Updated ' + new Date().toLocaleTimeString();
+  } catch(e) {}
+}
+
+document.getElementById('refresh-memory').addEventListener('click', loadMemory);
+
+// Scheduler tab loader
+async function loadScheduler() {
+  try {
+    const r = await fetch('/admin/scheduler', {headers: _authHeaders});
+    if (!r.ok) return;
+    const d = await r.json();
+
+    document.getElementById('sched-reminders').innerHTML = d.reminders.length
+      ? d.reminders.map(r =>
+          '<tr><td class="time-tag">' + esc(r.scheduled_at) + '</td><td>' + esc(r.text) +
+          '</td><td class="mem-id">' + esc(r.user_id.slice(0,8)) +
+          '</td><td class="mem-id">' + esc(r.id.slice(0,8)) + '</td></tr>'
+        ).join('')
+      : '<tr><td colspan="4" style="color:var(--dim);padding:12px 10px">No active reminders</td></tr>';
+
+    document.getElementById('sched-actions').innerHTML = d.actions.length
+      ? d.actions.map(a =>
+          '<tr><td class="time-tag">' + esc(a.scheduled_at) + '</td><td>' + esc(a.description) +
+          '</td><td class="mem-id">' + esc(a.tool) +
+          '</td><td class="mem-id">' + esc(a.user_id.slice(0,8)) +
+          '</td><td class="mem-id">' + esc(a.id.slice(0,8)) + '</td></tr>'
+        ).join('')
+      : '<tr><td colspan="5" style="color:var(--dim);padding:12px 10px">No active actions</td></tr>';
+
+    const sp = d.scheduled_prompts || [];
+    window._schedPrompts = sp;
+    const statusBadge = s => {
+      if (!s) return '<span style="color:var(--dim)">—</span>';
+      const colors = {delivered:'var(--green)',skipped:'#c90',failed:'var(--red)'};
+      return '<span style="color:' + (colors[s]||'var(--dim)') + '">' + s + '</span>';
+    };
+    document.getElementById('sched-prompts').innerHTML = sp.length
+      ? sp.map(p =>
+          '<tr style="cursor:pointer" onclick="showPromptDetail(\\'' + p.id + '\\')">' +
+          '<td>' + esc(p.name) + '</td>' +
+          '<td class="mem-id">' + esc(p.behavior_kind || 'generic_prompt') + '</td>' +
+          '<td class="time-tag">' + esc(p.recurrence) + '</td>' +
+          '<td>' + statusBadge(p.last_status) + '</td>' +
+          '<td class="time-tag">' + (p.last_fired_at ? fmtTime(p.last_fired_at) : '—') + '</td>' +
+          '<td class="mem-id">' + esc(p.id.slice(0,8)) + '</td></tr>'
+        ).join('')
+      : '<tr><td colspan="6" style="color:var(--dim);padding:12px 10px">No scheduled prompts</td></tr>';
+  } catch(e) {}
+}
+
+async function showPromptDetail(promptId) {
+  const sp = (window._schedPrompts || []).find(p => p.id === promptId);
+  if (!sp) return;
+  const det = document.getElementById('sched-prompt-detail');
+  det.style.display = 'block';
+  det.dataset.promptId = promptId;
+  document.getElementById('spd-name').textContent = sp.name + ' [' + (sp.behavior_kind || 'generic_prompt') + ']';
+  document.getElementById('spd-goal').textContent = sp.goal ? 'Goal: ' + sp.goal : '';
+  const links = (sp.linked_entities || []).map(l => l.entity_type + ':' + l.entity_id).join(', ');
+  document.getElementById('spd-links').textContent = links ? ' | Linked: ' + links : '';
+  document.getElementById('spd-preview').textContent = sp.last_result_preview || '(no result yet)';
+  document.getElementById('spd-runs').innerHTML = '<tr><td colspan="4" style="color:var(--dim);padding:6px">Loading…</td></tr>';
+  try {
+    const r = await fetch('/admin/scheduler/runs/' + promptId, {headers: _authHeaders});
+    if (!r.ok) return;
+    const d = await r.json();
+    const runs = d.runs || [];
+    document.getElementById('spd-runs').innerHTML = runs.length
+      ? runs.map(r =>
+          '<tr><td class="time-tag">' + (r.fired_at ? fmtTime(r.fired_at) : '—') + '</td>' +
+          '<td>' + esc(r.status) + '</td>' +
+          '<td style="color:var(--dim)">' + esc(r.skip_reason || '') + '</td>' +
+          '<td style="color:var(--dim);max-width:200px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">' + esc(r.output_preview || '').slice(0,80) + '</td></tr>'
+        ).join('')
+      : '<tr><td colspan="4" style="color:var(--dim);padding:6px">No runs yet</td></tr>';
+  } catch(e) {}
+}
+
+document.getElementById('spd-close').addEventListener('click', () => {
+  document.getElementById('sched-prompt-detail').style.display = 'none';
+});
+document.getElementById('spd-run-now').addEventListener('click', async () => {
+  const id = document.getElementById('sched-prompt-detail').dataset.promptId;
+  if (!id) return;
+  try {
+    await fetch('/admin/scheduler/' + id + '/run-now', {method:'POST', headers: _authHeaders});
+  } catch(e) {}
+});
+
+document.getElementById('refresh-scheduler').addEventListener('click', loadScheduler);
+
+// World Model tab loader
+async function loadWorldModel() {
+  try {
+    const r = await fetch('/admin/world-model', {headers: _authHeaders});
+    if (!r.ok) return;
+    const d = await r.json();
+    if (d.error) { document.getElementById('wm-members').innerHTML = '<span style="color:var(--dim)">' + esc(d.error) + '</span>'; return; }
+
+    // Build lookup maps
+    const memberById = {};
+    (d.members || []).forEach(m => { memberById[m.id] = m.name; });
+    const placeById = {};
+    (d.places || []).forEach(p => { placeById[p.id] = p.name; });
+
+    // Members with interests/activities/goals inline
+    const members = d.members || [];
+    document.getElementById('wm-member-count').textContent = '(' + members.length + ')';
+    const interestsByMember = {};
+    (d.interests || []).forEach(i => { (interestsByMember[i.member_id] = interestsByMember[i.member_id] || []).push(i.name); });
+    const actsByMember = {};
+    (d.activities || []).forEach(a => { const lbl = a.name + (a.schedule_hint ? ' (' + a.schedule_hint + ')' : ''); (actsByMember[a.member_id] = actsByMember[a.member_id] || []).push(lbl); });
+    const goalsByMember = {};
+    (d.goals || []).forEach(g => { (goalsByMember[g.member_id] = goalsByMember[g.member_id] || []).push(g.name); });
+
+    document.getElementById('wm-members').innerHTML = members.length
+      ? members.map(m => {
+          let aliases = ''; try { const a = JSON.parse(m.aliases_json || '[]'); if (a.length) aliases = ' <span class="d">(' + a.map(esc).join(', ') + ')</span>'; } catch(_) {}
+          let sub = [];
+          if (interestsByMember[m.id]) sub.push('interests: ' + interestsByMember[m.id].join(', '));
+          if (actsByMember[m.id]) sub.push('activities: ' + actsByMember[m.id].join(', '));
+          if (goalsByMember[m.id]) sub.push('goals: ' + goalsByMember[m.id].join(', '));
+          const subHtml = sub.length ? '<div style="margin-left:16px;color:var(--dim);font-size:12px">' + sub.map(s => '· ' + esc(s)).join('<br>') + '</div>' : '';
+          const addBtns = '<div style="margin-left:16px;margin-top:2px">'
+            + '<a class="wm-add-link" onclick="wmAddMemberDetail(\\'interest\\',\\'' + m.id + '\\')">+ interest</a>'
+            + '<a class="wm-add-link" onclick="wmAddMemberDetail(\\'activity\\',\\'' + m.id + '\\')">+ activity</a>'
+            + '<a class="wm-add-link" onclick="wmAddMemberDetail(\\'goal\\',\\'' + m.id + '\\')">+ goal</a>'
+            + '</div>';
+          return '<div style="margin-bottom:6px"><strong>' + esc(m.name) + '</strong> <span class="scope-tag">' + esc(m.role) + '</span>' + aliases + subHtml + addBtns + '</div>';
+        }).join('')
+      : '<span style="color:var(--dim)">No members</span>';
+
+    // Places (hierarchical)
+    const places = d.places || [];
+    const topLevel = places.filter(p => !p.parent_place_id);
+    const children = {};
+    places.filter(p => p.parent_place_id).forEach(p => {
+      (children[p.parent_place_id] = children[p.parent_place_id] || []).push(p);
+    });
+    document.getElementById('wm-places').innerHTML = topLevel.length
+      ? topLevel.map(p => {
+          const kids = children[p.id] || [];
+          const kidNames = kids.map(k => esc(k.name)).join(', ');
+          return '<div style="margin-bottom:4px"><strong>' + esc(p.name) + '</strong> <span class="scope-tag">' + esc(p.kind) + '</span>'
+            + (kidNames ? '<div style="margin-left:16px;color:var(--dim);font-size:12px">' + kidNames + '</div>' : '')
+            + '</div>';
+        }).join('')
+      : '<span style="color:var(--dim)">No places</span>';
+
+    // Devices grouped by place
+    const devices = d.devices || [];
+    document.getElementById('wm-device-count').textContent = '(' + devices.length + ')';
+    document.getElementById('wm-devices').innerHTML = devices.length
+      ? devices.map(dev =>
+          '<tr><td>' + esc(dev.name) + '</td>' +
+          '<td class="scope-tag">' + esc(dev.device_type || '—') + '</td>' +
+          '<td class="scope-tag">' + esc(dev.place_id ? (placeById[dev.place_id] || dev.place_id.slice(0,8)) : '—') + '</td>' +
+          '<td class="scope-tag">' + (dev.is_controllable ? '✓' : '—') + '</td></tr>'
+        ).join('')
+      : '<tr><td colspan="4" style="color:var(--dim);padding:12px 10px">No devices</td></tr>';
+
+    // Calendars
+    const cals = d.calendars || [];
+    document.getElementById('wm-calendars').innerHTML = cals.length
+      ? cals.map(c =>
+          '<tr><td>' + esc(c.name) + '</td>' +
+          '<td class="scope-tag">' + esc(c.category || 'general') + '</td>' +
+          '<td class="scope-tag">' + esc(c.member_id ? (memberById[c.member_id] || '—') : '—') + '</td></tr>'
+        ).join('')
+      : '<tr><td colspan="3" style="color:var(--dim);padding:12px 10px">No calendars</td></tr>';
+
+    // Routines
+    const routines = d.routines || [];
+    document.getElementById('wm-routines').innerHTML = routines.length
+      ? routines.map(r =>
+          '<tr><td>' + esc(r.name) + '</td>' +
+          '<td style="color:var(--dim)">' + esc(r.description || '—') + '</td>' +
+          '<td class="scope-tag">' + esc(r.kind || '—') + '</td>' +
+          '<td><button onclick="wmDeleteEntity(\\'routineentity\\',\\'' + esc(r.id) + '\\')" class="wm-del" title="Delete">×</button></td></tr>'
+        ).join('')
+      : '<tr><td colspan="4" style="color:var(--dim);padding:12px 10px">No routines</td></tr>';
+
+    // Facts
+    const facts = d.facts || [];
+    document.getElementById('wm-facts').innerHTML = facts.length
+      ? facts.map(f => {
+          let val; try { val = JSON.parse(f.value_json); } catch(_) { val = f.value_json; }
+          return '<tr><td class="scope-tag">' + esc(f.scope) + '</td>' +
+            '<td>' + esc(f.key) + '</td>' +
+            '<td>' + esc(String(val)) + '</td>' +
+            '<td class="scope-tag">' + esc(f.source || '—') + '</td>' +
+            '<td><button onclick="wmDeleteEntity(\\'worldfact\\',\\'' + esc(f.id) + '\\')" class="wm-del" title="Delete">×</button></td></tr>';
+        }).join('')
+      : '<tr><td colspan="5" style="color:var(--dim);padding:12px 10px">No facts</td></tr>';
+
+    document.getElementById('world-updated').textContent = 'Updated ' + new Date().toLocaleTimeString();
+  } catch(e) {}
+}
+
+document.getElementById('refresh-world').addEventListener('click', loadWorldModel);
+
+// World model inline editing helpers
+async function wmDeleteEntity(entityType, entityId) {
+  if (!confirm('Delete this entry?')) return;
+  await fetch('/admin/world-model/entity/' + entityType + '/' + entityId, {method:'DELETE', headers:_authHeaders});
+  loadWorldModel();
+}
+async function wmAddFact() {
+  const scope = document.getElementById('wm-add-fact-scope').value.trim();
+  const key = document.getElementById('wm-add-fact-key').value.trim();
+  const value = document.getElementById('wm-add-fact-value').value.trim();
+  if (!key) return;
+  await fetch('/admin/world-model/fact', {method:'PUT', headers:{..._authHeaders,'Content-Type':'application/json'}, body:JSON.stringify({scope:scope||'household',key,value})});
+  document.getElementById('wm-add-fact-key').value = '';
+  document.getElementById('wm-add-fact-value').value = '';
+  loadWorldModel();
+}
+async function wmAddRoutine() {
+  const name = document.getElementById('wm-add-routine-name').value.trim();
+  const description = document.getElementById('wm-add-routine-desc').value.trim();
+  const kind = document.getElementById('wm-add-routine-kind').value.trim();
+  if (!name) return;
+  await fetch('/admin/world-model/routine', {method:'PUT', headers:{..._authHeaders,'Content-Type':'application/json'}, body:JSON.stringify({name,description,kind})});
+  document.getElementById('wm-add-routine-name').value = '';
+  document.getElementById('wm-add-routine-desc').value = '';
+  document.getElementById('wm-add-routine-kind').value = '';
+  loadWorldModel();
+}
+async function wmAddMember() {
+  const name = prompt('Member name:');
+  if (!name) return;
+  const role = prompt('Role (member, child, guest):', 'member');
+  if (!role) return;
+  await fetch('/admin/world-model/member', {method:'PUT', headers:{..._authHeaders,'Content-Type':'application/json'}, body:JSON.stringify({name, role})});
+  loadWorldModel();
+}
+async function wmAddMemberDetail(detailType, memberId) {
+  const name = prompt(detailType.charAt(0).toUpperCase() + detailType.slice(1) + ' name:');
+  if (!name) return;
+  await fetch('/admin/world-model/member-detail', {method:'PUT', headers:{..._authHeaders,'Content-Type':'application/json'}, body:JSON.stringify({detail_type:detailType,member_id:memberId,name})});
+  loadWorldModel();
+}
+async function wmDeleteMemberDetail(detailType, entityId) {
+  if (!confirm('Delete this ' + detailType + '?')) return;
+  await fetch('/admin/world-model/entity/' + 'member' + detailType + '/' + entityId, {method:'DELETE', headers:_authHeaders});
+  loadWorldModel();
+}
+
+// Proposals
+async function loadProposals() {
+  try {
+    const r = await fetch('/admin/world-model/proposals', {headers: _authHeaders});
+    if (!r.ok) return;
+    const d = await r.json();
+    const sec = document.getElementById('proposals-section');
+    const cnt = document.getElementById('wm-proposal-count');
+    const container = document.getElementById('wm-proposals');
+    const pending = (d.proposals || []).filter(p => p.status === 'pending');
+    if (!pending.length) { sec.style.display = 'none'; return; }
+    sec.style.display = '';
+    cnt.textContent = pending.length;
+    container.innerHTML = pending.map(p => {
+      const confPct = Math.round(p.confidence * 100);
+      const payloadStr = JSON.stringify(p.payload, null, 1);
+      return '<div class="proposal-card" id="prop-' + esc(p.id) + '">'
+        + '<div class="pc-head"><span class="pc-type">' + esc(p.proposal_type) + '</span>'
+        + '<span class="pc-conf">' + confPct + '% confidence</span></div>'
+        + '<div class="pc-reason">' + esc(p.reason) + '</div>'
+        + '<div class="pc-payload">' + esc(payloadStr) + '</div>'
+        + '<div class="pc-actions">'
+        + '<button class="pc-accept" onclick="wmReviewProposal(\\'' + esc(p.id) + '\\',\\'accepted\\')">Accept</button>'
+        + '<button class="pc-reject" onclick="wmReviewProposal(\\'' + esc(p.id) + '\\',\\'rejected\\')">Reject</button>'
+        + '</div></div>';
+    }).join('');
+  } catch(e) {}
+}
+async function wmReviewProposal(id, decision) {
+  await fetch('/admin/world-model/proposals/' + id + '/review', {
+    method:'POST', headers:{..._authHeaders,'Content-Type':'application/json'},
+    body: JSON.stringify({decision})
+  });
+  const card = document.getElementById('prop-' + id);
+  if (card) card.style.display = 'none';
+  loadProposals();
+  if (decision === 'accepted') loadWorldModel();
+}
+async function wmBulkAcceptConfident() {
+  try {
+    const r = await fetch('/admin/world-model/proposals', {headers: _authHeaders});
+    if (!r.ok) return;
+    const d = await r.json();
+    const ids = (d.proposals || []).filter(p => p.status === 'pending' && p.confidence >= 0.7).map(p => p.id);
+    if (!ids.length) return;
+    await fetch('/admin/world-model/proposals/bulk', {
+      method:'POST', headers:{..._authHeaders,'Content-Type':'application/json'},
+      body: JSON.stringify({proposal_ids: ids, decision: 'accepted'})
+    });
+    loadProposals();
+    loadWorldModel();
+  } catch(e) {}
+}
+
+// --- Tasks tab ---
+async function loadTasks() {
+  try {
+    const r = await fetch('/admin/tasks', {headers: _authHeaders});
+    if (!r.ok) return;
+    const d = await r.json();
+    const tasks = d.tasks || [];
+    const active = tasks.filter(t => t.status !== 'COMPLETED' && t.status !== 'FAILED' && t.status !== 'CANCELLED');
+    document.getElementById('tasks-active-count').textContent = active.length ? '(' + active.length + ')' : '';
+    document.getElementById('tasks-updated').textContent = 'Updated ' + new Date().toLocaleTimeString();
+    const tbody = document.getElementById('tasks-table-body');
+    if (!tasks.length) {
+      tbody.innerHTML = '<tr><td colspan="7" style="color:var(--dim);padding:12px 10px">No tasks</td></tr>';
+      return;
+    }
+    const statusColor = {ACTIVE:'var(--green)',AWAITING_INPUT:'var(--yellow)',AWAITING_CONFIRMATION:'var(--yellow)',COMPLETED:'var(--dim)',FAILED:'var(--red)',CANCELLED:'var(--dim)'};
+    tbody.innerHTML = tasks.map(function(t) {
+      const sc = statusColor[t.status] || 'var(--dim)';
+      const updated = t.updated_at ? new Date(t.updated_at).toLocaleString() : '';
+      const actions = (t.status === 'ACTIVE' || t.status === 'AWAITING_INPUT' || t.status === 'AWAITING_CONFIRMATION')
+        ? '<button onclick="taskAction(\\'' + esc(t.id) + '\\',\\'cancel\\')" style="background:none;border:none;color:var(--red);cursor:pointer;font-size:11px">Cancel</button>'
+          + (t.status !== 'ACTIVE' ? ' <button onclick="taskAction(\\'' + esc(t.id) + '\\',\\'resume\\')" style="background:none;border:none;color:var(--green);cursor:pointer;font-size:11px">Resume</button>' : '')
+        : '';
+      return '<tr onclick="showTaskDetail(\\'' + esc(t.id) + '\\')" style="cursor:pointer">'
+        + '<td>' + esc(t.title || '') + '</td>'
+        + '<td><span class="scope-tag">' + esc(t.task_kind || '') + '</span></td>'
+        + '<td><span style="color:' + sc + '">' + esc(t.status) + '</span></td>'
+        + '<td style="color:var(--dim);font-size:12px">' + esc(t.summary || '') + '</td>'
+        + '<td>' + esc(t.user || '') + '</td>'
+        + '<td style="font-size:11px;color:var(--dim)">' + esc(updated) + '</td>'
+        + '<td>' + actions + '</td></tr>';
+    }).join('');
+  } catch(e) {}
+}
+var _tasksData = {};
+async function showTaskDetail(taskId) {
+  try {
+    const r = await fetch('/admin/tasks', {headers: _authHeaders});
+    if (!r.ok) return;
+    const d = await r.json();
+    const t = (d.tasks || []).find(function(x) { return x.id === taskId; });
+    if (!t) return;
+    document.getElementById('task-detail-section').style.display = '';
+    var html = '<div style="margin-bottom:12px"><strong>' + esc(t.title) + '</strong>'
+      + ' <span class="scope-tag">' + esc(t.task_kind || '') + '</span>'
+      + ' <span style="font-size:11px;color:var(--dim)">ID: ' + esc(t.id.slice(0,8)) + '</span></div>';
+    if (t.summary) html += '<div style="margin-bottom:8px">Summary: ' + esc(t.summary) + '</div>';
+    if (t.awaiting_input_hint) html += '<div style="margin-bottom:8px;color:var(--yellow)">Waiting for: ' + esc(t.awaiting_input_hint) + '</div>';
+    if (t.steps && t.steps.length) {
+      html += '<div style="margin-bottom:8px"><strong>Steps:</strong></div><div style="margin-left:12px">';
+      t.steps.forEach(function(s) {
+        var icon = {done:'[x]', active:'[>]', failed:'[!]', cancelled:'[-]'}[s.status] || '[ ]';
+        html += '<div style="font-size:12px;margin-bottom:2px"><code>' + icon + '</code> ' + esc(s.title) + ' <span style="color:var(--dim)">(' + esc(s.type) + ')</span></div>';
+      });
+      html += '</div>';
+    }
+    if (t.links && t.links.length) {
+      html += '<div style="margin-top:8px"><strong>Linked entities:</strong></div><div style="margin-left:12px">';
+      t.links.forEach(function(ln) {
+        html += '<div style="font-size:12px;margin-bottom:2px">' + esc(ln.entity_type) + ': ' + esc(ln.entity_id) + ' (' + esc(ln.role) + ')</div>';
+      });
+      html += '</div>';
+    }
+    document.getElementById('task-detail-content').innerHTML = html;
+  } catch(e) {}
+}
+async function taskAction(taskId, action) {
+  try {
+    await fetch('/admin/tasks/' + taskId + '/action', {
+      method:'POST', headers:{..._authHeaders,'Content-Type':'application/json'},
+      body: JSON.stringify({action: action})
+    });
+    loadTasks();
+  } catch(e) {}
+}
+document.getElementById('refresh-tasks').addEventListener('click', loadTasks);
+
+// Stream via fetch + ReadableStream (replaces EventSource which breaks in Safari)
+async function connectSSE() {
+  const pulse = document.getElementById('pulse');
+  const label = document.getElementById('conn-label');
+  try {
+    const resp = await fetch('/admin/stream', {headers: _authHeaders});
+    if (resp.status === 401) {
+      pulse.className = 'pulse off';
+      label.className = 'err';
+      label.textContent = 'Auth required';
+      document.querySelector('.tab-panel.active').innerHTML =
+        '<div style="padding:40px 20px;color:var(--dim);text-align:center">' +
+        '<p style="font-size:15px;margin-bottom:8px">Authentication required</p>' +
+        '<p style="font-size:12px">Access with <code>?token=APP_SECRET_KEY</code> in the URL</p></div>';
+      return; // don't retry
+    }
+    if (!resp.ok) throw new Error('HTTP ' + resp.status);
+    pulse.className = 'pulse';
+    label.className = 'ok';
+    label.textContent = 'Connected';
+    const reader = resp.body.getReader();
+    const dec = new TextDecoder();
+    let buf = '';
+    while (true) {
+      const {done, value} = await reader.read();
+      if (done) break;
+      buf += dec.decode(value, {stream: true});
+      const parts = buf.split('\\n\\n');
+      buf = parts.pop();
+      for (const part of parts) {
+        if (!part.trim() || part.startsWith(':')) continue;
+        let evType = 'message', data = '';
+        for (const line of part.split('\\n')) {
+          if (line.startsWith('event: ')) evType = line.slice(7);
+          else if (line.startsWith('data: ')) data = line.slice(6);
+        }
+        if (data) { try { addEvent(evType, JSON.parse(data)); } catch(_) {} }
+      }
+    }
+  } catch (_) {
+    pulse.className = 'pulse off';
+    label.className = 'err';
+    label.textContent = 'Reconnecting…';
+  }
+  setTimeout(connectSSE, 3000);
+}
+
+fetchStats();
+setInterval(fetchStats, 10000);
+connectSSE();
+</script>
+</body>
+</html>

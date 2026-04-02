@@ -1,9 +1,9 @@
 # Import all SQLModel table classes so Alembic can discover them via target_metadata.
 from app.models.cache import AgentRunLog, DeviceSnapshot, EventLog, PendingAction
 from app.models.memory import (
-    ConversationTurn,
     ConversationMessage,
     ConversationSummary,
+    ConversationTurn,
     EpisodicMemory,
     HouseholdProfile,
     UserProfile,

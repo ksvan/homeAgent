@@ -51,7 +51,11 @@ async def send_reminder(
             session.commit()
 
     duration_ms = int((_time.monotonic() - t0) * 1000)
-    emit("job.complete", {"job": "reminder", "text": text[:80], "duration_ms": duration_ms, "success": True}, run_id=task_id)
+    emit(
+        "job.complete",
+        {"job": "reminder", "text": text[:80], "duration_ms": duration_ms, "success": True},
+        run_id=task_id,
+    )
     logger.info("Reminder fired: task_id=%s user_id=%s", task_id, user_id)
 
 
@@ -85,7 +89,11 @@ async def execute_homey_action(
     raw_name = tool_name.removeprefix("homey_")
 
     t0 = _time.monotonic()
-    emit("job.fire", {"job": "homey_action", "tool": raw_name, "description": description[:80]}, run_id=task_id)
+    emit(
+        "job.fire",
+        {"job": "homey_action", "tool": raw_name, "description": description[:80]},
+        run_id=task_id,
+    )
 
     success = False
     if server is None:
@@ -121,7 +129,10 @@ async def execute_homey_action(
     duration_ms = int((_time.monotonic() - t0) * 1000)
     emit(
         "job.complete" if success else "job.error",
-        {"job": "homey_action", "tool": raw_name, "description": description[:80], "duration_ms": duration_ms, "success": success},
+        {
+            "job": "homey_action", "tool": raw_name, "description": description[:80],
+            "duration_ms": duration_ms, "success": success,
+        },
         run_id=task_id,
     )
 
@@ -202,7 +213,10 @@ async def resume_task(
         pass
 
     # Build a prompt that references the task
-    prompt = f"[Task resume] The scheduled follow-up time has arrived for task {task_id}. Please review the task state and continue or report back to the user."
+    prompt = (
+        f"[Task resume] The scheduled follow-up time has arrived for task {task_id}."
+        " Please review the task state and continue or report back to the user."
+    )
 
     channel = get_channel()
     success = False
@@ -236,7 +250,10 @@ async def resume_task(
         try:
             await channel.send_message(channel_user_id, response)
         except Exception:
-            logger.warning("Could not deliver task resume response: task_id=%s", task_id, exc_info=True)
+            logger.warning(
+                "Could not deliver task resume response: task_id=%s",
+                task_id, exc_info=True,
+            )
 
 
 async def fire_scheduled_prompt(
@@ -355,7 +372,10 @@ async def _fire_scheduled_prompt_inner(
         duration_ms = int((_time.monotonic() - t0) * 1000)
         emit(
             "proactive.skip",
-            {"name": name[:80], "behavior_kind": behavior_kind, "reason": skip_reason, "duration_ms": duration_ms},
+            {
+                "name": name[:80], "behavior_kind": behavior_kind,
+                "reason": skip_reason, "duration_ms": duration_ms,
+            },
             run_id=run_id,
         )
         return
@@ -427,7 +447,8 @@ async def _fire_scheduled_prompt_inner(
                 await channel.send_message(channel_user_id, response)
             except Exception:
                 logger.error(
-                    "Could not deliver scheduled prompt error: prompt_id=%s", prompt_id, exc_info=True
+                    "Could not deliver scheduled prompt error: prompt_id=%s",
+                    prompt_id, exc_info=True,
                 )
     else:
         # --- Postflight evaluation ---
@@ -441,11 +462,15 @@ async def _fire_scheduled_prompt_inner(
 
         if status == "skipped":
             logger.info(
-                "Scheduled prompt postflight skip: prompt_id=%s reason=%s", prompt_id, post_skip_reason
+                "Scheduled prompt postflight skip: prompt_id=%s reason=%s",
+                prompt_id, post_skip_reason,
             )
             emit(
                 "proactive.skip",
-                {"name": name[:80], "behavior_kind": behavior_kind, "reason": post_skip_reason, "duration_ms": duration_ms},
+                {
+                    "name": name[:80], "behavior_kind": behavior_kind,
+                    "reason": post_skip_reason, "duration_ms": duration_ms,
+                },
                 run_id=run_id,
             )
         else:
@@ -455,12 +480,15 @@ async def _fire_scheduled_prompt_inner(
                     await channel.send_message(channel_user_id, response)
                 except Exception:
                     logger.error(
-                        "Could not deliver scheduled prompt response: prompt_id=%s channel_user_id=%s",
-                        prompt_id, channel_user_id, exc_info=True,
+                        "Could not deliver scheduled prompt response:"
+                        " prompt_id=%s channel_user_id=%s",
+                        prompt_id, channel_user_id,
+                        exc_info=True,
                     )
             elif not channel:
                 logger.error(
-                    "Scheduled prompt: no active channel — response not delivered: prompt_id=%s", prompt_id
+                    "Scheduled prompt: no active channel — not delivered:"
+                    " prompt_id=%s", prompt_id,
                 )
 
             emit(
@@ -472,7 +500,10 @@ async def _fire_scheduled_prompt_inner(
     # Emit legacy job event for backward compat with admin UI
     emit(
         "job.complete" if success else "job.error",
-        {"job": "scheduled_prompt", "name": name[:80], "duration_ms": duration_ms, "success": success},
+        {
+            "job": "scheduled_prompt", "name": name[:80],
+            "duration_ms": duration_ms, "success": success,
+        },
         run_id=run_id,
     )
 
@@ -484,8 +515,12 @@ async def _fire_scheduled_prompt_inner(
                 if sp_rec:
                     s.delete(sp_rec)
                     s.commit()
-            logger.info("One-shot prompt deleted after firing: prompt_id=%s name=%r", prompt_id, name)
+            logger.info(
+                "One-shot prompt deleted after firing: prompt_id=%s name=%r",
+                prompt_id, name,
+            )
         except Exception:
             logger.warning(
-                "Failed to delete one-shot prompt after firing: prompt_id=%s", prompt_id, exc_info=True
+                "Failed to delete one-shot prompt after firing: prompt_id=%s",
+                prompt_id, exc_info=True,
             )

@@ -38,7 +38,8 @@ def register_action_tools(agent: Agent[AgentDeps, str]) -> None:
            - tool_args: the EXACT same {"name": ..., "arguments": ...} you would pass
              to homey_use_tool for an immediate action. Use the tool name from step 2.
 
-        Example structure (do NOT copy these placeholder values — use real values from search results):
+        Example structure (do NOT copy these placeholder values —
+        use real values from search results):
           schedule_homey_action(
               description="Turn off garden lights",
               tool_name="homey_use_tool",

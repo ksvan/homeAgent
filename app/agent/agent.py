@@ -185,7 +185,14 @@ async def run_conversation(
         agent_name=settings.agent_name,
         household_name=household_name,
         current_date=now.strftime("%A, %d %B %Y"),
-        current_time=now.strftime("%H:%M") + " (UTC" + now.strftime("%z")[:3] + ":" + now.strftime("%z")[3:] + ")",
+        current_time=(
+            now.strftime("%H:%M")
+            + " (UTC"
+            + now.strftime("%z")[:3]
+            + ":"
+            + now.strftime("%z")[3:]
+            + ")"
+        ),
         current_dt_iso=now.isoformat(),
         timezone=settings.household_timezone,
         user_profile_text=user_profile_text,

@@ -24,18 +24,18 @@ async def _lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     from app.channels.telegram import TelegramChannel
     from app.db import users_session
     from app.homey.mcp_client import start_mcp, stop_mcp
-    from app.prometheus.mcp_client import start_mcp as start_prom_mcp
-    from app.prometheus.mcp_client import stop_mcp as stop_prom_mcp
-    from app.tools.mcp_client import start_mcp as start_tools_mcp
-    from app.tools.mcp_client import stop_mcp as stop_tools_mcp
     from app.logging_setup import configure_logging
     from app.models.users import Household
     from app.policy.seeder import seed_policies
+    from app.prometheus.mcp_client import start_mcp as start_prom_mcp
+    from app.prometheus.mcp_client import stop_mcp as stop_prom_mcp
     from app.scheduler.actions import restore_pending_actions
     from app.scheduler.cleanup import register_cleanup_jobs
     from app.scheduler.engine import start_scheduler, stop_scheduler
     from app.scheduler.reminders import restore_pending_reminders
     from app.scheduler.scheduled_prompts import restore_scheduled_prompts
+    from app.tools.mcp_client import start_mcp as start_tools_mcp
+    from app.tools.mcp_client import stop_mcp as stop_tools_mcp
 
     configure_logging(settings.log_level, settings.log_format)
     seed_policies()

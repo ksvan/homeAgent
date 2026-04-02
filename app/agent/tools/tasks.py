@@ -312,7 +312,11 @@ def register_task_tools(agent: Agent[AgentDeps, str]) -> None:
         lines = []
         for t in tasks:
             kind = t.task_kind or "legacy"
-            hint = f" — waiting for: {t.awaiting_input_hint}" if t.awaiting_input_hint and t.status == "AWAITING_INPUT" else ""
+            hint = (
+                f" — waiting for: {t.awaiting_input_hint}"
+                if t.awaiting_input_hint and t.status == "AWAITING_INPUT"
+                else ""
+            )
             lines.append(f"• [{kind}] {t.title} — {t.status}{hint} (ID: {t.id})")
             if t.summary:
                 lines.append(f"  Summary: {t.summary}")
@@ -446,11 +450,16 @@ def register_task_tools(agent: Agent[AgentDeps, str]) -> None:
             # Calendar entities or unresolved — store name as ID for display
             entity_id = entity_name
 
-        link = repo.add_link(task_id, entity_type, entity_id, role)
+        repo.add_link(task_id, entity_type, entity_id, role)
 
         emit(
             "task.link",
-            {"task_id": task_id, "entity_type": entity_type, "entity_name": entity_name, "role": role},
+            {
+                "task_id": task_id,
+                "entity_type": entity_type,
+                "entity_name": entity_name,
+                "role": role,
+            },
             run_id=ctx.deps.run_id,
         )
 

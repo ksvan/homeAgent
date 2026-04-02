@@ -85,16 +85,35 @@ async def _policy_process_tool_call(
             )
             duration_ms = int((time.monotonic() - t0) * 1000)
             from app.control.events import emit
-            emit("run.tool_call", {"tool": tool_name, "duration_ms": duration_ms, "success": True}, run_id=run_id)
+            emit(
+                "run.tool_call",
+                {"tool": tool_name, "duration_ms": duration_ms, "success": True},
+                run_id=run_id,
+            )
         except asyncio.TimeoutError:
             duration_ms = int((time.monotonic() - t0) * 1000)
             from app.control.events import emit
-            emit("run.tool_call", {"tool": tool_name, "duration_ms": duration_ms, "success": False, "error": "timeout"}, run_id=run_id)
-            return f"Homey did not respond within {_get_settings().homey_tool_timeout_secs} s — please try again."
+            emit(
+                "run.tool_call",
+                {
+                    "tool": tool_name, "duration_ms": duration_ms,
+                    "success": False, "error": "timeout",
+                },
+                run_id=run_id,
+            )
+            timeout = _get_settings().homey_tool_timeout_secs
+            return f"Homey did not respond within {timeout} s — please try again."
         except Exception as exc:
             duration_ms = int((time.monotonic() - t0) * 1000)
             from app.control.events import emit
-            emit("run.tool_call", {"tool": tool_name, "duration_ms": duration_ms, "success": False, "error": str(exc)}, run_id=run_id)
+            emit(
+                "run.tool_call",
+                {
+                    "tool": tool_name, "duration_ms": duration_ms,
+                    "success": False, "error": str(exc),
+                },
+                run_id=run_id,
+            )
             raise
 
         # Schedule a non-blocking state verification for write tool calls

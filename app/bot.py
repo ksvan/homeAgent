@@ -231,19 +231,29 @@ async def handle_incoming_message(
                         ch = get_channel()
                         if ch:
                             try:
-                                await ch.send_message(channel_user_id, "One moment — retrying shortly.")
+                                await ch.send_message(
+                                    channel_user_id, "One moment — retrying shortly.",
+                                )
                             except Exception:
                                 pass
                     await asyncio.sleep(wait)
                     continue
                 duration_ms = int((monotonic() - t_start) * 1000)
                 logger.exception("Agent run failed for telegram_id=%d", telegram_id)
-                emit("run.error", {"error": "Agent run failed", "duration_ms": duration_ms}, run_id=run_id)
+                emit(
+                    "run.error",
+                    {"error": "Agent run failed", "duration_ms": duration_ms},
+                    run_id=run_id,
+                )
                 return "Sorry, something went wrong. Please try again in a moment."
             except Exception:
                 duration_ms = int((monotonic() - t_start) * 1000)
                 logger.exception("Agent run failed for telegram_id=%d", telegram_id)
-                emit("run.error", {"error": "Agent run failed", "duration_ms": duration_ms}, run_id=run_id)
+                emit(
+                    "run.error",
+                    {"error": "Agent run failed", "duration_ms": duration_ms},
+                    run_id=run_id,
+                )
                 return "Sorry, something went wrong. Please try again in a moment."
 
         if result is None:
@@ -441,7 +451,7 @@ def _estimate_context_chars(ctx: object) -> int:
     if not isinstance(ctx, AgentContext):
         return 0
 
-    from app.agent.prompts import load_persona, load_instructions
+    from app.agent.prompts import load_instructions, load_persona
     from app.config import get_settings
 
     settings = get_settings()

@@ -6,7 +6,6 @@ import logging
 import re
 from datetime import datetime
 
-from app.models.tasks import TERMINAL_STATUSES
 from app.tasks.repository import TaskRepository
 
 logger = logging.getLogger(__name__)
@@ -39,7 +38,11 @@ def get_active_task_context(user_id: str) -> str:
     # Multiple active tasks — render compact list
     lines = ["## Active Tasks"]
     for t in tasks[:5]:  # cap to avoid prompt bloat
-        hint = f" — waiting for: {t.awaiting_input_hint}" if t.awaiting_input_hint and t.status == "AWAITING_INPUT" else ""
+        hint = (
+            f" — waiting for: {t.awaiting_input_hint}"
+            if t.awaiting_input_hint and t.status == "AWAITING_INPUT"
+            else ""
+        )
         lines.append(f"- [{t.task_kind}] {t.title} — {t.status}{hint} (ID: {t.id})")
         if t.summary:
             lines.append(f"  Summary: {t.summary}")
@@ -68,7 +71,8 @@ def _render_full_task(repo: TaskRepository, task: object) -> str:
 
         lines.append("- steps:")
         for s in steps:
-            marker = {"done": "[x]", "active": "[>]", "failed": "[!]", "cancelled": "[-]"}.get(s.status, "[ ]")
+            status_markers = {"done": "[x]", "active": "[>]", "failed": "[!]", "cancelled": "[-]"}
+            marker = status_markers.get(s.status, "[ ]")
             lines.append(f"  {marker} {s.title}")
 
     if task.status == "AWAITING_INPUT" and task.awaiting_input_hint:
@@ -136,7 +140,10 @@ def resolve_task_for_message(user_id: str, text: str) -> str | None:
         return None
 
     # 1. Explicit task ID reference
-    uuid_pattern = re.compile(r"[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}", re.IGNORECASE)
+    uuid_pattern = re.compile(
+        r"[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}",
+        re.IGNORECASE,
+    )
     for match in uuid_pattern.finditer(text):
         candidate = match.group()
         for t in tasks:

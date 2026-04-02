@@ -12,10 +12,14 @@ from __future__ import annotations
 
 import json
 import logging
+from typing import TYPE_CHECKING
 
 from pydantic import BaseModel
 from pydantic_ai import Agent
 from pydantic_ai.messages import ModelMessage, TextPart, UserPromptPart
+
+if TYPE_CHECKING:
+    from app.world.repository import WorldModelRepository
 
 logger = logging.getLogger(__name__)
 
@@ -41,7 +45,7 @@ Payload examples by type:
   interest: {"member_name": "Sondre", "name": "football", "notes": "plays striker"}
   activity: {"member_name": "Sondre", "name": "football practice", "schedule_hint": "Tue/Thu 17:00"}
   goal:     {"member_name": "Kristian", "name": "reduce energy usage"}
-  routine:  {"name": "night mode", "description": "all lights off, heating unchanged", "kind": "mode"}
+  routine:  {"name": "night mode", "description": "all lights off", "kind": "mode"}
 
 IMPORTANT:
 - Do NOT propose things already present in the existing world model (provided below).
@@ -195,7 +199,11 @@ def _apply_proposal(
                 household_id=household_id,
                 scope=payload.get("scope", "household"),
                 key=payload["key"],
-                value_json=json.dumps(payload["value"]) if not isinstance(payload["value"], str) else payload["value"],
+                value_json=(
+                    json.dumps(payload["value"])
+                    if not isinstance(payload["value"], str)
+                    else payload["value"]
+                ),
                 source="agent_inferred",
                 confidence=0.85,
             )

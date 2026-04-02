@@ -13,8 +13,8 @@ by instructing the extraction LLM not to store them.
 """
 from __future__ import annotations
 
-import re
 import logging
+import re
 
 logger = logging.getLogger(__name__)
 
