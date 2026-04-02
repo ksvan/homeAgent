@@ -996,7 +996,9 @@ class WorldModelRepository:
             )
 
     @staticmethod
-    def review_proposal(proposal_id: str, decision: str, reviewed_by: str = "admin") -> WorldModelProposal | None:
+    def review_proposal(
+        proposal_id: str, decision: str, reviewed_by: str = "admin",
+    ) -> WorldModelProposal | None:
         """Accept or reject a proposal. If accepted, the caller applies the change."""
         with users_session() as session:
             p = session.get(WorldModelProposal, proposal_id)

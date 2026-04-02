@@ -28,12 +28,20 @@ async def _instrument_process_tool_call(
         result = await call_tool(tool_name, tool_args, None)
         duration_ms = int((time.monotonic() - t0) * 1000)
         from app.control.events import emit
-        emit("run.tool_call", {"tool": tool_name, "duration_ms": duration_ms, "success": True}, run_id=run_id)
+        emit(
+            "run.tool_call",
+            {"tool": tool_name, "duration_ms": duration_ms, "success": True},
+            run_id=run_id,
+        )
         return result
     except Exception as exc:
         duration_ms = int((time.monotonic() - t0) * 1000)
         from app.control.events import emit
-        emit("run.tool_call", {"tool": tool_name, "duration_ms": duration_ms, "success": False, "error": str(exc)}, run_id=run_id)
+        emit(
+            "run.tool_call",
+            {"tool": tool_name, "duration_ms": duration_ms, "success": False, "error": str(exc)},
+            run_id=run_id,
+        )
         raise
 
 _mcp_server: MCPServerStreamableHTTP | None = None
@@ -80,7 +88,10 @@ async def start_mcp() -> MCPServerStreamableHTTP | None:
                 timeout=_MCP_CONNECT_TIMEOUT,
             )
             _mcp_server = server
-            logger.info("Prometheus MCP connection established (%s)", get_settings().prometheus_mcp_url)
+            logger.info(
+                "Prometheus MCP connection established (%s)",
+                get_settings().prometheus_mcp_url,
+            )
             return server
         except (asyncio.TimeoutError, Exception) as exc:
             try:

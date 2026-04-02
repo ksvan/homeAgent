@@ -166,7 +166,8 @@ class WorldModelProposal(SQLModel, table=True):
     reason: str  # one-sentence explanation from the extractor
     confidence: float = 0.5
     source_run_id: Optional[str] = None  # agent run that spawned this
-    status: str = Field(default="pending", index=True)  # pending | accepted | rejected | auto_applied
+    # pending | accepted | rejected | auto_applied
+    status: str = Field(default="pending", index=True)
     created_at: datetime = Field(default_factory=_now)
     reviewed_at: Optional[datetime] = None
     reviewed_by: Optional[str] = None  # "admin" | "auto"

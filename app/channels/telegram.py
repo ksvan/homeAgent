@@ -173,7 +173,8 @@ class TelegramChannel(Channel):
             save_message_pair(
                 action.user_id,
                 "[User confirmed action via Telegram button]",
-                f"The action '{action.tool_name}' was confirmed by the user and executed successfully. No further confirmation is needed.",
+                f"The action '{action.tool_name}' was confirmed by the user"
+                " and executed successfully. No further confirmation is needed.",
             )
 
             # Schedule state verification
@@ -193,7 +194,8 @@ class TelegramChannel(Channel):
             save_message_pair(
                 action.user_id,
                 "[User confirmed action via Telegram button — action failed]",
-                f"The action '{action.tool_name}' was confirmed by the user but failed to execute. The user has been notified. Do not retry this action automatically.",
+                f"The action '{action.tool_name}' was confirmed by the user but failed to execute."
+                " The user has been notified. Do not retry this action automatically.",
             )
 
     async def _cancel_pending_action(

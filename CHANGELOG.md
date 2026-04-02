@@ -16,7 +16,7 @@ Formatting and dead-code cleanup across the codebase; no behaviour changes.
 
 - **`app/control/api.py`** + **`app/control/dashboard.html`** (new) — Extracted the inline `_ADMIN_HTML` string into a standalone `dashboard.html` file served via `pathlib`; removes ~1 000 lines of HTML from the Python module.
 - **Removed unused imports** — `error_count` variable in `api.py`, `WorldModelSnapshot` in `api.py`, `col` in `commands/handlers.py`, `TERMINAL_STATUSES` in `tasks/service.py`, `field` in `commands/registry.py`.
-- **Ruff formatting** — Line-length wrapping and import ordering applied to `agent.py`, `llm_router.py`, `bot.py`, `homey/mcp_client.py`, `scheduler/jobs.py`, `scheduler/scheduled_prompts.py`, `world/extraction.py`, and several tool files.
+- **Ruff formatting** — Line-length wrapping and import ordering applied across `agent/`, `bot.py`, `channels/telegram.py`, `commands/handlers.py`, `control/api.py`, `homey/mcp_client.py`, `models/world.py`, `prometheus/mcp_client.py`, `scheduler/`, `tasks/service.py`, `tools/mcp_client.py`, `world/extraction.py`, and `world/repository.py`.
 
 ### Improved
 
