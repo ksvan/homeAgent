@@ -8,6 +8,17 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 
 ## Unreleased
 
+### Improved
+
+#### World Model Context Resolution
+
+The agent now actively uses the `## Household Model` section to resolve household references (places, people, devices, aliases, facts) before asking the user for clarification. Previously the world model data was injected into the prompt but the agent lacked explicit instructions to treat it as a first-class resolution source.
+
+- **`prompts/instructions.md`** — New `## Household context resolution` section with explicit resolution order, common household patterns, and low-risk/high-risk behavior rules.
+- **`prompts/persona.md`** — Tightened ambiguity resolution line to name the Household Model as the primary source.
+- **`app/world/formatter.py`** — Added usage-hint line below the `## Household Model` header.
+- **`tests/unit/test_formatter.py`** — Test verifying the usage hint appears in formatted output.
+
 ### Added
 
 #### User-to-Member Identity Linking

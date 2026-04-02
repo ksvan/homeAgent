@@ -1,6 +1,8 @@
 """Unit tests for app.world.formatter — pure formatting logic, no DB needed."""
 from __future__ import annotations
 
+from unittest.mock import patch
+
 from app.models.world import (
     CalendarEntity,
     DeviceEntity,
@@ -20,6 +22,7 @@ from app.world.formatter import (
     _add_places,
     _add_routines,
     _parse_aliases,
+    format_world_model,
 )
 from app.world.repository import WorldModelSnapshot  # noqa: I001
 
@@ -349,6 +352,15 @@ def test_snapshot_is_empty_with_only_interests() -> None:
         )],
     )
     assert snap.is_empty is True
+
+
+@patch("app.world.formatter.WorldModelRepository.get_full_snapshot")
+def test_format_world_model_includes_usage_hint(mock_snapshot: object) -> None:
+    """The formatted output should include a usage-hint line for the LLM."""
+    mock_snapshot.return_value = WorldModelSnapshot(members=[_member()])  # type: ignore[union-attr]
+    result = format_world_model("h1")
+    assert "## Household Model" in result
+    assert "resolve references" in result.lower()
 
 
 def test_snapshot_is_empty_with_facts() -> None:

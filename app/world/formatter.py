@@ -20,7 +20,10 @@ def format_world_model(household_id: str, current_user_id: str | None = None) ->
     if snapshot.is_empty:
         return ""
 
-    sections: list[str] = ["## Household Model"]
+    sections: list[str] = [
+        "## Household Model",
+        "*Use this to resolve references to people, places, devices, and household facts.*",
+    ]
 
     _add_members(sections, snapshot, current_user_id=current_user_id)
     _add_places(sections, snapshot)
