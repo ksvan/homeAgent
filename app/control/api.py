@@ -825,4 +825,8 @@ async def admin_task_action(task_id: str, body: _TaskActionBody) -> dict[str, st
 # Embedded admin UI
 # ---------------------------------------------------------------------------
 
-_ADMIN_HTML = (pathlib.Path(__file__).with_name("dashboard.html")).read_text()
+try:
+    _ADMIN_HTML = (pathlib.Path(__file__).with_name("dashboard.html")).read_text()
+except FileNotFoundError:
+    logger.error("dashboard.html not found next to api.py — admin UI will be unavailable")
+    _ADMIN_HTML = "<html><body><pre>Admin UI unavailable: dashboard.html missing.</pre></body></html>"  # noqa: E501
