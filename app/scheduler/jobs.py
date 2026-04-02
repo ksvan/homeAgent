@@ -163,17 +163,16 @@ async def resume_task(
     """
     APScheduler job — fires when a task's resume_after time arrives.
 
-    Transitions the task back to ACTIVE, runs the agent with task context,
-    and delivers the response to the user.
+    Transitions the task back to ACTIVE, runs the agent with full assembled
+    context via agent_run(), and delivers the response to the user.
     """
     import uuid as _uuid
 
-    from app.agent.agent import run_conversation
+    from app.agent.runner import agent_run, get_user_run_lock
     from app.channels.registry import get_channel
     from app.control.events import emit
     from app.db import users_session
     from app.models.tasks import Task
-    from app.models.users import Household, User
 
     run_id = str(_uuid.uuid4())
     t0 = _time.monotonic()
@@ -190,69 +189,54 @@ async def resume_task(
 
         # Transition back to ACTIVE
         if task.status in ("AWAITING_INPUT", "AWAITING_CONFIRMATION"):
+            from datetime import datetime, timezone
+
             task.status = "ACTIVE"
             task.awaiting_input_hint = None
             task.resume_after = None
-            from datetime import datetime, timezone
             task.updated_at = datetime.now(timezone.utc)
             session.add(task)
             session.commit()
 
-    # Resolve display names
-    user_name = "user"
-    household_name = "the household"
-    try:
-        with users_session() as session:
-            user = session.get(User, user_id)
-            household = session.get(Household, household_id)
-            if user:
-                user_name = user.name
-            if household:
-                household_name = household.name
-    except Exception:
-        pass
-
-    # Build a prompt that references the task
     prompt = (
         f"[Task resume] The scheduled follow-up time has arrived for task {task_id}."
         " Please review the task state and continue or report back to the user."
     )
 
-    channel = get_channel()
-    success = False
-    try:
-        from app.tasks.service import get_active_task_context
-
-        result = await run_conversation(
+    # Use the shared per-user lock so this job doesn't race with an incoming
+    # user message or another background job for the same user.
+    async with get_user_run_lock(user_id):
+        outcome = await agent_run(
             text=prompt,
-            user_name=user_name,
-            household_name=household_name,
-            active_task_text=get_active_task_context(user_id),
             user_id=user_id,
             household_id=household_id,
             channel_user_id=channel_user_id,
             run_id=run_id,
+            trigger="task_resume",
+            save_history=True,
         )
-        response = result.output
-        success = True
-    except Exception:
-        response = "A scheduled task follow-up failed to run. You may want to check on it."
-        logger.error("Task resume failed: task_id=%s", task_id, exc_info=True)
 
     duration_ms = int((_time.monotonic() - t0) * 1000)
     emit(
-        "job.complete" if success else "job.error",
-        {"job": "task_resume", "task_id": task_id, "duration_ms": duration_ms, "success": success},
+        "job.complete" if outcome.success else "job.error",
+        {
+            "job": "task_resume",
+            "task_id": task_id,
+            "duration_ms": duration_ms,
+            "success": outcome.success,
+        },
         run_id=run_id,
     )
 
+    channel = get_channel()
     if channel and channel_user_id:
         try:
-            await channel.send_message(channel_user_id, response)
+            await channel.send_message(channel_user_id, outcome.response)
         except Exception:
             logger.warning(
                 "Could not deliver task resume response: task_id=%s",
-                task_id, exc_info=True,
+                task_id,
+                exc_info=True,
             )
 
 
@@ -304,12 +288,11 @@ async def _fire_scheduled_prompt_inner(
     import uuid as _uuid
     from datetime import datetime, timezone
 
-    from app.agent.agent import run_conversation
+    from app.agent.runner import agent_run, get_user_run_lock
     from app.channels.registry import get_channel
     from app.control.events import emit
     from app.db import users_session
     from app.models.scheduled_prompts import ScheduledPrompt, ScheduledPromptLink
-    from app.models.users import Household, User
     from app.scheduler.delivery import (
         evaluate_postflight,
         evaluate_preflight,
@@ -335,11 +318,13 @@ async def _fire_scheduled_prompt_inner(
         with users_session() as session:
             sp = session.get(ScheduledPrompt, prompt_id)
             if sp:
-                links = list(session.exec(
-                    select(ScheduledPromptLink).where(
-                        col(ScheduledPromptLink.prompt_id) == prompt_id
-                    )
-                ).all())
+                links = list(
+                    session.exec(
+                        select(ScheduledPromptLink).where(
+                            col(ScheduledPromptLink.prompt_id) == prompt_id
+                        )
+                    ).all()
+                )
     except Exception:
         logger.error("Failed to load prompt_id=%s from DB", prompt_id, exc_info=True)
 
@@ -373,30 +358,14 @@ async def _fire_scheduled_prompt_inner(
         emit(
             "proactive.skip",
             {
-                "name": name[:80], "behavior_kind": behavior_kind,
-                "reason": skip_reason, "duration_ms": duration_ms,
+                "name": name[:80],
+                "behavior_kind": behavior_kind,
+                "reason": skip_reason,
+                "duration_ms": duration_ms,
             },
             run_id=run_id,
         )
         return
-
-    # --- Resolve display names ---
-    user_name = "user"
-    household_name = "the household"
-    try:
-        with users_session() as session:
-            user = session.get(User, user_id)
-            household = session.get(Household, household_id)
-            if user:
-                user_name = user.name
-            if household:
-                household_name = household.name
-    except Exception:
-        logger.error(
-            "Scheduled prompt DB lookup failed: prompt_id=%s name=%r", prompt_id, name,
-            exc_info=True,
-        )
-        raise
 
     # --- Build prompt envelope ---
     try:
@@ -405,31 +374,33 @@ async def _fire_scheduled_prompt_inner(
         logger.warning("Envelope build failed — falling back to raw prompt", exc_info=True)
         envelope = prompt_text
 
-    # --- Run the agent ---
-    channel = get_channel()
-    success = False
-    response = ""
-    try:
-        result = await run_conversation(
+    # --- Run the agent with full context assembly ---
+    # Use the shared per-user lock so this job doesn't race with an incoming
+    # user message or another background job for the same user.
+    # save_history=False: proactive outputs don't belong in conversation history.
+    async with get_user_run_lock(user_id):
+        outcome = await agent_run(
             text=envelope,
-            user_name=user_name,
-            household_name=household_name,
             user_id=user_id,
             household_id=household_id,
             channel_user_id=channel_user_id,
             run_id=run_id,
+            trigger="scheduled_prompt",
+            save_history=False,
         )
-        response = result.output
-        success = True
+
+    success = outcome.success
+    response = outcome.response
+    if success:
         logger.info(
             "Scheduled prompt complete: prompt_id=%s name=%r run_id=%s", prompt_id, name, run_id
         )
-    except Exception:
-        response = f"Scheduled prompt '{name}' failed to run."
+    else:
         logger.error(
-            "Scheduled prompt run_conversation failed: prompt_id=%s name=%r",
-            prompt_id, name, exc_info=True,
+            "Scheduled prompt agent_run failed: prompt_id=%s name=%r", prompt_id, name
         )
+
+    channel = get_channel()
 
     duration_ms = int((_time.monotonic() - t0) * 1000)
     finished_at = datetime.now(timezone.utc)

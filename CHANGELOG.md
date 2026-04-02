@@ -8,6 +8,38 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 
 ## Unreleased
 
+### Added
+
+#### Control Loop Phase 1 — Unified Agent Execution Path (runner.py)
+
+Introduces a native control loop layer as the shared execution path for all
+agent entry points: user messages, task resumes, and scheduled prompts.
+
+Previously `resume_task()` and `fire_scheduled_prompt()` called
+`run_conversation()` directly, bypassing context assembly, run logging, and
+background memory tasks. They also had no per-user locking, so a background
+job could race with an inbound user message.
+
+- **`app/agent/runner.py`** (new) — `agent_run()` is the unified execution
+  function: assembles full context via `assemble_context()`, runs the agent
+  with optional retry, emits `run.start` / `run.complete` / `run.error`
+  events, writes `AgentRunLog`, optionally persists the conversation turn
+  (`save_history`), and fires background memory / world-model extraction
+  tasks. `get_user_run_lock(user_id)` provides a shared per-user
+  `asyncio.Lock` that covers all triggers.
+- **`app/bot.py`** — `handle_incoming_message()` now delegates to
+  `agent_run()`. The inline context assembly, retry loop, event emission,
+  run logging, and background tasks are removed. The per-user lock now uses
+  the shared `get_user_run_lock(user_id)` (keyed by user UUID, not
+  telegram_id), so it covers background jobs for the same user.
+- **`app/scheduler/jobs.py`** — `resume_task()` and
+  `_fire_scheduled_prompt_inner()` now call `agent_run()` instead of
+  `run_conversation()` directly. Both acquire `get_user_run_lock` so they
+  cannot run concurrently with a user message or with each other for the
+  same user. Task resumes use `save_history=True`; scheduled prompts use
+  `save_history=False` (proactive outputs are not part of conversation
+  history).
+
 ### Refactored
 
 #### Code Quality Pass
@@ -28,8 +60,6 @@ The agent now actively uses the `## Household Model` section to resolve househol
 - **`prompts/persona.md`** — Tightened ambiguity resolution line to name the Household Model as the primary source.
 - **`app/world/formatter.py`** — Added usage-hint line below the `## Household Model` header.
 - **`tests/unit/test_formatter.py`** — Test verifying the usage hint appears in formatted output.
-
-### Added
 
 #### User-to-Member Identity Linking
 

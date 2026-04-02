@@ -4,18 +4,13 @@ Central message dispatch.
 Called by channel handlers when a new user message arrives. Responsible for:
   1. Allowlist gate (belt-and-suspenders; the channel handler also checks)
   2. User DB lookup / first-visit auto-create
-  3. Context assembly (profiles, conversation history, memories)
-  4. Running the agent and returning the response
-  5. Persisting the message pair after a successful run
-  6. Updating the device state cache from any Homey tool calls made during the run
+  3. Running the agent via agent_run() (context assembly, execution, logging)
+  4. Persisting the text-only message pair for summarization
+  5. Updating the device state cache from any Homey tool calls made during the run
 """
 from __future__ import annotations
 
-import asyncio
-import json
 import logging
-import random
-import uuid
 from collections import defaultdict
 from dataclasses import dataclass
 from time import monotonic
@@ -30,11 +25,6 @@ logger = logging.getLogger(__name__)
 
 # Per-user sliding-window rate limiter (in-memory; resets on restart)
 _user_call_times: dict[int, list[float]] = defaultdict(list)
-
-# Per-user lock — serializes concurrent messages so Q2 waits for Q1 to
-# finish before starting. Prevents out-of-order responses when the LLM
-# is slow and the user sends a follow-up before the first reply arrives.
-_user_locks: dict[int, asyncio.Lock] = {}
 
 
 def _is_rate_limited(telegram_id: int, limit_per_minute: int) -> bool:
@@ -151,327 +141,58 @@ async def handle_incoming_message(
         if cmd_response is not None:
             return cmd_response
 
-    from app.agent.agent import run_conversation
-    from app.agent.context import assemble_context
-    from app.control.events import emit
+    from app.agent.runner import agent_run, get_user_run_lock
+    from app.channels.registry import get_channel
     from app.homey.state_cache import update_snapshots_from_tool_calls
-    from app.memory.conversation import save_conversation_turn, save_message_pair
+    from app.memory.conversation import save_message_pair
+
+    channel_user_id = str(telegram_id)
 
     # Serialize per-user: Q2 waits for Q1 to finish so responses never arrive
     # out of order and context always sees the latest saved history.
-    async with _user_locks.setdefault(telegram_id, asyncio.Lock()):
-        ctx = assemble_context(user.id, user.household_id, text)
-
-        run_id = str(uuid.uuid4())
-        t_start = monotonic()
-
-        # Determine model name for the event (best effort)
-        from app.agent.llm_router import LLMRouter, TaskType
-        from app.config import get_settings as _gs
-        try:
-            model_name = str(LLMRouter(_gs()).get_model(TaskType.CONVERSATION))
-        except Exception:
-            model_name = "unknown"
-
-        ctx_chars = _estimate_context_chars(ctx)
-        emit(
-            "run.start",
-            {
-                "user_name": user.name,
-                "model": model_name,
-                "ctx_chars": ctx_chars,
-                "ctx_tokens": ctx_chars // 4,
-                "msg_count": len(ctx.recent_messages),
-            },
-            run_id=run_id,
-        )
-
-        from pydantic_ai.exceptions import ModelHTTPError
-
-        from app.channels.registry import get_channel
-
-        _MAX_RETRIES = 2
-        _RETRYABLE_STATUS = {429, 500, 502, 503, 504, 529}
-        channel_user_id = str(telegram_id)
-        result = None
-        for attempt in range(_MAX_RETRIES + 1):
-            try:
-                result = await run_conversation(
-                    text,
-                    user_name=user.name,
-                    household_name=user.household_name,
-                    message_history=ctx.recent_messages,
-                    user_profile_text=ctx.user_profile_text,
-                    household_profile_text=ctx.household_profile_text,
-                    world_model_text=ctx.world_model_text,
-                    active_task_text=ctx.active_task_text,
-                    conversation_summary=ctx.conversation_summary,
-                    relevant_memories=ctx.relevant_memories,
-                    user_id=user.id,
-                    household_id=user.household_id,
-                    channel_user_id=channel_user_id,
-                    run_id=run_id,
-                    media=attachments or [],
-                )
-                break
-            except (ModelHTTPError, asyncio.TimeoutError) as exc:
-                is_retryable = (
-                    isinstance(exc, ModelHTTPError) and exc.status_code in _RETRYABLE_STATUS
-                ) or isinstance(exc, asyncio.TimeoutError)
-                if is_retryable and attempt < _MAX_RETRIES:
-                    wait = min(5 * (2 ** attempt) + random.uniform(0, 2), 30)
-                    logger.warning(
-                        "Retryable error on attempt %d for telegram_id=%d (%s) — retrying in %.1fs",
-                        attempt + 1,
-                        telegram_id,
-                        type(exc).__name__,
-                        wait,
-                    )
-                    if attempt == 0:
-                        ch = get_channel()
-                        if ch:
-                            try:
-                                await ch.send_message(
-                                    channel_user_id, "One moment — retrying shortly.",
-                                )
-                            except Exception:
-                                pass
-                    await asyncio.sleep(wait)
-                    continue
-                duration_ms = int((monotonic() - t_start) * 1000)
-                logger.exception("Agent run failed for telegram_id=%d", telegram_id)
-                emit(
-                    "run.error",
-                    {"error": "Agent run failed", "duration_ms": duration_ms},
-                    run_id=run_id,
-                )
-                return "Sorry, something went wrong. Please try again in a moment."
-            except Exception:
-                duration_ms = int((monotonic() - t_start) * 1000)
-                logger.exception("Agent run failed for telegram_id=%d", telegram_id)
-                emit(
-                    "run.error",
-                    {"error": "Agent run failed", "duration_ms": duration_ms},
-                    run_id=run_id,
-                )
-                return "Sorry, something went wrong. Please try again in a moment."
-
-        if result is None:
-            return "Sorry, something went wrong. Please try again in a moment."
-
-        duration_ms = int((monotonic() - t_start) * 1000)
-        response = str(result.output)
-
-        # Extract tool calls from message history for logging + events
-        from pydantic_ai.messages import ModelResponse, ToolCallPart
-
-        tools_called_list: list[dict[str, object]] = []
-        for msg in result.new_messages():
-            if isinstance(msg, ModelResponse):
-                for part in msg.parts:
-                    if isinstance(part, ToolCallPart):
-                        try:
-                            args: dict[str, object] = part.args_as_dict()
-                        except Exception:
-                            args = {}
-                        tools_called_list.append({"tool": part.tool_name, "args": args})
-
-        # Emit run complete
-        usage = result.usage()
-        input_tokens = usage.request_tokens or 0
-        output_tokens = usage.response_tokens or 0
-        if input_tokens > settings.token_cost_warn_threshold:
-            logger.warning(
-                "High token usage: input_tokens=%d (threshold=%d) telegram_id=%d",
-                input_tokens,
-                settings.token_cost_warn_threshold,
-                telegram_id,
-            )
-            emit("run.token_warning", {"input_tokens": input_tokens}, run_id=run_id)
-        emit(
-            "run.complete",
-            {
-                "duration_ms": duration_ms,
-                "input_tokens": input_tokens,
-                "output_tokens": output_tokens,
-                "tool_count": len(tools_called_list),
-                "tools": [str(t["tool"]) for t in tools_called_list],
-            },
-            run_id=run_id,
-        )
-
-        # Write AgentRunLog
+    # get_user_run_lock is keyed by user_id and shared with background jobs.
+    async with get_user_run_lock(user.id):
         _media_list = attachments or []
-        _input_summary = text or ""
-        if _media_list:
-            _input_summary += " " + " ".join(f"[{a.mime_type}]" for a in _media_list)
-        _write_run_log(
-            household_id=user.household_id,
+
+        async def _on_retry(attempt: int) -> None:
+            if attempt == 0:
+                ch = get_channel()
+                if ch:
+                    try:
+                        await ch.send_message(
+                            channel_user_id, "One moment — retrying shortly."
+                        )
+                    except Exception:
+                        pass
+
+        outcome = await agent_run(
+            text=text,
             user_id=user.id,
-            model_used=model_name,
-            input_summary=_input_summary[:200],
-            output_summary=response[:200],
-            tools_called=tools_called_list,
-            duration_ms=duration_ms,
-            input_tokens=input_tokens,
-            output_tokens=output_tokens,
+            household_id=user.household_id,
+            channel_user_id=channel_user_id,
+            trigger="user_message",
+            user_name=user.name,
+            household_name=user.household_name,
+            media=_media_list,
+            save_history=True,
+            retries=2,
+            on_retry=_on_retry,
         )
 
-        # Persist messages and update state cache from any Homey tool calls
-        new_messages = list(result.new_messages())
-        # Strip binary content before persistence — images/audio are large and
-        # don't need to be re-sent in future conversation history.
-        new_messages = _strip_binary_from_messages(new_messages)
-        # Build text label for summarisation (caption or media type description if no text)
+        if not outcome.success:
+            return outcome.response
+
+        # Persist text-only message pair for summarization.
+        # Build a text label that captures media types when there is no text.
         if not text and _media_list:
             media_label = ", ".join(f"[{a.mime_type.split('/')[0]}]" for a in _media_list)
         else:
             media_label = text
-        save_message_pair(user.id, media_label, response)  # text-only, used for summarization
-        save_conversation_turn(user.id, new_messages)  # full tool-call history for LLM context
-        update_snapshots_from_tool_calls(user.household_id, new_messages)
+        save_message_pair(user.id, media_label, outcome.response)
 
-        # Background memory tasks — fire-and-forget, never block the response
-        from app.memory.conversation import maybe_summarize_conversation
-        from app.memory.extraction import extract_and_store_memories
+        # Update Homey device state cache from tool calls made during this run.
+        update_snapshots_from_tool_calls(user.household_id, outcome.new_messages)
 
-        def _task_done(label: str):  # noqa: ANN202
-            def _cb(fut: asyncio.Future) -> None:  # type: ignore[type-arg]
-                if not fut.cancelled() and (exc := fut.exception()):
-                    logger.error("Background task %r failed: %s", label, exc, exc_info=exc)
-                    from app.control.events import emit as _emit
-                    _emit("run.background_error", {
-                        "task": label, "error": str(exc),
-                    }, run_id=run_id)
-            return _cb
-
-        asyncio.ensure_future(
-            extract_and_store_memories(
-                household_id=user.household_id,
-                user_id=user.id,
-                run_id=run_id,
-                new_messages=new_messages,
-            )
-        ).add_done_callback(_task_done("extract_memories"))
-        asyncio.ensure_future(
-            maybe_summarize_conversation(user.id)
-        ).add_done_callback(_task_done("summarize_conversation"))
-
-        if get_settings().features.world_model_proposals:
-            from app.world.extraction import extract_and_propose_world_updates
-
-            asyncio.ensure_future(
-                extract_and_propose_world_updates(
-                    household_id=user.household_id,
-                    user_id=user.id,
-                    run_id=run_id,
-                    new_messages=new_messages,
-                    world_model_text=ctx.world_model_text,
-                )
-            ).add_done_callback(_task_done("world_model_extraction"))
-
-        return response
+        return outcome.response
 
 
-def _strip_binary_from_messages(messages: list) -> list:
-    """
-    Replace BinaryContent parts in UserPromptPart with text descriptors.
-    Prevents base64 image/audio data from being stored in ConversationTurn rows.
-    """
-    from pydantic_ai import BinaryContent
-    from pydantic_ai.messages import ModelRequest, UserPromptPart
-
-    result = []
-    for msg in messages:
-        if not isinstance(msg, ModelRequest):
-            result.append(msg)
-            continue
-        new_parts = []
-        for part in msg.parts:
-            if not isinstance(part, UserPromptPart):
-                new_parts.append(part)
-                continue
-            content = part.content
-            if isinstance(content, str):
-                new_parts.append(part)
-                continue
-            # content is a list — replace BinaryContent with text descriptors
-            new_content: list = []
-            for item in content:
-                if isinstance(item, BinaryContent):
-                    new_content.append(f"[{item.media_type} attached]")
-                else:
-                    new_content.append(item)
-            # If the list collapsed to a single string, unwrap it
-            if len(new_content) == 1 and isinstance(new_content[0], str):
-                new_parts.append(UserPromptPart(content=new_content[0], timestamp=part.timestamp))
-            else:
-                new_parts.append(UserPromptPart(content=new_content, timestamp=part.timestamp))
-        result.append(ModelRequest(parts=new_parts))
-    return result
-
-
-def _write_run_log(
-    *,
-    household_id: str,
-    user_id: str,
-    model_used: str,
-    input_summary: str,
-    output_summary: str,
-    tools_called: list[dict[str, object]],
-    duration_ms: int,
-    input_tokens: int,
-    output_tokens: int,
-) -> None:
-    try:
-        from app.db import cache_session
-        from app.models.cache import AgentRunLog
-
-        with cache_session() as session:
-            log = AgentRunLog(
-                household_id=household_id,
-                user_id=user_id,
-                model_used=model_used,
-                input_summary=input_summary,
-                output_summary=output_summary,
-                tools_called=json.dumps(tools_called),
-                duration_ms=duration_ms,
-                tokens_used=json.dumps({"input": input_tokens, "output": output_tokens}),
-            )
-            session.add(log)
-            session.commit()
-    except Exception:
-        logger.warning("Failed to write AgentRunLog", exc_info=True)
-
-
-def _estimate_context_chars(ctx: object) -> int:
-    """Rough character count of all context fed into the agent for this run."""
-    from app.agent.context import AgentContext
-
-    if not isinstance(ctx, AgentContext):
-        return 0
-
-    from app.agent.prompts import load_instructions, load_persona
-    from app.config import get_settings
-
-    settings = get_settings()
-    prompt_vars: dict[str, str] = {
-        "agent_name": settings.agent_name,
-        "household_name": "",
-        "current_date": "",
-        "current_time": "",
-        "timezone": settings.household_timezone,
-    }
-
-    total = len(load_persona(prompt_vars)) + len(load_instructions(prompt_vars))
-    total += len(ctx.user_profile_text)
-    total += len(ctx.household_profile_text)
-    total += len(getattr(ctx, "world_model_text", "") or "")
-    total += len(getattr(ctx, "active_task_text", "") or "")
-    total += len(ctx.conversation_summary or "")
-    total += sum(len(m) for m in ctx.relevant_memories)
-    for msg in ctx.recent_messages:
-        for part in msg.parts:
-            if hasattr(part, "content"):
-                total += len(str(part.content))
-    return total
