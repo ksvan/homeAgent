@@ -39,7 +39,7 @@ def assemble_context(
 
     user_profile = get_user_profile(user_id)
     household_profile = get_household_profile(household_id)
-    world_model_text = format_world_model(household_id)
+    world_model_text = format_world_model(household_id, current_user_id=user_id)
     active_task_text = get_active_task_context(user_id)
     recent_messages = load_recent_messages(user_id)
     conversation_summary = get_conversation_summary(user_id)

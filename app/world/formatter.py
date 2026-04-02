@@ -11,7 +11,7 @@ from app.world.repository import WorldModelRepository, WorldModelSnapshot
 logger = logging.getLogger(__name__)
 
 
-def format_world_model(household_id: str) -> str:
+def format_world_model(household_id: str, current_user_id: str | None = None) -> str:
     """Return a compact ``## Household Model`` section for the system prompt.
 
     Returns an empty string if the world model has no data.
@@ -22,7 +22,7 @@ def format_world_model(household_id: str) -> str:
 
     sections: list[str] = ["## Household Model"]
 
-    _add_members(sections, snapshot)
+    _add_members(sections, snapshot, current_user_id=current_user_id)
     _add_places(sections, snapshot)
     _add_devices(sections, snapshot)
     _add_calendars(sections, snapshot)
@@ -37,7 +37,11 @@ def format_world_model(household_id: str) -> str:
 # ---------------------------------------------------------------------------
 
 
-def _add_members(sections: list[str], snap: WorldModelSnapshot) -> None:
+def _add_members(
+    sections: list[str],
+    snap: WorldModelSnapshot,
+    current_user_id: str | None = None,
+) -> None:
     if not snap.members:
         return
 
@@ -62,7 +66,8 @@ def _add_members(sections: list[str], snap: WorldModelSnapshot) -> None:
     for m in snap.members:
         aliases = _parse_aliases(m.aliases_json)
         alias_str = f" (aka {', '.join(aliases)})" if aliases else ""
-        sections.append(f"- {m.name} ({m.role}){alias_str}")
+        speaking = " \u2190 speaking" if (current_user_id and m.user_id == current_user_id) else ""
+        sections.append(f"- {m.name} ({m.role}){alias_str}{speaking}")
 
         if m.id in interests_by_member:
             sections.append(f"  - interests: {', '.join(interests_by_member[m.id])}")

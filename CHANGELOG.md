@@ -10,6 +10,17 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 
 ### Added
 
+#### User-to-Member Identity Linking
+
+The agent now knows which household member it is speaking with. The `HouseholdMember.user_id` FK (already present in the DB) is used at runtime to mark the active speaker in the world model and inject the user's name directly into the system prompt.
+
+- **`app/world/formatter.py`** — `format_world_model()` accepts optional `current_user_id`; the matching member is annotated with `← speaking` in the `## Household Model` section.
+- **`app/agent/context.py`** — passes `user_id` to `format_world_model()` on every request.
+- **`app/agent/agent.py`** — `user_name` added to persona template variables.
+- **`prompts/persona.md`** — "You are currently speaking with {user_name}." added as the second line of the identity block.
+
+No migration required.
+
 #### Proactive Scheduled Behaviour
 
 Evolves the existing scheduled-prompt system into a structured proactive behaviour layer with delivery suppression, run history, world-model entity linking, and enhanced admin visibility.

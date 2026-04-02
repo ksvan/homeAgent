@@ -75,6 +75,7 @@ def _make_conversation_agent() -> Agent[AgentDeps, str]:
         vars_: dict[str, str] = {
             "agent_name": d.agent_name,
             "household_name": d.household_name,
+            "user_name": d.user_name,
             "current_date": d.current_date,
             "current_time": d.current_time,
             "timezone": d.timezone,
