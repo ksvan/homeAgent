@@ -97,6 +97,18 @@ def _get_or_create_user(telegram_id: int) -> _UserInfo:
         session.refresh(new_user)
         logger.info("New user created (telegram_id=%d)", telegram_id)
 
+        # Immediately link the new user to a HouseholdMember so the world
+        # model can mark them as the current speaker without waiting for
+        # the next startup bootstrap.
+        from app.world.repository import WorldModelRepository
+        WorldModelRepository.upsert_member(
+            household.id,
+            user_id=new_user.id,
+            name=new_user.name,
+            role="admin" if new_user.is_admin else "member",
+            source="migration_seed",
+        )
+
         return _UserInfo(
             id=new_user.id,
             name=new_user.name,
