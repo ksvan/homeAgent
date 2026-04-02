@@ -1047,12 +1047,12 @@ async function connectSSE() {
       const {done, value} = await reader.read();
       if (done) break;
       buf += dec.decode(value, {stream: true});
-      const parts = buf.split('\\n\\n');
+      const parts = buf.split('\n\n');
       buf = parts.pop();
       for (const part of parts) {
         if (!part.trim() || part.startsWith(':')) continue;
         let evType = 'message', data = '';
-        for (const line of part.split('\\n')) {
+        for (const line of part.split('\n')) {
           if (line.startsWith('event: ')) evType = line.slice(7);
           else if (line.startsWith('data: ')) data = line.slice(6);
         }
