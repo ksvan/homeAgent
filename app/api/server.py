@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import logging
 from contextlib import asynccontextmanager
 from typing import AsyncGenerator
@@ -83,12 +84,24 @@ async def _lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     app.state.telegram_channel = channel
     logger.info("Telegram webhook channel initialised")
 
+    # Start inbound event dispatcher (Phase 2 control loop)
+    _dispatcher_task: asyncio.Task | None = None  # type: ignore[type-arg]
+    if settings.event_dispatcher_enabled:
+        from app.control.dispatcher import run_event_dispatcher
+
+        _dispatcher_task = asyncio.create_task(run_event_dispatcher())
+
     yield
 
     # Signal admin SSE streams to close before uvicorn drains connections.
     from app.control.api import signal_stream_shutdown
 
     signal_stream_shutdown()
+
+    if _dispatcher_task is not None:
+        _dispatcher_task.cancel()
+        with contextlib.suppress(asyncio.CancelledError):
+            await _dispatcher_task
 
     await channel.shutdown()
     logger.info("Telegram webhook channel shut down")

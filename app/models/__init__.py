@@ -1,5 +1,6 @@
 # Import all SQLModel table classes so Alembic can discover them via target_metadata.
 from app.models.cache import AgentRunLog, DeviceSnapshot, EventLog, PendingAction
+from app.models.events import EventRule
 from app.models.memory import (
     ConversationMessage,
     ConversationSummary,
@@ -57,4 +58,5 @@ __all__ = [
     "Relationship",
     "WorldFact",
     "WorldModelProposal",
+    "EventRule",
 ]

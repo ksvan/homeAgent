@@ -822,6 +822,43 @@ async def admin_task_action(task_id: str, body: _TaskActionBody) -> dict[str, st
 
 
 # ---------------------------------------------------------------------------
+# Event rules
+# ---------------------------------------------------------------------------
+
+
+@router.get("/event-rules", dependencies=_auth)
+async def admin_event_rules() -> dict[str, Any]:
+    """List all EventRule records for the household."""
+    from sqlmodel import select
+
+    from app.db import users_session
+    from app.models.events import EventRule
+
+    with users_session() as session:
+        rules = session.exec(select(EventRule).order_by(EventRule.created_at.desc())).all()
+
+    return {
+        "rules": [
+            {
+                "id": r.id,
+                "name": r.name,
+                "source": r.source,
+                "event_type": r.event_type,
+                "entity_id": r.entity_id,
+                "capability": r.capability,
+                "value_filter_json": r.value_filter_json,
+                "condition_json": r.condition_json,
+                "cooldown_minutes": r.cooldown_minutes,
+                "prompt_template": r.prompt_template,
+                "enabled": r.enabled,
+                "created_at": r.created_at.isoformat(),
+            }
+            for r in rules
+        ]
+    }
+
+
+# ---------------------------------------------------------------------------
 # Embedded admin UI
 # ---------------------------------------------------------------------------
 

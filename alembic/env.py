@@ -50,7 +50,7 @@ DATABASES: dict[str, set[str]] = {
         "household", "user", "channelmapping", "task", "actionpolicy",
         "householdmember", "memberinterest", "membergoal", "memberactivity",
         "place", "deviceentity", "calendarentity", "routineentity",
-        "relationship", "worldfact",
+        "relationship", "worldfact", "eventrule",
     },
     "memory": {
         "userprofile",

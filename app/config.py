@@ -111,6 +111,10 @@ class Settings(BaseSettings):
     homey_poll_interval_seconds: int = 300
     homey_verify_delay_seconds: int = 2
     homey_tool_timeout_secs: int = 15
+    # Inbound event webhook — shared secret for POST /webhook/homey/event
+    homey_webhook_secret: str = ""
+    # Feature flag — set to false to disable the event dispatcher entirely
+    event_dispatcher_enabled: bool = True
 
     # ------------------------------------------------------------------
     # Prometheus MCP  (services/prometheus-mcp/ — read-only metrics)
