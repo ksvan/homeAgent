@@ -68,6 +68,7 @@ async def agent_run(
     save_history: bool = False,
     retries: int = 0,
     on_retry: Callable[[int], Awaitable[None]] | None = None,
+    control_task_id: str | None = None,
 ) -> RunOutcome:
     """
     Core agent execution function used by all entry points.
@@ -171,6 +172,7 @@ async def agent_run(
                 household_id=household_id,
                 channel_user_id=channel_user_id,
                 run_id=run_id,
+                control_task_id=control_task_id or "",
                 media=media or [],
             )
             response = str(result.output)

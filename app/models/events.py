@@ -49,9 +49,19 @@ class EventRule(SQLModel, table=True):
     # {capability}, {value}, {zone}, {time} interpolation
     prompt_template: str
 
+    # --- Control loop ---
+    # "notify_only" = wake agent once (Phase 2 behaviour, default)
+    # "task_loop"   = resolve or create a durable control Task; keep events correlated
+    run_mode: str = "notify_only"
+    # Task kind when creating a control task; None = "track"
+    task_kind_default: Optional[str] = None
+    # Correlation key template; None = "rule:{rule_id}:entity:{entity_id}"
+    correlation_key_tpl: Optional[str] = None
+
     enabled: bool = True
     created_at: datetime = Field(default_factory=_now)
     updated_at: datetime = Field(default_factory=_now)
 
-    # --- Runtime state (not persisted across restarts — in-memory cooldown) ---
-    # last_triggered_at is tracked in-memory by the dispatcher, not here.
+    # Persisted cooldown timestamp — survives restarts.
+    # The dispatcher also caches this in-memory for fast checks.
+    last_triggered_at: Optional[datetime] = None

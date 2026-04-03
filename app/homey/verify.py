@@ -11,10 +11,14 @@ async def verify_after_write(
     channel_user_id: str,
     tool_name: str,
     tool_args: dict[str, object],
+    control_task_id: str | None = None,
 ) -> None:
     """
     Wait a short delay, then read back the device state to confirm the write
     succeeded.  Reports a mismatch to the user via the active channel.
+
+    Also emits an internal verify_result InboundEvent so the control loop can
+    advance task state (Phase 3b).
 
     Called as a fire-and-forget asyncio task after a write tool call.
     """
@@ -54,12 +58,41 @@ async def verify_after_write(
             result_text,
         )
 
+        # Emit internal verify_result so the control loop can advance task state
+        from app.control.internal_events import emit_verify_result
+
+        emit_verify_result(
+            household_id=household_id,
+            device_id=device_id,
+            capability=capability,
+            expected=expected_value,
+            observed=result_text,
+            ok=True,
+            control_task_id=control_task_id,
+        )
+
     except Exception:
         # If the read-back fails, warn the user
         logger.warning(
             "Verify read-back failed for %s/%s", device_id, capability, exc_info=True
         )
         _notify_verify_failure(channel_user_id, device_id, capability)
+
+        # Emit failure result so the loop knows verification didn't complete
+        try:
+            from app.control.internal_events import emit_verify_result
+
+            emit_verify_result(
+                household_id=household_id,
+                device_id=device_id,
+                capability=capability,
+                expected=expected_value,
+                observed="",
+                ok=False,
+                control_task_id=control_task_id,
+            )
+        except Exception:
+            pass
 
 
 def _notify_verify_failure(channel_user_id: str, device_id: str, capability: str) -> None:

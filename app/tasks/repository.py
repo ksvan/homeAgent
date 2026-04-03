@@ -77,6 +77,20 @@ class TaskRepository:
                 ).all()
             )
 
+    def find_active_by_correlation_key(
+        self, household_id: str, correlation_key: str
+    ) -> Task | None:
+        """Return the first active Task whose control context matches the given key."""
+        tasks = self.get_active_tasks_for_household(household_id)
+        for task in tasks:
+            try:
+                ctx = json.loads(task.context or "{}")
+                if ctx.get("control", {}).get("correlation_key") == correlation_key:
+                    return task
+            except (json.JSONDecodeError, AttributeError):
+                continue
+        return None
+
     def get_active_tasks_for_household(self, household_id: str) -> list[Task]:
         with users_session() as session:
             return list(

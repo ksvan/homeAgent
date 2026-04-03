@@ -95,20 +95,36 @@ async def _dispatch(event: InboundEvent) -> None:
         # Update cooldown timestamp before spawning so rapid re-fires are
         # suppressed even if the agent task takes a while to start.
         _rule_last_triggered[rule.id] = datetime.now(timezone.utc)
+        _persist_last_triggered(rule.id)
 
-        text = _build_prompt_envelope(event, rule)
+        # 6. For task_loop rules, resolve or create a durable control task.
+        task_id: str | None = None
+        if getattr(rule, "run_mode", "notify_only") == "task_loop":
+            try:
+                from app.control.loop_service import resolve_or_create_control_task
+                task_id = resolve_or_create_control_task(event, rule)
+            except Exception:
+                logger.warning(
+                    "Failed to resolve control task for rule %s — falling back to notify_only",
+                    rule.id,
+                    exc_info=True,
+                )
+
+        text = _build_prompt_envelope(event, rule, task_id=task_id)
         emit("event.triggered", {
             "rule_id": rule.id,
             "rule_name": rule.name,
             "entity_id": event.entity_id,
         })
 
-        # 6. Fire agent_run() as a background task so the dispatch loop
+        # 7. Fire agent_run() as a background task so the dispatch loop
         #    continues draining events immediately.
-        _schedule_agent_run(text, rule, event)
+        _schedule_agent_run(text, rule, event, task_id=task_id)
 
 
-def _schedule_agent_run(text: str, rule: object, event: InboundEvent) -> None:
+def _schedule_agent_run(
+    text: str, rule: object, event: InboundEvent, task_id: str | None = None
+) -> None:
     """Spawn a background task that acquires the per-user lock and calls agent_run()."""
     from app.agent.runner import agent_run, get_user_run_lock
 
@@ -121,6 +137,7 @@ def _schedule_agent_run(text: str, rule: object, event: InboundEvent) -> None:
                 channel_user_id=rule.channel_user_id,  # type: ignore[attr-defined]
                 trigger="event",
                 save_history=False,
+                control_task_id=task_id,
             )
 
     def _on_done(fut: asyncio.Future) -> None:  # type: ignore[type-arg]
@@ -193,9 +210,36 @@ async def _load_matching_rules(event: InboundEvent) -> list:
 def _is_on_cooldown(rule: object) -> bool:
     last = _rule_last_triggered.get(rule.id)  # type: ignore[attr-defined]
     if last is None:
+        # Fall back to DB-persisted timestamp so cooldown survives restarts.
+        from app.models.events import EventRule
+        if isinstance(rule, EventRule) and rule.last_triggered_at is not None:
+            last = rule.last_triggered_at
+    if last is None:
         return False
+    # SQLite may return timezone-naive datetimes; normalise to UTC.
+    if last.tzinfo is None:
+        last = last.replace(tzinfo=timezone.utc)
     elapsed = datetime.now(timezone.utc) - last
     return elapsed < timedelta(minutes=rule.cooldown_minutes)  # type: ignore[attr-defined]
+
+
+def _persist_last_triggered(rule_id: str) -> None:
+    """Write last_triggered_at to the DB for cooldown persistence across restarts."""
+    try:
+        from app.db import users_session
+        from app.models.events import EventRule
+
+        now = datetime.now(timezone.utc)
+        with users_session() as session:
+            rule_row = session.get(EventRule, rule_id)
+            if rule_row is not None:
+                rule_row.last_triggered_at = now
+                session.add(rule_row)
+                session.commit()
+    except Exception:
+        logger.warning(
+            "Failed to persist last_triggered_at for rule %s", rule_id, exc_info=True
+        )
 
 
 def _in_quiet_hours(rule: object) -> bool:
@@ -249,7 +293,9 @@ def _matches_value_filter(event: InboundEvent, rule: object) -> bool:
     return True
 
 
-def _build_prompt_envelope(event: InboundEvent, rule: object) -> str:
+def _build_prompt_envelope(
+    event: InboundEvent, rule: object, task_id: str | None = None
+) -> str:
     """Build the structured text passed to agent_run() for an event-triggered run."""
     now_str = datetime.now(timezone.utc).strftime("%H:%M UTC")
     entity_name = event.payload.get("entity_name", event.entity_id)
@@ -269,6 +315,7 @@ def _build_prompt_envelope(event: InboundEvent, rule: object) -> str:
 
     zone_line = f"\n- zone: {zone}" if zone else ""
     cap_line = f"\n- capability: {capability} → {value}" if capability else ""
+    task_id_line = f"\n- control_task_id: {task_id}" if task_id else ""
 
     return (
         f"## Event Trigger\n"
@@ -277,7 +324,8 @@ def _build_prompt_envelope(event: InboundEvent, rule: object) -> str:
         f"- entity: {entity_name} ({event.entity_id})"
         f"{cap_line}"
         f"{zone_line}\n"
-        f"- time: {now_str}\n\n"
+        f"- time: {now_str}"
+        f"{task_id_line}\n\n"
         f"## Rule\n"
         f"{rule.name}\n\n"  # type: ignore[attr-defined]
         f"## Task\n"

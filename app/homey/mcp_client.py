@@ -123,8 +123,15 @@ async def _policy_process_tool_call(
             if channel_user_id and household_id:
                 from app.homey.verify import verify_after_write
 
+                _control_task_id: str | None = getattr(ctx.deps, "control_task_id", None) or None
                 asyncio.ensure_future(
-                    verify_after_write(household_id, channel_user_id, tool_name, tool_args)
+                    verify_after_write(
+                        household_id,
+                        channel_user_id,
+                        tool_name,
+                        tool_args,
+                        control_task_id=_control_task_id,
+                    )
                 )
 
         # Truncate large tool results to stay within per-minute token rate limits

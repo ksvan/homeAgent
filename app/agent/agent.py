@@ -36,6 +36,8 @@ class AgentDeps:
     channel_user_id: str = ""
     # control plane — run identifier threaded through tool callbacks
     run_id: str = ""
+    # Phase 3b: control task for the current event-driven run (if any)
+    control_task_id: str = ""
 
 
 def _make_conversation_agent() -> Agent[AgentDeps, str]:
@@ -163,6 +165,7 @@ async def run_conversation(
     household_id: str = "",
     channel_user_id: str = "",
     run_id: str = "",
+    control_task_id: str = "",
     media: list | None = None,
 ) -> AgentRunResult[str]:
     """
@@ -205,6 +208,7 @@ async def run_conversation(
         household_id=household_id,
         channel_user_id=channel_user_id,
         run_id=run_id,
+        control_task_id=control_task_id,
     )
 
     agent = get_conversation_agent()

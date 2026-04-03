@@ -14,6 +14,38 @@ from app.config import get_settings
 logger = logging.getLogger(__name__)
 
 _MAX_MEDIA_BYTES = 10 * 1024 * 1024  # 10 MB
+_TG_MAX_CHARS = 4096  # Telegram sendMessage hard limit
+
+
+def _split_message(text: str) -> list[str]:
+    """Split text into chunks that fit within Telegram's 4096-char limit.
+
+    Tries to break on paragraph boundaries, then line boundaries,
+    then hard-cuts as a last resort.
+    """
+    if len(text) <= _TG_MAX_CHARS:
+        return [text]
+
+    chunks: list[str] = []
+    remaining = text
+    while remaining:
+        if len(remaining) <= _TG_MAX_CHARS:
+            chunks.append(remaining)
+            break
+        # Prefer paragraph break
+        cut = remaining.rfind("\n\n", 0, _TG_MAX_CHARS)
+        if cut == -1:
+            # Fall back to single newline
+            cut = remaining.rfind("\n", 0, _TG_MAX_CHARS)
+        if cut == -1:
+            # Hard cut
+            cut = _TG_MAX_CHARS
+        else:
+            cut += 1  # keep the newline with the preceding chunk
+        chunks.append(remaining[:cut].rstrip())
+        remaining = remaining[cut:].lstrip()
+
+    return [c for c in chunks if c]
 
 # Callback type: (telegram_id, text, attachments) → response string or None
 MessageCallback = Callable[[int, str, list[MediaAttachment]], Awaitable[str | None]]
@@ -55,7 +87,8 @@ class TelegramChannel(Channel):
 
         response = await self._on_message(telegram_id, text, [])
         if response:
-            await update.message.reply_text(response)
+            for chunk in _split_message(response):
+                await update.message.reply_text(chunk)
 
     async def _handle_media(self, update: Update, context: object) -> None:
         if not update.effective_user or not update.message:
@@ -108,7 +141,8 @@ class TelegramChannel(Channel):
         )
         response = await self._on_message(telegram_id, caption, attachments)
         if response:
-            await msg.reply_text(response)
+            for chunk in _split_message(response):
+                await msg.reply_text(chunk)
 
     async def _handle_callback_query(self, update: Update, _context: object) -> None:
         """Handle Yes/No confirmation button presses from the Policy Gate."""
@@ -236,7 +270,8 @@ class TelegramChannel(Channel):
     # ------------------------------------------------------------------
 
     async def send_message(self, channel_user_id: str, text: str) -> None:
-        await self._app.bot.send_message(chat_id=int(channel_user_id), text=text)
+        for chunk in _split_message(text):
+            await self._app.bot.send_message(chat_id=int(channel_user_id), text=chunk)
 
     async def send_confirmation_prompt(
         self,
