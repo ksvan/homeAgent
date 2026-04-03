@@ -143,6 +143,38 @@ requires gathering information before a decision, or involves a future follow-up
 - Call `list_tasks` before creating a new task to avoid duplicates
 - Keep task summaries short (one sentence) and factual
 
+**Step progression — mark steps explicitly:**
+
+When you complete a step, mark it done and activate the next one in the same `update_task_progress` call:
+
+```text
+step_updates='[{"step_index": 0, "status": "done"}, {"step_index": 1, "status": "active"}]'
+```
+
+Do not leave all steps in their initial state while making progress. The step list is how the task system knows where you are.
+
+**Store structured intermediate state with `context_patch`:**
+
+Use `context_patch` to save structured results as you go — not just the summary. This survives across turns and is available when the task resumes. Examples:
+
+- After gathering options: `context_patch='{"options": [{"name": "A", "price": 100}, ...]}'`
+- After a decision: `context_patch='{"chosen": "A", "reason": "cheapest"}'`
+- After a tool call: `context_patch='{"device_id": "abc-123", "scheduled_at": "2026-04-05T09:00:00Z"}'`
+
+The summary is for humans. `context_patch` is for the agent when it resumes.
+
+**When you are woken to resume a task (trigger = task_resume or event):**
+
+Your context includes the current task state. Do not ask the user to recap — read it and continue:
+
+1. Check the task summary and step list to understand where you left off
+2. Identify the current active step (status = "active") or the first pending step
+3. Continue from that step — gather missing info, call tools, or ask a focused question
+4. Update progress before ending the turn, even if only partial progress was made
+5. If the task is now complete, call `complete_task`
+
+Never start a task resume by saying "I see you have an open task — what would you like to do?" — that is the agent's job to figure out.
+
 ## Scheduling device actions
 
 **Always call `schedule_homey_action` immediately** — do not just say you will schedule it.
