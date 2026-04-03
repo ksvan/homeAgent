@@ -160,6 +160,95 @@ Admin commands:
 
 ---
 
+## Homey Event Webhook
+
+HomeAgent can receive events pushed from Homey Advanced Flows and react to them autonomously — for example, alerting when motion is detected after midnight, or notifying when a door is left open.
+
+### 1. Configure a shared secret
+
+Add to `.env`:
+
+```env
+HOMEY_WEBHOOK_SECRET=<generate with: python -c "import secrets; print(secrets.token_hex(32))">
+```
+
+### 2. Create an EventRule
+
+Insert a row directly into `data/db/users.db` (or via the admin API once a UI is added):
+
+```sql
+INSERT INTO eventrule (
+  id, household_id, user_id, channel_user_id,
+  name, source, event_type, entity_id, capability,
+  value_filter_json, condition_json, cooldown_minutes,
+  prompt_template, enabled, created_at, updated_at
+) VALUES (
+  hex(randomblob(16)),
+  '<your-household-id>',
+  '<your-user-id>',
+  '<your-telegram-id>',
+  'Motion alert after 22:00',
+  'homey',
+  'device_state_change',
+  '<homey-device-uuid>',
+  'alarm_motion',
+  '{"eq": true}',
+  '{"quiet_hours_start": "07:00", "quiet_hours_end": "22:00"}',
+  10,
+  'Motion detected in {zone} at {time}. Is anyone expected home?',
+  1,
+  datetime('now'), datetime('now')
+);
+```
+
+Fields:
+
+| Field | Description |
+| --- | --- |
+| `event_type` | `device_state_change` or `flow_trigger` |
+| `entity_id` | Homey device UUID, or `*` for any device |
+| `capability` | Capability name to match (e.g. `alarm_motion`), or omit for any |
+| `value_filter_json` | Optional: `{"eq": true}`, `{"gt": 22.5}`, `{"ne": null}` |
+| `condition_json` | Optional: `{"quiet_hours_start": "HH:MM", "quiet_hours_end": "HH:MM"}` |
+| `cooldown_minutes` | Minimum minutes between agent triggers for this rule (default 5) |
+| `prompt_template` | Sent to the agent; supports `{entity_name}`, `{capability}`, `{value}`, `{zone}`, `{time}` |
+
+### 3. Create a Homey Advanced Flow
+
+1. Add a trigger card for the device/capability you want to react to
+2. Add an action card: **HTTP request → POST**
+3. URL: `http://<homeagent-lan-ip>:8080/webhook/homey/event`
+4. Header: `X-Homey-Secret: <your-secret>`
+5. Body (JSON):
+
+```json
+{
+  "event_type": "device_state_change",
+  "entity_id": "{{device.id}}",
+  "entity_name": "{{device.name}}",
+  "capability": "alarm_motion",
+  "value": true,
+  "zone": "{{device.zone.name}}"
+}
+```
+
+Use Homey's flow variables (`{{device.id}}` etc.) to populate the fields dynamically.
+
+### How it works
+
+When a POST arrives:
+
+1. Homey secret is validated
+2. `household_id` is resolved server-side (single-household)
+3. The event is enqueued on the internal event bus
+4. The dispatcher checks matching `EventRule` records
+5. If a rule matches and passes cooldown/quiet-hours/value-filter checks, the agent is called with a structured prompt envelope
+6. The agent decides what action to take and sends a message to the configured channel
+
+To inspect rules: `GET /admin/event-rules` (requires admin token).
+
+---
+
 ## Integrations
 
 - [Telegram setup guide](docs/integrations/telegram.md)
