@@ -151,6 +151,11 @@ Payload contract (Homey side sends):
 }
 ```
 
+`household_id` is not in the payload. HomeAgent is a single-household system,
+so the webhook endpoint resolves it server-side by querying the one `Household`
+record in `users.db`. If the household cannot be found (e.g. first-run before
+setup completes) the endpoint returns 503 and logs an error.
+
 #### 3. Event bus
 
 A module-level `asyncio.Queue[InboundEvent]` in `app/control/event_bus.py`.
@@ -209,23 +214,35 @@ async def _dispatch(event: InboundEvent) -> None:
     if _in_quiet_hours(rule):
         return
 
-    # 5. Build prompt envelope and call agent_run()
+    # 5. Build prompt envelope and fire agent_run() as a background task.
+    # Two reasons for create_task rather than await:
+    #   a) Prevents head-of-line blocking: the dispatch loop keeps draining
+    #      events (including pure state-sync events) while the agent runs.
+    #   b) agent_run() callers are responsible for acquiring the per-user lock
+    #      (see runner.py). Acquiring it inside the dispatch loop would stall
+    #      all event processing for the duration of the lock.
     text = _build_event_envelope(event, rule)
-    await agent_run(
-        text=text,
-        user_id=rule.user_id,
-        household_id=event.household_id,
-        channel_user_id=rule.channel_user_id,
-        trigger="event",
-        save_history=False,
-    )
+
+    async def _run() -> None:
+        async with get_user_run_lock(rule.user_id):
+            await agent_run(
+                text=text,
+                user_id=rule.user_id,
+                household_id=event.household_id,
+                channel_user_id=rule.channel_user_id,
+                trigger="event",
+                save_history=False,
+            )
+
+    asyncio.create_task(_run())
 ```
 
 #### 5. Event rules
 
 `EventRule` records define when an event should wake the agent vs just sync state.
 
-Proposed model (new table in `memory.db` or `cache.db`):
+Proposed model (new table in `users.db`, same as `Task` and `ScheduledPrompt` —
+durable household operating config belongs there, not in recall or cache storage):
 
 ```text
 EventRule
@@ -330,7 +347,9 @@ if settings.event_dispatcher_enabled:
 
 The expected setup is:
 1. Create a Homey Advanced Flow with a trigger (device capability, virtual button, etc.)
-2. Add an action card: HTTP POST to `http://homeagent:8080/webhook/homey/event`
+2. Add an action card: HTTP POST to `http://<homeagent-lan-ip>:8080/webhook/homey/event`
+   (use the LAN IP or hostname of the machine running HomeAgent — the Docker-internal
+   hostname `homeagent` is not reachable from a Homey box on the LAN)
 3. Set header `X-Homey-Secret: <homey_webhook_secret>`
 4. Set body to JSON with `event_type`, `entity_id`, `capability`, `value`, `zone`
 
@@ -340,8 +359,10 @@ No Homey app or SDK changes required. Standard HTTP webhook flow.
 
 ### Concurrency and safety
 
-- The event dispatcher is a single `asyncio.Task` — no concurrent dispatch
-- Each `agent_run()` it spawns acquires the per-user lock, same as all other triggers
+- The event dispatcher is a single `asyncio.Task` draining the queue sequentially
+- State sync (`_sync_world_state`) is always done inline — never blocked by agent runs
+- `agent_run()` is fired as `asyncio.create_task()` so the dispatch loop keeps draining
+- Each spawned agent task acquires `get_user_run_lock(rule.user_id)` before calling `agent_run()`, maintaining the same lock contract as all other triggers
 - `QueueFull` drops events instead of blocking — bus is a signal system, not a queue
 - Cooldown per rule prevents a chatty device from hammering the agent
 - The `event_dispatcher_enabled` flag allows disabling without code changes
@@ -364,8 +385,8 @@ No Homey app or SDK changes required. Standard HTTP webhook flow.
 Phase 3 is only needed if the event routing / state machine becomes too branchy
 to maintain as plain Python.
 
-Current manually-coded states in `TaskStatus`:
-`PENDING` → `ACTIVE` → `AWAITING_INPUT` → `AWAITING_CONFIRMATION` → `COMPLETED` / `FAILED`
+Current manually-coded states in the `Task` model:
+`ACTIVE` → `AWAITING_INPUT` → `AWAITING_CONFIRMATION` → `COMPLETED` / `FAILED`
 
 If the control loop adds states like `OBSERVING`, `DECIDING`, `ACTING`,
 `VERIFYING`, `WAITING`, the transition table will grow fast. At that point,
