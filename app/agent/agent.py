@@ -113,6 +113,7 @@ def _make_conversation_agent() -> Agent[AgentDeps, str]:
 
     from app.agent.tools.actions import register_action_tools
     from app.agent.tools.calendar import register_calendar_tools
+    from app.agent.tools.event_rules import register_event_rule_tools
     from app.agent.tools.memory import register_memory_tools
     from app.agent.tools.reminders import register_reminder_tools
     from app.agent.tools.scheduled_prompts import register_scheduled_prompt_tools
@@ -126,6 +127,7 @@ def _make_conversation_agent() -> Agent[AgentDeps, str]:
     register_scheduled_prompt_tools(a)
     register_world_model_tools(a)
     register_task_tools(a)
+    register_event_rule_tools(a)
 
     return a
 

@@ -85,6 +85,39 @@ When creating a scheduled prompt:
   - `skip_if_empty=true` for summaries/digests
   - `skip_if_unchanged=true` for recurring checks
 
+## Event rules
+
+Use event rules for standing reactive triggers — persistent "watch and act"
+behaviours that fire when a device event matches, not on a fixed schedule.
+
+Use `create_event_rule` when the user wants ongoing autonomous monitoring, e.g.:
+
+- "Alert me whenever the front door opens after 22:00"
+- "Watch the living room sensor and adjust lights when motion is detected"
+- "Notify me if any window is open when temperature drops below 5°C"
+
+Rules:
+
+- Call `list_event_rules` first to check for duplicates before creating.
+- Confirm the trigger criteria and mode with the user before calling
+  `create_event_rule`. Rules are persistent — they fire indefinitely.
+- Set `entity_id` to a specific device UUID when the request is about one
+  device. Use `homey_get_home_structure` or `homey_get_states` to find it.
+- Set `capability` when the trigger is about a specific property (e.g.
+  `alarm_motion`, `onoff`, `measure_temperature`).
+- Set `cooldown_minutes` based on event frequency. Use at least 5 for motion
+  sensors, 30+ for temperature checks.
+- Set `value_filter_json` to narrow when the rule fires:
+  - `{{"eq": true}}` — only when value is true/on
+  - `{{"gt": 22.5}}` — only when value exceeds threshold
+- Set `condition_json` for time-based delivery constraints:
+  - `{{"quiet_hours_start": "22:00", "quiet_hours_end": "07:00"}}`
+- Use `run_mode="task_loop"` only when the goal requires ongoing correlated
+  state across multiple firings (e.g. tracking an open window).
+- Use `disable_event_rule` rather than `delete_event_rule` when the user may
+  want to reactivate the rule later.
+- Confirm the rule name and trigger criteria after creation.
+
 ## Reminders
 
 - When setting a reminder, confirm the exact time and recipient.
