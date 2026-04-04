@@ -52,21 +52,21 @@ For situations, prefer the latest `situationRecordVersionTime`. If `overallEndTi
 Use the helper to print URLs or fetch XML:
 
 ```bash
-python3 scripts/datex_fetch.py situation --print-url
-python3 scripts/datex_fetch.py situation --filter Accident --print-url
-python3 scripts/datex_fetch.py situation --srti --print-url
-python3 scripts/datex_fetch.py travel-time-data --print-url
-python3 scripts/datex_fetch.py travel-time-locations --print-url
-python3 scripts/datex_fetch.py weather-data --print-url
-python3 scripts/datex_fetch.py weather-sites --print-url
-python3 scripts/datex_fetch.py cctv-sites --print-url
-python3 scripts/datex_fetch.py cctv-status --print-url
+python3 app/skills/vegvesen-datex/scripts/datex_fetch.py situation --print-url
+python3 app/skills/vegvesen-datex/scripts/datex_fetch.py situation --filter Accident --print-url
+python3 app/skills/vegvesen-datex/scripts/datex_fetch.py situation --srti --print-url
+python3 app/skills/vegvesen-datex/scripts/datex_fetch.py travel-time-data --print-url
+python3 app/skills/vegvesen-datex/scripts/datex_fetch.py travel-time-locations --print-url
+python3 app/skills/vegvesen-datex/scripts/datex_fetch.py weather-data --print-url
+python3 app/skills/vegvesen-datex/scripts/datex_fetch.py weather-sites --print-url
+python3 app/skills/vegvesen-datex/scripts/datex_fetch.py cctv-sites --print-url
+python3 app/skills/vegvesen-datex/scripts/datex_fetch.py cctv-status --print-url
 ```
 
 For live requests, pass credentials directly or through environment variables:
 
 ```bash
-python3 scripts/datex_fetch.py situation \
+python3 app/skills/vegvesen-datex/scripts/datex_fetch.py situation \
   --filter MaintenanceWorks \
   --username "$VEGVESEN_DATEX_USERNAME" \
   --password "$VEGVESEN_DATEX_PASSWORD"
@@ -84,7 +84,7 @@ The helper supports `--if-modified-since` so callers can do conditional polling 
 
 ## Read The Reference File When Needed
 
-Read [`references/datex31-reference.md`](/Users/kristian/Documents/code/homeAgent/skills/vegvesen-datex/references/datex31-reference.md) for:
+Read `app/skills/vegvesen-datex/references/datex31-reference.md` for:
 
 - production endpoints
 - update frequencies and coverage notes
