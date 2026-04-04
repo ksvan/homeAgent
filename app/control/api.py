@@ -1081,6 +1081,103 @@ async def admin_delete_event_rule(rule_id: str) -> dict[str, str]:
     return {"status": "deleted"}
 
 
+class _EventRuleTestBody(BaseModel):
+    entity_name: str = ""
+    capability: str = ""   # overrides rule's capability; falls back to rule value
+    value: object = None   # synthetic payload value
+    zone: str = ""
+    force: bool = False    # bypass cooldown for this test fire
+
+
+@router.post("/event-rules/{rule_id}/test", dependencies=_auth)
+async def admin_test_event_rule(  # noqa: E501
+    rule_id: str, body: _EventRuleTestBody | None = None
+) -> dict[str, Any]:
+    """Fire a synthetic event that matches this rule, bypassing auth/secret checks.
+
+    The event travels through the real event bus and dispatcher — cooldown,
+    quiet-hours, and value filters all apply unless force=true is set.
+    """
+    from datetime import datetime, timezone
+
+    from app.db import users_session
+    from app.models.events import EventRule
+
+    with users_session() as session:
+        rule = session.get(EventRule, rule_id)
+        if not rule:
+            return {"status": "not_found"}
+        if not rule.enabled:
+            return {"status": "error", "message": "Rule is disabled — enable it first."}
+        rule_snapshot = {
+            "id": rule.id,
+            "name": rule.name,
+            "source": rule.source,
+            "event_type": rule.event_type,
+            "entity_id": rule.entity_id,
+            "capability": rule.capability,
+            "last_triggered_at": rule.last_triggered_at,
+        }
+
+    if not body:
+        body = _EventRuleTestBody()
+
+    # Temporarily clear cooldown when force=True so the rule fires regardless
+    if body.force and rule_snapshot["last_triggered_at"] is not None:
+        with users_session() as session:
+            rule = session.get(EventRule, rule_id)
+            if rule:
+                rule.last_triggered_at = None
+                session.add(rule)
+                session.commit()
+
+        from app.control.dispatcher import _rule_last_triggered
+        _rule_last_triggered.pop(rule_id, None)
+
+    from sqlmodel import select
+
+    from app.control.event_bus import InboundEvent, enqueue_event
+    from app.db import users_session as _us
+    from app.models.users import Household
+
+    with _us() as session:
+        household = session.exec(select(Household)).first()
+    if not household:
+        return {"status": "error", "message": "No household configured."}
+
+    capability = body.capability or rule_snapshot["capability"] or ""
+    event = InboundEvent(
+        source=rule_snapshot["source"],
+        event_type=rule_snapshot["event_type"],
+        household_id=household.id,
+        entity_id=(
+            rule_snapshot["entity_id"] if rule_snapshot["entity_id"] != "*" else "test-entity"
+        ),
+        payload={
+            "entity_name": body.entity_name or f"[test] {rule_snapshot['name']}",
+            "capability": capability,
+            "value": body.value,
+            "zone": body.zone,
+        },
+        timestamp=datetime.now(timezone.utc),
+        raw={"_test": True, "rule_id": rule_id},
+    )
+    enqueue_event(event)
+
+    logger.info(
+        "Test event fired for rule id=%s name=%r force=%s",
+        rule_id, rule_snapshot["name"], body.force,
+    )
+    return {
+        "status": "fired",
+        "rule": rule_snapshot["name"],
+        "event_type": event.event_type,
+        "entity_id": event.entity_id,
+        "capability": capability,
+        "force": body.force,
+    }
+
+
 # ---------------------------------------------------------------------------
 # Embedded admin UI
 # ---------------------------------------------------------------------------
