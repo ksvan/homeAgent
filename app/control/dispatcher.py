@@ -28,6 +28,12 @@ logger = logging.getLogger(__name__)
 
 # In-memory cooldown tracker: {rule_id: last_triggered_at}
 _rule_last_triggered: dict[str, datetime] = {}
+_dispatcher_running: bool = False
+
+
+def get_dispatcher_running() -> bool:
+    """Return True while the event dispatcher background loop is active."""
+    return _dispatcher_running
 
 
 async def run_event_dispatcher() -> None:
@@ -35,18 +41,26 @@ async def run_event_dispatcher() -> None:
     Background loop: dequeue InboundEvents and route them.
     Runs for the lifetime of the process; cancelled on shutdown.
     """
+    global _dispatcher_running
+    _dispatcher_running = True
     logger.info("Event dispatcher started")
-    while True:
-        event = await get_event()
-        try:
-            await _dispatch(event)
-        except Exception:
-            logger.exception(
-                "Event dispatch error source=%s type=%s entity=%s",
-                event.source,
-                event.event_type,
-                event.entity_id,
-            )
+    try:
+        while True:
+            event = await get_event()
+            try:
+                await _dispatch(event)
+            except Exception:
+                logger.exception(
+                    "Event dispatch error source=%s type=%s entity=%s",
+                    event.source,
+                    event.event_type,
+                    event.entity_id,
+                )
+    except asyncio.CancelledError:
+        pass
+    finally:
+        _dispatcher_running = False
+        logger.info("Event dispatcher stopped")
 
 
 async def _dispatch(event: InboundEvent) -> None:

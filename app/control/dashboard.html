@@ -113,6 +113,34 @@ header { background: var(--surface); border-bottom: 1px solid var(--border); pad
 .profile-key { color: var(--dim); }
 .summary-block { font-size: 13px; line-height: 1.5; padding: 8px 12px; background: var(--surface); border: 1px solid var(--border); border-radius: 6px; margin-bottom: 10px; }
 .summary-user { color: var(--dim); font-size: 11px; margin-bottom: 6px; }
+
+/* Control Loop tab */
+.cl-strip { display: flex; gap: 8px; padding: 12px 20px; border-bottom: 1px solid var(--border); flex-shrink: 0; flex-wrap: wrap; }
+.cl-card { background: var(--surface); border: 1px solid var(--border); border-radius: 6px; padding: 8px 14px; min-width: 110px; }
+.cl-card-label { font-size: 10px; text-transform: uppercase; letter-spacing: 0.08em; color: var(--dim); margin-bottom: 4px; }
+.cl-card-val { font-size: 14px; font-weight: 600; color: var(--text); }
+.cl-card-val.ok { color: var(--green); }
+.cl-card-val.warn { color: var(--yellow); }
+.cl-card-val.err { color: var(--red); }
+.cl-body { flex: 1; min-height: 0; display: grid; grid-template-columns: 1fr 1fr; gap: 1px; background: var(--border); overflow: hidden; }
+.cl-col { background: var(--bg); overflow-y: auto; }
+.cl-item { background: var(--surface); border: 1px solid var(--border); border-radius: 6px; padding: 10px 12px; margin-bottom: 8px; font-size: 12px; }
+.cl-item-title { font-weight: 600; margin-bottom: 4px; display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+.cl-item-meta { color: var(--dim); font-size: 11px; }
+.cl-phase { font-size: 10px; padding: 1px 5px; border-radius: 3px; font-weight: 700; letter-spacing: 0.05em; }
+.cl-phase-OBSERVE  { background: #0d2137; color: var(--blue); }
+.cl-phase-DECIDE   { background: #2b1f00; color: var(--yellow); }
+.cl-phase-ACT      { background: #2b1f00; color: var(--yellow); }
+.cl-phase-VERIFY   { background: #1a1240; color: #a78bfa; }
+.cl-phase-WAIT     { background: #1a1a1a; color: var(--dim); }
+.cl-phase-DONE     { background: #0d2614; color: var(--green); }
+.cl-phase-FAILED   { background: #2d0f0f; color: var(--red); }
+.cl-activity-item { display: flex; gap: 8px; padding: 4px 0; border-bottom: 1px solid var(--border); align-items: baseline; font-size: 12px; }
+.cl-activity-item:last-child { border-bottom: none; }
+.cl-activity-time { color: var(--dim); font-size: 11px; width: 50px; flex-shrink: 0; }
+.cl-inflight-item { display: flex; align-items: center; gap: 8px; padding: 5px 0; border-bottom: 1px solid var(--border); font-size: 12px; }
+.cl-inflight-item:last-child { border-bottom: none; }
+.cl-spinner { width: 8px; height: 8px; border-radius: 50%; background: var(--blue); box-shadow: 0 0 0 0 rgba(88,166,255,.4); animation: pulse 1.2s infinite; flex-shrink: 0; }
 </style>
 </head>
 <body>
@@ -134,6 +162,7 @@ header { background: var(--surface); border-bottom: 1px solid var(--border); pad
   <button class="tab" data-tab="scheduler">Scheduler</button>
   <button class="tab" data-tab="world">World Model</button>
   <button class="tab" data-tab="tasks">Tasks</button>
+  <button class="tab" data-tab="control">Control Loop</button>
 </div>
 
 <div id="tab-live" class="tab-panel active">
@@ -341,6 +370,65 @@ header { background: var(--surface); border-bottom: 1px solid var(--border); pad
       <h3>Task Detail</h3>
       <div id="task-detail-content"></div>
     </section>
+  </div>
+</div>
+
+<div id="tab-control" class="tab-panel">
+  <!-- Status strip -->
+  <div class="cl-strip">
+    <div class="cl-card">
+      <div class="cl-card-label">Dispatcher</div>
+      <div class="cl-card-val" id="cl-dispatcher">—</div>
+    </div>
+    <div class="cl-card">
+      <div class="cl-card-label">Bus queue</div>
+      <div class="cl-card-val" id="cl-bus">—</div>
+    </div>
+    <div class="cl-card">
+      <div class="cl-card-label">Event rules</div>
+      <div class="cl-card-val" id="cl-rules">—</div>
+    </div>
+    <div class="cl-card">
+      <div class="cl-card-label">Control tasks</div>
+      <div class="cl-card-val" id="cl-ctrl-tasks">—</div>
+    </div>
+    <div class="cl-card">
+      <div class="cl-card-label">In-flight runs</div>
+      <div class="cl-card-val" id="cl-inflight-count">0</div>
+    </div>
+    <div class="cl-card">
+      <div class="cl-card-label">SSE</div>
+      <div class="cl-card-val" id="cl-sse">—</div>
+    </div>
+  </div>
+  <!-- Two-column body -->
+  <div class="cl-body">
+    <!-- Left: active control work + waiting -->
+    <div class="cl-col">
+      <div class="details-section">
+        <h3>Active Control Work <span id="cl-active-count" style="font-size:10px;color:var(--dim)"></span>
+          <button class="details-btn" style="float:right;margin-top:-2px" onclick="loadControlLoop()">&#8635;</button>
+        </h3>
+        <div id="cl-active-work"><span style="color:var(--dim)">Loading…</span></div>
+      </div>
+      <div class="details-section">
+        <h3>Waiting / Blocked</h3>
+        <div id="cl-waiting"><span style="color:var(--dim)">Loading…</span></div>
+      </div>
+    </div>
+    <!-- Right: in-flight runs + recent activity -->
+    <div class="cl-col">
+      <div class="details-section">
+        <h3>In-Flight Runs</h3>
+        <div id="cl-inflight"><span style="color:var(--dim)">No runs in progress</span></div>
+      </div>
+      <div class="details-section">
+        <h3>Recent Control Activity</h3>
+        <div id="cl-activity" style="max-height:400px;overflow-y:auto">
+          <span style="color:var(--dim)">Activity will appear here as events arrive.</span>
+        </div>
+      </div>
+    </div>
   </div>
 </div>
 
@@ -589,6 +677,7 @@ document.querySelectorAll('.tab').forEach(btn => {
     if (btn.dataset.tab === 'scheduler') loadScheduler();
     if (btn.dataset.tab === 'world') { loadWorldModel(); loadProposals(); }
     if (btn.dataset.tab === 'tasks') loadTasks();
+    if (btn.dataset.tab === 'control') loadControlLoop();
   });
 });
 
@@ -1081,6 +1170,269 @@ async function connectSSE() {
   }
   setTimeout(connectSSE, 3000);
 }
+
+// ---- Control Loop tab ----
+
+// In-flight runs: maintained from SSE events
+var _clInFlight = {};  // run_id -> {user, model, started, trigger}
+
+var _clActivityItems = [];
+var _CL_MAX_ACTIVITY = 80;
+
+var _clLoopEventFamilies = new Set([
+  'event.received','event.synced','event.triggered','event.suppressed',
+  'control.task_created','control.task_reused',
+  'task.create','task.update','task.await_input','task.complete','task.cancel','task.schedule_resume',
+  'run.start','run.complete','run.error','run.background_error',
+  'job.fire','job.complete','job.error',
+  'proactive.fire','proactive.deliver','proactive.skip','proactive.fail',
+  'mem.extract','mem.summarize',
+  'world.update','world.proposal',
+]);
+
+var _clEventBadges = {
+  'event.received':       ['b-start','EVENT'],
+  'event.triggered':      ['b-tool','TRIGGER'],
+  'event.suppressed':     ['b-mem','SUPPRESSED'],
+  'event.synced':         ['b-mem','SYNC'],
+  'control.task_created': ['b-sched','CTRL NEW'],
+  'control.task_reused':  ['b-sched','CTRL REUSE'],
+  'task.create':          ['b-sched','TASK'],
+  'task.update':          ['b-sched','TASK'],
+  'task.await_input':     ['b-sched','TASK WAIT'],
+  'task.complete':        ['b-done','TASK DONE'],
+  'task.cancel':          ['b-error','TASK END'],
+  'task.schedule_resume': ['b-sched','TASK SCHED'],
+  'run.start':            ['b-start','RUN'],
+  'run.complete':         ['b-done','RUN DONE'],
+  'run.error':            ['b-error','RUN ERR'],
+  'run.background_error': ['b-error','BG ERR'],
+  'job.fire':             ['b-sched','JOB'],
+  'job.complete':         ['b-done','JOB DONE'],
+  'job.error':            ['b-error','JOB ERR'],
+  'proactive.fire':       ['b-sched','PROACTIVE'],
+  'proactive.deliver':    ['b-done','PROACTIVE'],
+  'proactive.skip':       ['b-mem','PROACTIVE'],
+  'proactive.fail':       ['b-error','PROACTIVE'],
+  'mem.extract':          ['b-mem','MEM'],
+  'mem.summarize':        ['b-mem','MEM'],
+  'world.update':         ['b-mem','WORLD'],
+  'world.proposal':       ['b-mem','WORLD'],
+};
+
+function _clEventBody(type, data) {
+  if (type === 'event.received' || type === 'event.triggered') {
+    return '<strong>' + esc(data.event_type || type) + '</strong>'
+      + (data.entity_id ? ' <span class="d">· ' + esc(data.entity_id) + '</span>' : '');
+  }
+  if (type === 'event.suppressed') {
+    return '<strong>' + esc(data.event_type || '?') + '</strong>'
+      + ' <span class="d">— ' + esc(data.reason || 'suppressed') + '</span>';
+  }
+  if (type === 'control.task_created' || type === 'control.task_reused') {
+    return '<strong>' + esc(data.title || data.task_id || '') + '</strong>'
+      + (data.phase ? ' <span class="cl-phase cl-phase-' + esc(data.phase) + '">' + esc(data.phase) + '</span>' : '');
+  }
+  if (type.startsWith('task.')) {
+    var action = type.split('.')[1] || '';
+    return '<strong>' + esc(action) + '</strong>'
+      + (data.title || data.summary ? ' <span class="d">— ' + esc((data.title || data.summary || '').slice(0, 80)) + '</span>' : '');
+  }
+  if (type === 'run.start') {
+    return '<strong>' + esc(data.user_name || 'run') + '</strong>'
+      + (data.trigger ? ' <span class="d">· ' + esc(data.trigger) + '</span>' : '');
+  }
+  if (type === 'run.complete') {
+    var dur = data.duration_ms ? ' <span class="d">' + data.duration_ms + 'ms</span>' : '';
+    return '<strong>done</strong>' + dur;
+  }
+  if (type === 'run.error' || type === 'run.background_error') {
+    return '<span class="err">' + esc(data.error || 'error') + '</span>';
+  }
+  if (type === 'job.fire') {
+    return '<strong>' + esc(data.job || '?') + '</strong>'
+      + (data.description ? ' <span class="d">· ' + esc(data.description.slice(0, 60)) + '</span>' : '');
+  }
+  if (type.startsWith('proactive.')) {
+    var action2 = type.split('.')[1] || '';
+    return '<strong>' + esc(action2) + '</strong>'
+      + (data.name ? ' <span class="d">· ' + esc(data.name) + '</span>' : '')
+      + (data.reason ? ' <span class="d">— ' + esc(data.reason.slice(0, 60)) + '</span>' : '');
+  }
+  if (type === 'mem.extract') {
+    var n = Array.isArray(data.facts) ? data.facts.length : 0;
+    return '<strong>' + n + ' fact' + (n !== 1 ? 's' : '') + ' stored</strong>';
+  }
+  if (type === 'mem.summarize') {
+    return '<strong>compressed ' + (data.messages_compressed || 0) + ' msgs</strong>';
+  }
+  if (type === 'world.update') {
+    return '<strong>' + esc(data.action || 'update') + '</strong>'
+      + (data.entity_type ? ' <span class="d">' + esc(data.entity_type) + '</span>' : '');
+  }
+  if (type === 'world.proposal') {
+    return '<strong>' + esc(data.type || 'proposal') + '</strong>'
+      + ' <span class="d">' + Math.round((data.confidence || 0) * 100) + '%</span>';
+  }
+  return '<span class="d">' + esc(type) + '</span>';
+}
+
+function clOnEvent(type, data) {
+  // Track in-flight runs
+  if (type === 'run.start' && data.run_id) {
+    _clInFlight[data.run_id] = {user: data.user_name || '?', model: data.model || '', trigger: data.trigger || '', started: data.ts || new Date().toISOString()};
+    _clRenderInFlight();
+  } else if ((type === 'run.complete' || type === 'run.error') && data.run_id) {
+    delete _clInFlight[data.run_id];
+    _clRenderInFlight();
+  }
+
+  // Append to activity feed if relevant
+  if (!_clLoopEventFamilies.has(type)) return;
+  var badgePair = _clEventBadges[type] || ['b-start', type];
+  var item = {type: type, data: data, badge: badgePair, ts: data.ts || new Date().toISOString()};
+  _clActivityItems.unshift(item);
+  if (_clActivityItems.length > _CL_MAX_ACTIVITY) _clActivityItems.pop();
+  _clRenderActivity();
+}
+
+function _clRenderActivity() {
+  var el = document.getElementById('cl-activity');
+  if (!el) return;
+  if (!_clActivityItems.length) { el.innerHTML = '<span style="color:var(--dim)">No loop activity yet.</span>'; return; }
+  el.innerHTML = _clActivityItems.map(function(item) {
+    var cls = item.badge[0], label = item.badge[1];
+    return '<div class="cl-activity-item">'
+      + '<span class="cl-activity-time">' + fmtTime(item.ts) + '</span>'
+      + '<span class="badge ' + cls + '" style="font-size:9px;padding:1px 5px">' + esc(label) + '</span>'
+      + '<span style="flex:1;overflow:hidden;white-space:nowrap;text-overflow:ellipsis">' + _clEventBody(item.type, item.data) + '</span>'
+      + '</div>';
+  }).join('');
+}
+
+function _clRenderInFlight() {
+  var el = document.getElementById('cl-inflight');
+  var cnt = document.getElementById('cl-inflight-count');
+  var entries = Object.entries(_clInFlight);
+  if (cnt) cnt.textContent = entries.length || '0';
+  if (!el) return;
+  if (!entries.length) { el.innerHTML = '<span style="color:var(--dim)">No runs in progress</span>'; return; }
+  el.innerHTML = entries.map(function(kv) {
+    var runId = kv[0], r = kv[1];
+    var elapsed = Math.round((Date.now() - new Date(r.started).getTime()) / 1000);
+    return '<div class="cl-inflight-item">'
+      + '<span class="cl-spinner"></span>'
+      + '<strong>' + esc(r.user) + '</strong>'
+      + (r.trigger ? ' <span class="d">· ' + esc(r.trigger) + '</span>' : '')
+      + ' <span class="d" style="margin-left:auto">' + elapsed + 's · ' + runId.slice(0,8) + '</span>'
+      + '</div>';
+  }).join('');
+}
+
+function _clPhaseClass(phase) {
+  return phase ? 'cl-phase cl-phase-' + phase : '';
+}
+
+async function loadControlLoop() {
+  // Update status strip from stats
+  try {
+    var r = await fetch('/admin/stats', {headers: _authHeaders});
+    if (r.ok) {
+      var d = await r.json();
+      var cl = d.control_loop || {};
+      var dispEl = document.getElementById('cl-dispatcher');
+      if (dispEl) {
+        dispEl.textContent = cl.dispatcher_running ? 'running' : 'stopped';
+        dispEl.className = 'cl-card-val ' + (cl.dispatcher_running ? 'ok' : 'err');
+      }
+      var busEl = document.getElementById('cl-bus');
+      if (busEl) {
+        busEl.textContent = cl.event_bus_size != null ? cl.event_bus_size : '—';
+        busEl.className = 'cl-card-val' + (cl.event_bus_size > 50 ? ' warn' : '');
+      }
+      var rulesEl = document.getElementById('cl-rules');
+      if (rulesEl) rulesEl.textContent = (cl.event_rules_enabled || 0) + ' / ' + (cl.event_rules_total || 0);
+      var ctrlEl = document.getElementById('cl-ctrl-tasks');
+      if (ctrlEl) ctrlEl.textContent = cl.control_tasks_active != null ? cl.control_tasks_active : '—';
+      var sseEl = document.getElementById('cl-sse');
+      if (sseEl) {
+        var isConnected = document.getElementById('conn-label').className === 'ok';
+        sseEl.textContent = isConnected ? 'connected' : 'disconnected';
+        sseEl.className = 'cl-card-val ' + (isConnected ? 'ok' : 'err');
+      }
+    }
+  } catch(e) {}
+
+  // Active control work: tasks with a control block
+  try {
+    var r2 = await fetch('/admin/tasks', {headers: _authHeaders});
+    if (r2.ok) {
+      var d2 = await r2.json();
+      var tasks = (d2.tasks || []);
+      var controlTasks = tasks.filter(function(t) { return t.control && t.status !== 'COMPLETED' && t.status !== 'FAILED' && t.status !== 'CANCELLED'; });
+      var waitingTasks = tasks.filter(function(t) { return t.status === 'AWAITING_INPUT' || t.status === 'AWAITING_CONFIRMATION'; });
+
+      document.getElementById('cl-active-count').textContent = controlTasks.length ? '(' + controlTasks.length + ')' : '';
+      var activeEl = document.getElementById('cl-active-work');
+      if (!controlTasks.length) {
+        activeEl.innerHTML = '<span style="color:var(--dim)">No active control tasks.</span>';
+      } else {
+        activeEl.innerHTML = controlTasks.map(function(t) {
+          var c = t.control || {};
+          var phase = c.phase || '';
+          var phaseHtml = phase ? '<span class="cl-phase cl-phase-' + esc(phase) + '">' + esc(phase) + '</span>' : '';
+          var verifyWarn = c.verify_pending ? ' <span style="color:var(--yellow);font-size:10px">&#9888; verify pending</span>' : '';
+          var lastEv = '';
+          if (c.last_event && Object.keys(c.last_event).length) {
+            var evStr = JSON.stringify(c.last_event);
+            lastEv = '<div style="color:var(--dim);font-size:11px;margin-top:3px">Last event: <code>' + esc(evStr.length > 80 ? evStr.slice(0,80) + '…' : evStr) + '</code></div>';
+          }
+          var waitReason = c.waiting_reason ? '<div style="color:var(--yellow);font-size:11px;margin-top:2px">Waiting: ' + esc(c.waiting_reason) + '</div>' : '';
+          var ck = c.correlation_key ? '<div style="color:var(--dim);font-size:10px;margin-top:2px">Key: <code>' + esc(c.correlation_key) + '</code></div>' : '';
+          return '<div class="cl-item">'
+            + '<div class="cl-item-title">' + esc(t.title || '(untitled)') + ' ' + phaseHtml + verifyWarn + '</div>'
+            + '<div class="cl-item-meta">'
+            + esc(t.task_kind || '') + (t.user ? ' · ' + esc(t.user) : '')
+            + (t.summary ? ' — ' + esc(t.summary.slice(0,80)) : '')
+            + '</div>'
+            + waitReason + lastEv + ck
+            + '</div>';
+        }).join('');
+      }
+
+      // Waiting / blocked
+      var waitEl = document.getElementById('cl-waiting');
+      var waitItems = [];
+      waitingTasks.forEach(function(t) {
+        var hint = t.awaiting_input_hint ? ' — ' + t.awaiting_input_hint : '';
+        var statusLabel = t.status === 'AWAITING_CONFIRMATION' ? 'awaiting confirmation' : 'awaiting input';
+        waitItems.push('<div class="cl-item">'
+          + '<div class="cl-item-title" style="color:var(--yellow)">' + esc(t.title || '(untitled)') + '</div>'
+          + '<div class="cl-item-meta">' + statusLabel + esc(hint) + '</div>'
+          + '</div>');
+      });
+      // Also check tasks with resume_after (scheduled resumes)
+      var resumeTasks = tasks.filter(function(t) { return t.resume_after && t.status === 'ACTIVE'; });
+      resumeTasks.forEach(function(t) {
+        waitItems.push('<div class="cl-item">'
+          + '<div class="cl-item-title" style="color:var(--dim)">' + esc(t.title || '(untitled)') + '</div>'
+          + '<div class="cl-item-meta">scheduled resume: ' + esc(t.resume_after || '') + '</div>'
+          + '</div>');
+      });
+      waitEl.innerHTML = waitItems.length ? waitItems.join('') : '<span style="color:var(--dim)">Nothing waiting.</span>';
+    }
+  } catch(e) {}
+}
+
+// Expose to SSE handler so the control loop tab stays live
+var _clOrigAddEvent = null;
+(function() {
+  var _origAddEvent = addEvent;
+  addEvent = function(type, data) {
+    _origAddEvent(type, data);
+    clOnEvent(type, data);
+  };
+})();
 
 fetchStats();
 setInterval(fetchStats, 10000);

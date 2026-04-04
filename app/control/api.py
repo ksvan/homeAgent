@@ -95,6 +95,28 @@ async def admin_stats() -> dict[str, Any]:
         messages_total = len(msession.exec(select(ConversationMessage.id)).all())
         summaries_total = len(msession.exec(select(ConversationSummary.id)).all())
 
+    # Control-loop stats from users.db
+    from app.control.dispatcher import get_dispatcher_running
+    from app.control.event_bus import bus_size
+    from app.db import users_session
+    from app.models.events import EventRule
+
+    with users_session() as usession:
+        rules_all = usession.exec(select(EventRule.id)).all()
+        rules_enabled = usession.exec(
+            select(EventRule.id).where(EventRule.enabled == True)  # noqa: E712
+        ).all()
+        # Active tasks that carry a control-loop context block
+        from sqlalchemy import text as _sql_text
+        ctrl_active_row = usession.exec(  # type: ignore[call-overload]
+            _sql_text(
+                "SELECT count(*) FROM task"
+                " WHERE status='ACTIVE'"
+                " AND json_extract(context,'$.control') IS NOT NULL"
+            )
+        ).one()
+        ctrl_tasks_active = int(ctrl_active_row[0])
+
     return {
         "system": {
             "cpu_percent": round(proc.cpu_percent(interval=0.1), 1),
@@ -117,6 +139,13 @@ async def admin_stats() -> dict[str, Any]:
             "episodic_manual": episodic_total - episodic_auto,
             "messages_total": messages_total,
             "summaries_total": summaries_total,
+        },
+        "control_loop": {
+            "dispatcher_running": get_dispatcher_running(),
+            "event_bus_size": bus_size(),
+            "event_rules_total": len(rules_all),
+            "event_rules_enabled": len(rules_enabled),
+            "control_tasks_active": ctrl_tasks_active,
         },
     }
 
