@@ -2,10 +2,6 @@
 # HomeAgent .gitignore
 # ============================================================
 
-skills/*
-agents/*
-skills/
-agents/
 excl work/
 # ------------------------------------------------------------
 # Secrets — never commit these

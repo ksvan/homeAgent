@@ -138,6 +138,7 @@ class Settings(BaseSettings):
     agent_name: str = "Home"
     household_timezone: str = "UTC"  # e.g. Europe/Oslo — used in agent time context
     prompts_dir: str = "prompts"
+    skills_dir: str = "app/skills"
 
     # ------------------------------------------------------------------
     # Per-run token enforcement

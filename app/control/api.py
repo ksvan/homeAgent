@@ -1179,6 +1179,29 @@ async def admin_test_event_rule(  # noqa: E501
 
 
 # ---------------------------------------------------------------------------
+# Skills
+# ---------------------------------------------------------------------------
+
+
+@router.get("/skills", dependencies=_auth)
+async def list_skills() -> list[dict[str, Any]]:
+    """List all available agent skills loaded from the skills directory."""
+    from app.agent.skills import get_skill_registry
+
+    return [
+        {
+            "name": s.name,
+            "display_name": s.display_name,
+            "description": s.description,
+            "short_description": s.short_description,
+            "has_scripts": s.has_scripts,
+            "has_references": s.has_references,
+        }
+        for s in get_skill_registry().list()
+    ]
+
+
+# ---------------------------------------------------------------------------
 # Embedded admin UI
 # ---------------------------------------------------------------------------
 

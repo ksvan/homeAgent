@@ -88,6 +88,8 @@ def _make_conversation_agent() -> Agent[AgentDeps, str]:
         parts = [p for p in (persona, instructions) if p]
         base = "\n\n---\n\n".join(parts) if parts else "You are a helpful household assistant."
 
+        from app.agent.skills import get_skill_registry
+
         extra_sections: list[str] = []
         if d.user_profile_text:
             extra_sections.append(d.user_profile_text)
@@ -102,6 +104,9 @@ def _make_conversation_agent() -> Agent[AgentDeps, str]:
         if d.relevant_memories:
             mem_block = "\n".join(f"- {m}" for m in d.relevant_memories)
             extra_sections.append(f"## Relevant Memories\n{mem_block}")
+        skills_index = get_skill_registry().skills_index_text()
+        if skills_index:
+            extra_sections.append(skills_index)
 
         time_block = (
             "<time_context>\n"
@@ -117,6 +122,7 @@ def _make_conversation_agent() -> Agent[AgentDeps, str]:
     from app.agent.tools.memory import register_memory_tools
     from app.agent.tools.reminders import register_reminder_tools
     from app.agent.tools.scheduled_prompts import register_scheduled_prompt_tools
+    from app.agent.tools.skills import register_skills_tools
     from app.agent.tools.tasks import register_task_tools
     from app.agent.tools.world_model import register_world_model_tools
 
@@ -128,6 +134,7 @@ def _make_conversation_agent() -> Agent[AgentDeps, str]:
     register_world_model_tools(a)
     register_task_tools(a)
     register_event_rule_tools(a)
+    register_skills_tools(a)
 
     return a
 
@@ -147,8 +154,10 @@ def reload_agent() -> None:
     global _conversation_agent
     _conversation_agent = None
     from app.agent.prompts import clear_prompt_cache
+    from app.agent.skills import reload_skill_registry
 
     clear_prompt_cache()
+    reload_skill_registry()
     logger.info("Agent and prompt cache cleared — will reinitialise on next request")
 
 

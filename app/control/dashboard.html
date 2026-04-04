@@ -414,6 +414,10 @@ header { background: var(--surface); border-bottom: 1px solid var(--border); pad
       <div class="cl-card-val" id="cl-inflight-count">0</div>
     </div>
     <div class="cl-card">
+      <div class="cl-card-label">Skills</div>
+      <div class="cl-card-val" id="cl-skills-count">—</div>
+    </div>
+    <div class="cl-card">
       <div class="cl-card-label">SSE</div>
       <div class="cl-card-val" id="cl-sse">—</div>
     </div>
@@ -545,6 +549,14 @@ header { background: var(--surface); border-bottom: 1px solid var(--border); pad
         </div>
       </div>
     </div>
+  </div>
+  <!-- Skills section -->
+  <div style="padding:12px 20px;border-top:1px solid var(--border);flex-shrink:0">
+    <div style="display:flex;align-items:center;gap:10px;margin-bottom:10px">
+      <span style="font-size:10px;text-transform:uppercase;letter-spacing:0.08em;color:var(--dim)">Available Skills</span>
+      <span id="cl-skills-label" style="font-size:10px;color:var(--dim)"></span>
+    </div>
+    <div id="cl-skills-list" style="color:var(--dim);font-size:12px">Loading…</div>
   </div>
 </div>
 
@@ -1767,6 +1779,39 @@ async function loadControlLoop() {
     if (r3.ok) {
       var d3 = await r3.json();
       _clRenderRulesTable(d3.rules || []);
+    }
+  } catch(e) {}
+
+  // Skills list
+  try {
+    var rs = await fetch('/admin/skills', {headers: _authHeaders});
+    if (rs.ok) {
+      var skills = await rs.json();
+      var countEl = document.getElementById('cl-skills-count');
+      if (countEl) {
+        countEl.textContent = skills.length;
+        countEl.className = 'cl-card-val' + (skills.length > 0 ? ' ok' : '');
+      }
+      var labelEl = document.getElementById('cl-skills-label');
+      if (labelEl) labelEl.textContent = skills.length + ' loaded';
+      var listEl = document.getElementById('cl-skills-list');
+      if (listEl) {
+        if (!skills.length) {
+          listEl.innerHTML = '<span style="color:var(--dim)">No skills loaded.</span>';
+        } else {
+          listEl.innerHTML = skills.map(function(s) {
+            var badges = '';
+            if (s.has_scripts) badges += '<span class="tag" style="background:var(--surface);border:1px solid var(--border);margin-left:4px">scripts</span>';
+            if (s.has_references) badges += '<span class="tag" style="background:var(--surface);border:1px solid var(--border);margin-left:4px">refs</span>';
+            return '<div style="padding:5px 0;border-bottom:1px solid var(--border)">'
+              + '<strong>' + esc(s.display_name || s.name) + '</strong>'
+              + ' <code style="font-size:10px;color:var(--dim)">$' + esc(s.name) + '</code>'
+              + badges
+              + '<div style="color:var(--dim);font-size:11px;margin-top:2px">' + esc(s.short_description || s.description) + '</div>'
+              + '</div>';
+          }).join('');
+        }
+      }
     }
   } catch(e) {}
 }

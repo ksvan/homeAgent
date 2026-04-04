@@ -1,0 +1,4 @@
+interface:
+  display_name: "MET.no Norway Weather"
+  short_description: "Use MET Norway APIs for weather, alerts, tides"
+  default_prompt: "Use $metno-norway-weather to fetch and interpret forecasts, alerts, tides, and astronomy data from MET Norway for locations in Norway."

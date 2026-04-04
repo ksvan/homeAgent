@@ -10,6 +10,47 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 
 ### Added
 
+#### File-Based Agent Skills System
+
+Domain-specific knowledge, API workflows, and helper scripts packaged as
+discoverable skills. Skills live in `app/skills/<name>/` and are picked up
+automatically on startup — no code changes needed to add a new skill.
+
+- **`app/skills/`** (new, moved from root `skills/`) — skill folder structure:
+  `SKILL.md` (frontmatter + full workflow guidance), `agents/agent.yaml`
+  (display_name, short_description, default_prompt), `references/` (API
+  reference docs), `scripts/` (Python helpers).
+- **`agents/agent.yaml`** — renamed from `openai.yaml`; model-agnostic
+  interface file, supports future per-model overrides.
+- **`app/agent/skills.py`** (new) — `SkillRegistry` scans `app/skills/` at
+  startup, parses each skill's frontmatter and `agent.yaml`. Exposes a compact
+  `## Available Skills` index for the system prompt and `get_content(name)` for
+  on-demand full loading. Cleared and reloaded on admin `/reload`.
+- **`app/agent/tools/skills.py`** (new) — `get_skill(name)` loads full SKILL.md
+  guidance on demand and logs the lookup; `list_skills()` lists all available
+  skills. Registered via `register_skills_tools()`.
+- **`app/agent/agent.py`** — injects `## Available Skills` index into every
+  system prompt; registers skills tools; clears the registry on reload.
+- **`app/config.py`** — `skills_dir` setting (default `app/skills`, relative to
+  repo root; override in `.env`).
+- **`app/control/api.py`** — `GET /admin/skills` returns all loaded skills with
+  name, display_name, description, short_description, has_scripts,
+  has_references.
+- **`app/control/dashboard.html`** — Skills count card in the Control Loop tab
+  status strip; Skills panel listing each skill's name, `$invoke-token`, and
+  short description.
+- **`prompts/instructions.md`** — `## Skills` section: when to call
+  `get_skill()`, how to run skill scripts via `run_python_script`, when to
+  prefer skills over web search.
+- **`docs/agent-skills-design.md`** (new) — Full design document.
+
+**Bundled skills:**
+
+- **`metno-norway-weather`** — MET.no APIs: Locationforecast, Nowcast,
+  Subseasonal, Tidalwater, MetAlerts, Sunrise. Helper script `metno_fetch.py`.
+- **`vegvesen-datex`** — Statens vegvesen DATEX II 3.1: traffic situations,
+  travel times, road weather, CCTV. Helper script `datex_fetch.py`.
+
 #### Control Loop Phase 1 — Unified Agent Execution Path (runner.py)
 
 Introduces a native control loop layer as the shared execution path for all

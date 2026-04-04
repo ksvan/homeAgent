@@ -26,6 +26,7 @@ dependencies = [
     "tavily-python",
     "psutil",
     "recurring-ical-events",
+    "pyyaml>=6.0.3",
 ]
 
 [dependency-groups]

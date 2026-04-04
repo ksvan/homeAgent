@@ -1,0 +1,4 @@
+interface:
+  display_name: "Vegvesen DATEX"
+  short_description: "Bruk Vegvesen DATEX for trafikkdata i Norge"
+  default_prompt: "Use $vegvesen-datex to fetch and interpret Norwegian traffic, travel time, camera, and road weather data from Statens vegvesen DATEX services."
