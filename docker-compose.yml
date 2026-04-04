@@ -10,6 +10,8 @@ services:
     volumes:
       # Isolated workspace — tools can read/write here but NOT /app/data
       - ./data/workspace:/workspace
+      # Skills — read-only so agent scripts are accessible via /workspace/skills/
+      - ./app/skills:/workspace/skills:ro
     mem_limit: 1g
     cpus: 1
     healthcheck:

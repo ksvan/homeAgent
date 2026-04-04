@@ -39,36 +39,41 @@ Determine whether the user wants a general forecast, a short-term precipitation 
 2. Choose the smallest useful product.
 Favor `/compact` for Locationforecast, `/complete` for Subseasonal, plain text for Tidalwater, and `.json` for MetAlerts unless the task explicitly needs XML or CAP details.
 
-3. Use the bundled helper when shell access is appropriate.
-Run `app/skills/metno-norway-weather/scripts/metno_fetch.py` to build or fetch requests without re-deriving URLs by hand.
+3. Use the bundled helper when fetching live data or building URLs.
+The script is at `/workspace/skills/metno-norway-weather/scripts/metno_fetch.py`.
+Use `run_python_script` to call it (see pattern below).
 
 4. Interpret the response at the right level.
 Summarize what matters to the user instead of dumping raw JSON. Include timing, uncertainty, and any obvious caveats such as radar coverage limits or polar-night null values.
 
 ## Use The Helper Script
 
-Use the helper to print compliant URLs or perform live fetches:
+Call `run_python_script` with a small wrapper. Example for a live forecast fetch:
 
-```bash
-python3 app/skills/metno-norway-weather/scripts/metno_fetch.py locationforecast --lat 59.9139 --lon 10.7522 --mode compact --print-url
-python3 app/skills/metno-norway-weather/scripts/metno_fetch.py nowcast --lat 60.3929 --lon 5.3242 --print-url
-python3 app/skills/metno-norway-weather/scripts/metno_fetch.py subseasonal --lat 59.9139 --lon 10.7522 --print-url
-python3 app/skills/metno-norway-weather/scripts/metno_fetch.py tidalwater --harbor bergen --print-url
-python3 app/skills/metno-norway-weather/scripts/metno_fetch.py sunrise --lat 69.6492 --lon 18.9553 --date 2026-04-04 --offset +02:00 --print-url
-python3 app/skills/metno-norway-weather/scripts/metno_fetch.py metalerts --method current --format json --county 03 --lang no --print-url
+```python
+import subprocess, sys
+result = subprocess.run(
+    [sys.executable,
+     "/workspace/skills/metno-norway-weather/scripts/metno_fetch.py",
+     "locationforecast", "--lat", "59.9139", "--lon", "10.7522",
+     "--user-agent", "homeagent contact@example.com"],
+    capture_output=True, text=True
+)
+print(result.stdout or result.stderr)
 ```
 
-For live requests, pass a real identifier:
+To inspect the URL without fetching (useful for debugging), add `"--print-url"` to the argument list.
 
-```bash
-python3 app/skills/metno-norway-weather/scripts/metno_fetch.py locationforecast \
-  --lat 59.9139 \
-  --lon 10.7522 \
-  --mode compact \
-  --user-agent "example.com weather-team@example.com"
-```
+Common invocations (replace coordinates and flags as needed):
 
-The script rounds coordinates to 4 decimals before building the URL. Use `--print-url` when you want to inspect the final request without hitting the network.
+- Locationforecast compact: `["locationforecast", "--lat", LAT, "--lon", LON, "--mode", "compact"]`
+- Nowcast: `["nowcast", "--lat", LAT, "--lon", LON]`
+- Subseasonal: `["subseasonal", "--lat", LAT, "--lon", LON]`
+- Tidalwater: `["tidalwater", "--harbor", HARBOR]`
+- Sunrise: `["sunrise", "--lat", LAT, "--lon", LON, "--date", DATE, "--offset", TZ_OFFSET]`
+- MetAlerts: `["metalerts", "--method", "current", "--format", "json", "--county", COUNTY_CODE]`
+
+The script rounds coordinates to 4 decimals. Always pass `--user-agent` for live requests.
 
 ## Interpret Common Responses
 
@@ -81,7 +86,7 @@ The script rounds coordinates to 4 decimals before building the URL. Use `--prin
 
 ## Read The Reference File When Needed
 
-Read `app/skills/metno-norway-weather/references/metno-api-reference.md` for:
+Read `/workspace/skills/metno-norway-weather/references/metno-api-reference.md` using `run_bash_command(["cat", "skills/metno-norway-weather/references/metno-api-reference.md"])` for:
 
 - endpoint and parameter details
 - product-specific caveats

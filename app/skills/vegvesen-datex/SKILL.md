@@ -49,30 +49,35 @@ For situations, prefer the latest `situationRecordVersionTime`. If `overallEndTi
 
 ## Use The Helper Script
 
-Use the helper to print URLs or fetch XML:
+The script is at `/workspace/skills/vegvesen-datex/scripts/datex_fetch.py`.
+Call it via `run_python_script` with a wrapper:
 
-```bash
-python3 app/skills/vegvesen-datex/scripts/datex_fetch.py situation --print-url
-python3 app/skills/vegvesen-datex/scripts/datex_fetch.py situation --filter Accident --print-url
-python3 app/skills/vegvesen-datex/scripts/datex_fetch.py situation --srti --print-url
-python3 app/skills/vegvesen-datex/scripts/datex_fetch.py travel-time-data --print-url
-python3 app/skills/vegvesen-datex/scripts/datex_fetch.py travel-time-locations --print-url
-python3 app/skills/vegvesen-datex/scripts/datex_fetch.py weather-data --print-url
-python3 app/skills/vegvesen-datex/scripts/datex_fetch.py weather-sites --print-url
-python3 app/skills/vegvesen-datex/scripts/datex_fetch.py cctv-sites --print-url
-python3 app/skills/vegvesen-datex/scripts/datex_fetch.py cctv-status --print-url
+```python
+import subprocess, sys, os
+result = subprocess.run(
+    [sys.executable,
+     "/workspace/skills/vegvesen-datex/scripts/datex_fetch.py",
+     "situation",
+     "--username", os.environ.get("VEGVESEN_DATEX_USERNAME", ""),
+     "--password", os.environ.get("VEGVESEN_DATEX_PASSWORD", "")],
+    capture_output=True, text=True
+)
+print(result.stdout or result.stderr)
 ```
 
-For live requests, pass credentials directly or through environment variables:
+Common service arguments (first positional arg):
 
-```bash
-python3 app/skills/vegvesen-datex/scripts/datex_fetch.py situation \
-  --filter MaintenanceWorks \
-  --username "$VEGVESEN_DATEX_USERNAME" \
-  --password "$VEGVESEN_DATEX_PASSWORD"
-```
+- `situation` — road events, closures, works, accidents
+- `situation --filter Accident` — filter to a specific situation class
+- `travel-time-data` — current travel times on predefined segments
+- `travel-time-locations` — segment metadata
+- `weather-data` — road weather measurements
+- `weather-sites` — weather station metadata
+- `cctv-sites` — camera metadata and URLs
+- `cctv-status` — camera operational status
 
-The helper supports `--if-modified-since` so callers can do conditional polling and handle `304` cleanly.
+Add `"--print-url"` to any call to inspect the URL without hitting the network.
+The helper supports `"--if-modified-since", TIMESTAMP` for conditional polling.
 
 ## Interpret Common Payloads
 
@@ -84,7 +89,7 @@ The helper supports `--if-modified-since` so callers can do conditional polling 
 
 ## Read The Reference File When Needed
 
-Read `app/skills/vegvesen-datex/references/datex31-reference.md` for:
+Read `/workspace/skills/vegvesen-datex/references/datex31-reference.md` using `run_bash_command(["cat", "skills/vegvesen-datex/references/datex31-reference.md"])` for:
 
 - production endpoints
 - update frequencies and coverage notes
