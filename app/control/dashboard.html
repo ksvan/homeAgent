@@ -966,8 +966,9 @@ async function loadTasks() {
         ? '<button onclick="taskAction(\'' + esc(t.id) + '\',\'cancel\')" style="background:none;border:none;color:var(--red);cursor:pointer;font-size:11px">Cancel</button>'
           + (t.status !== 'ACTIVE' ? ' <button onclick="taskAction(\'' + esc(t.id) + '\',\'resume\')" style="background:none;border:none;color:var(--green);cursor:pointer;font-size:11px">Resume</button>' : '')
         : '';
+      const loopBadge = t.control ? ' <span style="font-size:10px;background:var(--accent);color:#000;padding:1px 4px;border-radius:3px;vertical-align:middle">' + esc((t.control.phase || 'loop')) + '</span>' : '';
       return '<tr onclick="showTaskDetail(\'' + esc(t.id) + '\')" style="cursor:pointer">'
-        + '<td>' + esc(t.title || '') + '</td>'
+        + '<td>' + esc(t.title || '') + loopBadge + '</td>'
         + '<td><span class="scope-tag">' + esc(t.task_kind || '') + '</span></td>'
         + '<td><span style="color:' + sc + '">' + esc(t.status) + '</span></td>'
         + '<td style="color:var(--dim);font-size:12px">' + esc(t.summary || '') + '</td>'
@@ -1004,6 +1005,20 @@ async function showTaskDetail(taskId) {
       t.links.forEach(function(ln) {
         html += '<div style="font-size:12px;margin-bottom:2px">' + esc(ln.entity_type) + ': ' + esc(ln.entity_id) + ' (' + esc(ln.role) + ')</div>';
       });
+      html += '</div>';
+    }
+    if (t.control) {
+      var c = t.control;
+      var phaseColor = {OBSERVE:'var(--green)',DECIDE:'var(--yellow)',ACT:'var(--yellow)',VERIFY:'var(--accent)',WAIT:'var(--dim)',DONE:'var(--green)',FAILED:'var(--red)'}[c.phase] || 'var(--dim)';
+      html += '<div style="margin-top:12px"><strong>Control loop:</strong></div><div style="margin-left:12px;font-size:12px">';
+      if (c.phase) html += '<div style="margin-bottom:3px">Phase: <span style="color:' + phaseColor + ';font-weight:bold">' + esc(c.phase) + '</span></div>';
+      if (c.correlation_key) html += '<div style="margin-bottom:3px">Correlation key: <code style="font-size:11px">' + esc(c.correlation_key) + '</code></div>';
+      if (c.rule_id) html += '<div style="margin-bottom:3px">Rule ID: <span style="color:var(--dim)">' + esc(c.rule_id.slice(0,8)) + '</span></div>';
+      if (c.verify_pending) html += '<div style="margin-bottom:3px;color:var(--yellow)">&#9888; Verify pending</div>';
+      if (c.last_event && Object.keys(c.last_event).length) {
+        var evStr = JSON.stringify(c.last_event);
+        html += '<div style="margin-bottom:3px">Last event: <code style="font-size:11px">' + esc(evStr.length > 100 ? evStr.slice(0,100) + '…' : evStr) + '</code></div>';
+      }
       html += '</div>';
     }
     document.getElementById('task-detail-content').innerHTML = html;

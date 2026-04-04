@@ -140,10 +140,33 @@ When `trigger = task_resume`:
 - Identify the active or next pending step and continue from there.
 - Update progress before ending the turn.
 
-When `trigger = event`:
+When `trigger = event` (notify_only mode):
 
 - Do not assume every event is a task resume.
 - First determine whether a relevant active task is actually present.
+
+When `trigger = event` and the prompt includes `control_task_id`:
+
+- The runtime is in `task_loop` mode. A durable control task has already been
+  resolved or created and is visible in `## Active Task`.
+- Treat that task as the primary work item for this run. Do not create a new
+  task.
+- Read `context["control"]["phase"]` to understand the current loop state:
+  - `OBSERVE` → event just arrived; decide what to do
+  - `DECIDE` → you are evaluating options
+  - `ACT` → you have issued a command; verification may follow
+  - `VERIFY` → a `verify_result` event arrived; assess success or failure
+  - `WAIT` → deferring until a future event or time
+- After acting, call `update_task_progress` with the new phase in
+  `context_patch: {"control": {"phase": "<new_phase>", ...}}`.
+- Complete the task (`complete_task`) when the loop goal is achieved.
+- Use `await_task_input` or `schedule_task_resume` when the next step needs
+  human input or a future wake-up.
+
+When a `verify_result` event arrives with `control_task_id`:
+
+- `ok: true` → the action succeeded. Advance phase to DONE and complete.
+- `ok: false` → the action failed. Retry, notify the user, or move to WAIT.
 
 ## Scheduling device actions
 

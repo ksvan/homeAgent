@@ -760,8 +760,14 @@ async def admin_tasks() -> dict[str, Any]:
 
     result = []
     for t in all_tasks:
+        import json as _json
         steps = sorted(steps_by_task.get(t.id, []), key=lambda s: s.step_index)
         links = links_by_task.get(t.id, [])
+        try:
+            ctx_data = _json.loads(t.context or "{}")
+            control = ctx_data.get("control") or None
+        except Exception:
+            control = None
         result.append({
             "id": t.id,
             "title": t.title,
@@ -773,6 +779,7 @@ async def admin_tasks() -> dict[str, Any]:
             "user": user_names.get(t.user_id, t.user_id[:8]),
             "created_at": t.created_at.isoformat() if t.created_at else None,
             "updated_at": t.updated_at.isoformat() if t.updated_at else None,
+            "control": control,
             "steps": [
                 {"index": s.step_index, "title": s.title, "status": s.status, "type": s.step_type}
                 for s in steps
@@ -851,6 +858,10 @@ async def admin_event_rules() -> dict[str, Any]:
                 "cooldown_minutes": r.cooldown_minutes,
                 "prompt_template": r.prompt_template,
                 "enabled": r.enabled,
+                "run_mode": r.run_mode,
+                "task_kind_default": r.task_kind_default,
+                "correlation_key_tpl": r.correlation_key_tpl,
+                "last_triggered_at": r.last_triggered_at.isoformat() if r.last_triggered_at else None,  # noqa: E501
                 "created_at": r.created_at.isoformat(),
             }
             for r in rules
