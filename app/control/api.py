@@ -862,6 +862,72 @@ async def admin_task_action(task_id: str, body: _TaskActionBody) -> dict[str, st
 # ---------------------------------------------------------------------------
 
 
+class _EventRuleBody(BaseModel):
+    name: str
+    user_id: str
+    channel_user_id: str = ""  # auto-resolved from user.telegram_id if blank
+    source: str = "homey"
+    event_type: str = "*"
+    entity_id: str = "*"
+    capability: str | None = None
+    value_filter_json: str | None = None
+    condition_json: str | None = None
+    cooldown_minutes: int = 5
+    prompt_template: str
+    run_mode: str = "notify_only"
+    task_kind_default: str | None = None
+    correlation_key_tpl: str | None = None
+    enabled: bool = True
+
+
+def _rule_to_dict(r: Any) -> dict[str, Any]:
+    return {
+        "id": r.id,
+        "name": r.name,
+        "user_id": r.user_id,
+        "channel_user_id": r.channel_user_id,
+        "source": r.source,
+        "event_type": r.event_type,
+        "entity_id": r.entity_id,
+        "capability": r.capability,
+        "value_filter_json": r.value_filter_json,
+        "condition_json": r.condition_json,
+        "cooldown_minutes": r.cooldown_minutes,
+        "prompt_template": r.prompt_template,
+        "enabled": r.enabled,
+        "run_mode": r.run_mode,
+        "task_kind_default": r.task_kind_default,
+        "correlation_key_tpl": r.correlation_key_tpl,
+        "last_triggered_at": r.last_triggered_at.isoformat() if r.last_triggered_at else None,
+        "created_at": r.created_at.isoformat(),
+    }
+
+
+@router.get("/users", dependencies=_auth)
+async def admin_list_users() -> dict[str, Any]:
+    """List household users (for event rule form dropdowns)."""
+    from sqlmodel import select
+
+    from app.db import users_session
+    from app.models.users import User
+
+    with users_session() as session:
+        users = session.exec(select(User).order_by(User.name)).all()
+
+    return {
+        "users": [
+            {
+                "id": u.id,
+                "name": u.name,
+                "telegram_id": u.telegram_id,
+                "channel_user_id": str(u.telegram_id),
+                "is_admin": u.is_admin,
+            }
+            for u in users
+        ]
+    }
+
+
 @router.get("/event-rules", dependencies=_auth)
 async def admin_event_rules() -> dict[str, Any]:
     """List all EventRule records for the household."""
@@ -873,29 +939,146 @@ async def admin_event_rules() -> dict[str, Any]:
     with users_session() as session:
         rules = session.exec(select(EventRule).order_by(EventRule.created_at.desc())).all()
 
-    return {
-        "rules": [
-            {
-                "id": r.id,
-                "name": r.name,
-                "source": r.source,
-                "event_type": r.event_type,
-                "entity_id": r.entity_id,
-                "capability": r.capability,
-                "value_filter_json": r.value_filter_json,
-                "condition_json": r.condition_json,
-                "cooldown_minutes": r.cooldown_minutes,
-                "prompt_template": r.prompt_template,
-                "enabled": r.enabled,
-                "run_mode": r.run_mode,
-                "task_kind_default": r.task_kind_default,
-                "correlation_key_tpl": r.correlation_key_tpl,
-                "last_triggered_at": r.last_triggered_at.isoformat() if r.last_triggered_at else None,  # noqa: E501
-                "created_at": r.created_at.isoformat(),
-            }
-            for r in rules
-        ]
-    }
+    return {"rules": [_rule_to_dict(r) for r in rules]}
+
+
+@router.post("/event-rules", dependencies=_auth)
+async def admin_create_event_rule(body: _EventRuleBody) -> dict[str, Any]:
+    """Create a new EventRule."""
+    from datetime import datetime, timezone
+
+    from sqlmodel import select
+
+    from app.db import users_session
+    from app.models.events import EventRule
+    from app.models.users import User
+
+    hid = _get_household_id()
+    if not hid:
+        return {"error": "No household found"}
+
+    channel_user_id = body.channel_user_id
+    if not channel_user_id:
+        with users_session() as session:
+            user = session.exec(select(User).where(User.id == body.user_id)).first()
+        if not user:
+            return {"error": f"User {body.user_id!r} not found"}
+        channel_user_id = str(user.telegram_id)
+
+    now = datetime.now(timezone.utc)
+    rule = EventRule(
+        household_id=hid,
+        user_id=body.user_id,
+        channel_user_id=channel_user_id,
+        name=body.name,
+        source=body.source,
+        event_type=body.event_type,
+        entity_id=body.entity_id,
+        capability=body.capability or None,
+        value_filter_json=body.value_filter_json or None,
+        condition_json=body.condition_json or None,
+        cooldown_minutes=body.cooldown_minutes,
+        prompt_template=body.prompt_template,
+        run_mode=body.run_mode,
+        task_kind_default=body.task_kind_default or None,
+        correlation_key_tpl=body.correlation_key_tpl or None,
+        enabled=body.enabled,
+        created_at=now,
+        updated_at=now,
+    )
+    with users_session() as session:
+        session.add(rule)
+        session.commit()
+        session.refresh(rule)
+
+    logger.info("EventRule created: id=%s name=%r", rule.id, rule.name)
+    return {"rule": _rule_to_dict(rule)}
+
+
+@router.put("/event-rules/{rule_id}", dependencies=_auth)
+async def admin_update_event_rule(rule_id: str, body: _EventRuleBody) -> dict[str, Any]:
+    """Update an existing EventRule (full replace of editable fields)."""
+    from datetime import datetime, timezone
+
+    from sqlmodel import select
+
+    from app.db import users_session
+    from app.models.events import EventRule
+    from app.models.users import User
+
+    channel_user_id = body.channel_user_id
+    if not channel_user_id:
+        with users_session() as session:
+            user = session.exec(select(User).where(User.id == body.user_id)).first()
+        if not user:
+            return {"error": f"User {body.user_id!r} not found"}
+        channel_user_id = str(user.telegram_id)
+
+    with users_session() as session:
+        rule = session.get(EventRule, rule_id)
+        if not rule:
+            return {"error": "Rule not found"}
+        rule.name = body.name
+        rule.user_id = body.user_id
+        rule.channel_user_id = channel_user_id
+        rule.source = body.source
+        rule.event_type = body.event_type
+        rule.entity_id = body.entity_id
+        rule.capability = body.capability or None
+        rule.value_filter_json = body.value_filter_json or None
+        rule.condition_json = body.condition_json or None
+        rule.cooldown_minutes = body.cooldown_minutes
+        rule.prompt_template = body.prompt_template
+        rule.run_mode = body.run_mode
+        rule.task_kind_default = body.task_kind_default or None
+        rule.correlation_key_tpl = body.correlation_key_tpl or None
+        rule.enabled = body.enabled
+        rule.updated_at = datetime.now(timezone.utc)
+        session.add(rule)
+        session.commit()
+        session.refresh(rule)
+
+    logger.info("EventRule updated: id=%s name=%r", rule.id, rule.name)
+    return {"rule": _rule_to_dict(rule)}
+
+
+@router.patch("/event-rules/{rule_id}/toggle", dependencies=_auth)
+async def admin_toggle_event_rule(rule_id: str) -> dict[str, Any]:
+    """Toggle the enabled state of an EventRule."""
+    from datetime import datetime, timezone
+
+    from app.db import users_session
+    from app.models.events import EventRule
+
+    with users_session() as session:
+        rule = session.get(EventRule, rule_id)
+        if not rule:
+            return {"error": "Rule not found"}
+        rule.enabled = not rule.enabled
+        rule.updated_at = datetime.now(timezone.utc)
+        session.add(rule)
+        session.commit()
+        session.refresh(rule)
+
+    logger.info("EventRule toggled: id=%s enabled=%s", rule.id, rule.enabled)
+    return {"rule": _rule_to_dict(rule)}
+
+
+@router.delete("/event-rules/{rule_id}", dependencies=_auth)
+async def admin_delete_event_rule(rule_id: str) -> dict[str, str]:
+    """Delete an EventRule."""
+    from app.db import users_session
+    from app.models.events import EventRule
+
+    with users_session() as session:
+        rule = session.get(EventRule, rule_id)
+        if not rule:
+            return {"status": "not_found"}
+        session.delete(rule)
+        session.commit()
+
+    logger.info("EventRule deleted: id=%s", rule_id)
+    return {"status": "deleted"}
 
 
 # ---------------------------------------------------------------------------

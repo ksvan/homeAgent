@@ -114,6 +114,23 @@ header { background: var(--surface); border-bottom: 1px solid var(--border); pad
 .summary-block { font-size: 13px; line-height: 1.5; padding: 8px 12px; background: var(--surface); border: 1px solid var(--border); border-radius: 6px; margin-bottom: 10px; }
 .summary-user { color: var(--dim); font-size: 11px; margin-bottom: 6px; }
 
+/* Event rule form */
+.er-form { background: var(--surface); border: 1px solid var(--border); border-radius: 6px; padding: 14px 16px; margin-bottom: 12px; }
+.er-form h4 { font-size: 11px; text-transform: uppercase; letter-spacing: 0.08em; color: var(--dim); margin-bottom: 12px; }
+.er-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 8px 14px; }
+.er-field { display: flex; flex-direction: column; gap: 3px; }
+.er-field.er-full { grid-column: 1 / -1; }
+.er-label { font-size: 10px; color: var(--dim); text-transform: uppercase; letter-spacing: 0.06em; }
+.er-input { background: var(--bg); border: 1px solid var(--border); color: var(--text); padding: 5px 8px; border-radius: 4px; font-size: 12px; font-family: inherit; }
+.er-input:focus { outline: none; border-color: var(--accent); }
+.er-input[type=checkbox] { width: 14px; height: 14px; margin: 0; }
+.er-hint { font-size: 10px; color: var(--dim); }
+.er-actions { display: flex; gap: 8px; margin-top: 12px; }
+.er-save { background: var(--accent); border: none; color: #fff; padding: 5px 14px; border-radius: 4px; cursor: pointer; font-size: 12px; font-family: inherit; }
+.er-save:hover { opacity: 0.85; }
+.er-cancel { background: none; border: 1px solid var(--border); color: var(--dim); padding: 5px 14px; border-radius: 4px; cursor: pointer; font-size: 12px; font-family: inherit; }
+.er-cancel:hover { color: var(--text); }
+
 /* Control Loop tab */
 .cl-strip { display: flex; gap: 8px; padding: 12px 20px; border-bottom: 1px solid var(--border); flex-shrink: 0; flex-wrap: wrap; }
 .cl-card { background: var(--surface); border: 1px solid var(--border); border-radius: 6px; padding: 8px 14px; min-width: 110px; }
@@ -400,6 +417,105 @@ header { background: var(--surface); border-bottom: 1px solid var(--border); pad
       <div class="cl-card-label">SSE</div>
       <div class="cl-card-val" id="cl-sse">—</div>
     </div>
+  </div>
+  <!-- Event Rules section -->
+  <div style="padding:12px 20px;border-bottom:1px solid var(--border);flex-shrink:0;overflow-y:auto;max-height:42vh">
+    <div style="display:flex;align-items:center;gap:10px;margin-bottom:10px">
+      <span style="font-size:10px;text-transform:uppercase;letter-spacing:0.08em;color:var(--dim)">Event Rules</span>
+      <span id="cl-rules-count" style="font-size:10px;color:var(--dim)"></span>
+      <button class="details-btn" style="margin-left:auto" onclick="clNewRule()">+ New Rule</button>
+      <button class="details-btn" onclick="loadControlLoop()">&#8635; Refresh</button>
+    </div>
+    <!-- Create / edit form (hidden by default) -->
+    <div id="cl-rule-form" style="display:none">
+      <div class="er-form">
+        <h4 id="cl-rule-form-title">New Event Rule</h4>
+        <input type="hidden" id="erf-id">
+        <div class="er-grid">
+          <div class="er-field er-full">
+            <label class="er-label">Name</label>
+            <input class="er-input" id="erf-name" placeholder="e.g. Motion alert after 22:00">
+          </div>
+          <div class="er-field">
+            <label class="er-label">User</label>
+            <select class="er-input" id="erf-user"></select>
+          </div>
+          <div class="er-field">
+            <label class="er-label">Source</label>
+            <input class="er-input" id="erf-source" value="homey">
+          </div>
+          <div class="er-field">
+            <label class="er-label">Event type</label>
+            <input class="er-input" id="erf-event-type" value="*" placeholder="device_state_change | *">
+          </div>
+          <div class="er-field">
+            <label class="er-label">Entity ID</label>
+            <input class="er-input" id="erf-entity-id" value="*" placeholder="device UUID or *">
+          </div>
+          <div class="er-field">
+            <label class="er-label">Capability</label>
+            <input class="er-input" id="erf-capability" placeholder="e.g. onoff (blank = any)">
+          </div>
+          <div class="er-field">
+            <label class="er-label">Cooldown (minutes)</label>
+            <input class="er-input" type="number" id="erf-cooldown" value="5" min="0">
+          </div>
+          <div class="er-field">
+            <label class="er-label">Run mode</label>
+            <select class="er-input" id="erf-run-mode" onchange="clToggleTaskFields()">
+              <option value="notify_only">notify_only</option>
+              <option value="task_loop">task_loop</option>
+            </select>
+          </div>
+          <div class="er-field" id="erf-task-kind-field" style="display:none">
+            <label class="er-label">Task kind</label>
+            <input class="er-input" id="erf-task-kind" placeholder="track | plan | prepare | handoff">
+          </div>
+          <div class="er-field" id="erf-corr-key-field" style="display:none">
+            <label class="er-label">Correlation key template</label>
+            <input class="er-input" id="erf-corr-key" placeholder="rule:{rule_id}:entity:{entity_id}">
+          </div>
+          <div class="er-field er-full">
+            <label class="er-label">Value filter (JSON) <span class="er-hint">e.g. {"eq": true} or {"gt": 22.5}</span></label>
+            <input class="er-input" id="erf-value-filter" placeholder='{"eq": true}'>
+          </div>
+          <div class="er-field er-full">
+            <label class="er-label">Condition (JSON) <span class="er-hint">e.g. {"quiet_hours_start":"22:00","quiet_hours_end":"07:00"}</span></label>
+            <input class="er-input" id="erf-condition" placeholder='{"quiet_hours_start":"22:00","quiet_hours_end":"07:00"}'>
+          </div>
+          <div class="er-field er-full">
+            <label class="er-label">Prompt template</label>
+            <textarea class="er-input" id="erf-prompt" rows="3" placeholder="Device {entity_name} ({capability}) changed to {value} at {time}. Review and respond."></textarea>
+          </div>
+          <div class="er-field">
+            <label class="er-label">Enabled</label>
+            <input type="checkbox" class="er-input" id="erf-enabled" checked>
+          </div>
+        </div>
+        <div class="er-actions">
+          <button class="er-save" onclick="clSaveRule()">Save Rule</button>
+          <button class="er-cancel" onclick="clCancelForm()">Cancel</button>
+          <span id="cl-form-error" style="color:var(--red);font-size:11px;margin-left:8px"></span>
+        </div>
+      </div>
+    </div>
+    <!-- Rules table -->
+    <table class="mem-table" id="cl-rules-table">
+      <thead>
+        <tr>
+          <th>Name</th>
+          <th>Match</th>
+          <th style="width:80px">Mode</th>
+          <th style="width:60px">Cooldown</th>
+          <th style="width:70px">Last fired</th>
+          <th style="width:60px">Enabled</th>
+          <th style="width:100px"></th>
+        </tr>
+      </thead>
+      <tbody id="cl-rules-tbody">
+        <tr><td colspan="7" style="color:var(--dim);padding:12px 10px">Loading…</td></tr>
+      </tbody>
+    </table>
   </div>
   <!-- Two-column body -->
   <div class="cl-body">
@@ -1333,6 +1449,192 @@ function _clPhaseClass(phase) {
   return phase ? 'cl-phase cl-phase-' + phase : '';
 }
 
+// ---- Event rule form helpers ----
+var _clUsers = [];  // cached user list
+
+function clToggleTaskFields() {
+  var mode = document.getElementById('erf-run-mode').value;
+  var show = mode === 'task_loop';
+  document.getElementById('erf-task-kind-field').style.display = show ? '' : 'none';
+  document.getElementById('erf-corr-key-field').style.display = show ? '' : 'none';
+}
+
+async function _clLoadUsers() {
+  if (_clUsers.length) return _clUsers;
+  try {
+    var r = await fetch('/admin/users', {headers: _authHeaders});
+    if (r.ok) { var d = await r.json(); _clUsers = d.users || []; }
+  } catch(e) {}
+  return _clUsers;
+}
+
+function _clPopulateUserSelect(selectedUserId) {
+  var sel = document.getElementById('erf-user');
+  sel.innerHTML = _clUsers.map(function(u) {
+    var selected = u.id === selectedUserId ? ' selected' : '';
+    return '<option value="' + esc(u.id) + '"' + selected + '>' + esc(u.name) + '</option>';
+  }).join('');
+}
+
+async function clNewRule() {
+  await _clLoadUsers();
+  document.getElementById('cl-rule-form-title').textContent = 'New Event Rule';
+  document.getElementById('erf-id').value = '';
+  document.getElementById('erf-name').value = '';
+  _clPopulateUserSelect('');
+  document.getElementById('erf-source').value = 'homey';
+  document.getElementById('erf-event-type').value = '*';
+  document.getElementById('erf-entity-id').value = '*';
+  document.getElementById('erf-capability').value = '';
+  document.getElementById('erf-cooldown').value = '5';
+  document.getElementById('erf-run-mode').value = 'notify_only';
+  document.getElementById('erf-task-kind').value = '';
+  document.getElementById('erf-corr-key').value = '';
+  document.getElementById('erf-value-filter').value = '';
+  document.getElementById('erf-condition').value = '';
+  document.getElementById('erf-prompt').value = '';
+  document.getElementById('erf-enabled').checked = true;
+  document.getElementById('cl-form-error').textContent = '';
+  clToggleTaskFields();
+  document.getElementById('cl-rule-form').style.display = '';
+  document.getElementById('erf-name').focus();
+}
+
+async function clEditRule(ruleId) {
+  await _clLoadUsers();
+  try {
+    var r = await fetch('/admin/event-rules', {headers: _authHeaders});
+    if (!r.ok) return;
+    var d = await r.json();
+    var rule = (d.rules || []).find(function(x) { return x.id === ruleId; });
+    if (!rule) return;
+    document.getElementById('cl-rule-form-title').textContent = 'Edit Event Rule';
+    document.getElementById('erf-id').value = rule.id;
+    document.getElementById('erf-name').value = rule.name || '';
+    _clPopulateUserSelect(rule.user_id || '');
+    document.getElementById('erf-source').value = rule.source || 'homey';
+    document.getElementById('erf-event-type').value = rule.event_type || '*';
+    document.getElementById('erf-entity-id').value = rule.entity_id || '*';
+    document.getElementById('erf-capability').value = rule.capability || '';
+    document.getElementById('erf-cooldown').value = String(rule.cooldown_minutes != null ? rule.cooldown_minutes : 5);
+    document.getElementById('erf-run-mode').value = rule.run_mode || 'notify_only';
+    document.getElementById('erf-task-kind').value = rule.task_kind_default || '';
+    document.getElementById('erf-corr-key').value = rule.correlation_key_tpl || '';
+    document.getElementById('erf-value-filter').value = rule.value_filter_json || '';
+    document.getElementById('erf-condition').value = rule.condition_json || '';
+    document.getElementById('erf-prompt').value = rule.prompt_template || '';
+    document.getElementById('erf-enabled').checked = !!rule.enabled;
+    document.getElementById('cl-form-error').textContent = '';
+    clToggleTaskFields();
+    document.getElementById('cl-rule-form').style.display = '';
+    document.getElementById('erf-name').focus();
+  } catch(e) {}
+}
+
+function clCancelForm() {
+  document.getElementById('cl-rule-form').style.display = 'none';
+}
+
+async function clSaveRule() {
+  var id = document.getElementById('erf-id').value;
+  var errEl = document.getElementById('cl-form-error');
+  errEl.textContent = '';
+
+  var body = {
+    name:                 document.getElementById('erf-name').value.trim(),
+    user_id:              document.getElementById('erf-user').value,
+    source:               document.getElementById('erf-source').value.trim() || 'homey',
+    event_type:           document.getElementById('erf-event-type').value.trim() || '*',
+    entity_id:            document.getElementById('erf-entity-id').value.trim() || '*',
+    capability:           document.getElementById('erf-capability').value.trim() || null,
+    cooldown_minutes:     parseInt(document.getElementById('erf-cooldown').value, 10) || 5,
+    run_mode:             document.getElementById('erf-run-mode').value,
+    task_kind_default:    document.getElementById('erf-task-kind').value.trim() || null,
+    correlation_key_tpl:  document.getElementById('erf-corr-key').value.trim() || null,
+    value_filter_json:    document.getElementById('erf-value-filter').value.trim() || null,
+    condition_json:       document.getElementById('erf-condition').value.trim() || null,
+    prompt_template:      document.getElementById('erf-prompt').value.trim(),
+    enabled:              document.getElementById('erf-enabled').checked,
+    channel_user_id:      '',  // auto-resolved server-side
+  };
+
+  if (!body.name) { errEl.textContent = 'Name is required.'; return; }
+  if (!body.user_id) { errEl.textContent = 'User is required.'; return; }
+  if (!body.prompt_template) { errEl.textContent = 'Prompt template is required.'; return; }
+
+  // Validate JSON fields if filled
+  for (var [field, label] of [['value_filter_json','Value filter'],['condition_json','Condition']]) {
+    if (body[field]) {
+      try { JSON.parse(body[field]); } catch(_) { errEl.textContent = label + ' is not valid JSON.'; return; }
+    }
+  }
+
+  try {
+    var url = id ? '/admin/event-rules/' + id : '/admin/event-rules';
+    var method = id ? 'PUT' : 'POST';
+    var r = await fetch(url, {
+      method: method,
+      headers: {..._authHeaders, 'Content-Type': 'application/json'},
+      body: JSON.stringify(body),
+    });
+    var d = await r.json();
+    if (d.error) { errEl.textContent = d.error; return; }
+    clCancelForm();
+    loadControlLoop();
+  } catch(e) { errEl.textContent = 'Save failed.'; }
+}
+
+async function clToggleRule(ruleId) {
+  try {
+    await fetch('/admin/event-rules/' + ruleId + '/toggle', {
+      method: 'PATCH', headers: _authHeaders,
+    });
+    loadControlLoop();
+  } catch(e) {}
+}
+
+async function clDeleteRule(ruleId, ruleName) {
+  if (!confirm('Delete rule "' + ruleName + '"?')) return;
+  try {
+    await fetch('/admin/event-rules/' + ruleId, {method: 'DELETE', headers: _authHeaders});
+    loadControlLoop();
+  } catch(e) {}
+}
+
+function _clRenderRulesTable(rules) {
+  var cnt = document.getElementById('cl-rules-count');
+  if (cnt) cnt.textContent = rules.length ? '(' + rules.length + ')' : '';
+  var tbody = document.getElementById('cl-rules-tbody');
+  if (!tbody) return;
+  if (!rules.length) {
+    tbody.innerHTML = '<tr><td colspan="7" style="color:var(--dim);padding:12px 10px">No rules yet. Click + New Rule to create one.</td></tr>';
+    return;
+  }
+  tbody.innerHTML = rules.map(function(r) {
+    var match = esc(r.source) + '/' + esc(r.event_type);
+    if (r.entity_id && r.entity_id !== '*') match += ' <span class="d">· ' + esc(r.entity_id.length > 16 ? r.entity_id.slice(0,16)+'…' : r.entity_id) + '</span>';
+    if (r.capability) match += ' <span class="d">· ' + esc(r.capability) + '</span>';
+    var modeHtml = r.run_mode === 'task_loop'
+      ? '<span style="color:var(--accent);font-size:10px">task_loop</span>'
+      : '<span style="color:var(--dim);font-size:10px">notify</span>';
+    var lastFired = r.last_triggered_at ? relTime(r.last_triggered_at) : '—';
+    var enabledLabel = r.enabled
+      ? '<span style="color:var(--green);cursor:pointer" onclick="clToggleRule(\''+esc(r.id)+'\')">on</span>'
+      : '<span style="color:var(--dim);cursor:pointer" onclick="clToggleRule(\''+esc(r.id)+'\')">off</span>';
+    var actions = '<button onclick="clEditRule(\''+esc(r.id)+'\')" style="background:none;border:none;color:var(--blue);cursor:pointer;font-size:11px;padding:0 4px">Edit</button>'
+      + '<button onclick="clDeleteRule(\''+esc(r.id)+'\',\''+esc(r.name)+'\')" style="background:none;border:none;color:var(--red);cursor:pointer;font-size:11px;padding:0 4px">Del</button>';
+    return '<tr>'
+      + '<td><strong>' + esc(r.name) + '</strong></td>'
+      + '<td style="font-size:11px">' + match + '</td>'
+      + '<td>' + modeHtml + '</td>'
+      + '<td style="color:var(--dim);font-size:11px">' + r.cooldown_minutes + 'm</td>'
+      + '<td class="time-tag">' + lastFired + '</td>'
+      + '<td>' + enabledLabel + '</td>'
+      + '<td>' + actions + '</td>'
+      + '</tr>';
+  }).join('');
+}
+
 async function loadControlLoop() {
   // Update status strip from stats
   try {
@@ -1420,6 +1722,15 @@ async function loadControlLoop() {
           + '</div>');
       });
       waitEl.innerHTML = waitItems.length ? waitItems.join('') : '<span style="color:var(--dim)">Nothing waiting.</span>';
+    }
+  } catch(e) {}
+
+  // Event rules table
+  try {
+    var r3 = await fetch('/admin/event-rules', {headers: _authHeaders});
+    if (r3.ok) {
+      var d3 = await r3.json();
+      _clRenderRulesTable(d3.rules || []);
     }
   } catch(e) {}
 }
