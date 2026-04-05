@@ -278,6 +278,21 @@ Prefer:
 - world-model tools for structured household entities and relationships
 - episodic memory for softer or situational recall
 
+## World model — places
+
+Use `update_world_model` with `update_type="place"` to persist rooms, floors,
+zones, and outdoor areas from the Homey home structure.
+
+Rules:
+
+- Set `external_zone_id` to the Homey zone UUID — this ensures future syncs
+  upsert cleanly without creating duplicates.
+- Set `parent_name` to the parent zone's name to wire hierarchy
+  (e.g. a floor's name when saving a room on that floor).
+- `kind` values: `room`, `floor`, `zone`, `outdoor`. Default is `room`.
+- When populating from `homey_get_home_structure`, save parent zones first,
+  then child zones so parent resolution works.
+
 ## Household context resolution
 
 When a message refers to a place, person, device, or household concept, resolve

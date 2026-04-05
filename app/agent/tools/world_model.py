@@ -36,6 +36,7 @@ def register_world_model_tools(agent: Agent[AgentDeps, str]) -> None:
         Args:
             update_type: The kind of update. One of:
                 - "member"   — add or update a household member (children, guests, etc.)
+                - "place"    — add or update a room, floor, zone, or outdoor area
                 - "fact"     — a household/device/routine fact (key-value)
                 - "alias"    — an alternative name for a place, device, or member
                 - "interest" — a household member's interest or hobby
@@ -44,6 +45,11 @@ def register_world_model_tools(agent: Agent[AgentDeps, str]) -> None:
                 - "routine"  — a household routine or mode definition
             details: A JSON string with type-specific fields:
                 member:   {"name": "...", "role": "member|child|guest"}
+                place:    {"name": "...", "kind": "room|floor|zone|outdoor",
+                           "parent_name": "...", "external_zone_id": "..."}
+                          Set external_zone_id to the Homey zone UUID so future
+                          syncs can upsert without duplicates. Set parent_name to
+                          wire hierarchy (e.g. floor name for a room).
                 fact:     {"scope": "device|routine|household|member", "key": "...", "value": "..."}
                 alias:    {"entity_type": "place|device|member", "entity_name": "...",
                            "alias": "..."}
@@ -212,6 +218,47 @@ def register_world_model_tools(agent: Agent[AgentDeps, str]) -> None:
             logger.info("World model goal upserted: %s -> %s", member.name, name)
             return f"Stored goal '{name}' for {member.name}."
 
+        if update_type == "place":
+            name = d.get("name", "")
+            if not name:
+                return "Missing 'name' in place details."
+            kind = d.get("kind", "room")
+            if kind not in ("room", "floor", "zone", "outdoor"):
+                kind = "room"
+            external_zone_id = d.get("external_zone_id") or None
+
+            # Resolve optional parent by name
+            parent_place_id: str | None = None
+            parent_name = d.get("parent_name", "")
+            if parent_name:
+                from sqlmodel import select as _select
+
+                from app.db import users_session
+                from app.models.world import Place
+
+                with users_session() as _s:
+                    parent = _s.exec(
+                        _select(Place).where(
+                            Place.household_id == household_id,
+                            Place.name == parent_name,
+                        )
+                    ).first()
+                if parent:
+                    parent_place_id = parent.id
+
+            place = repo.upsert_place(
+                household_id,
+                name=name,
+                kind=kind,
+                parent_place_id=parent_place_id,
+                external_zone_id=external_zone_id,
+                source="agent",
+            )
+            emit("world.update", {"entity_type": "place", "action": "upsert", "name": place.name})
+            logger.info("World model place upserted: %s (%s)", place.name, kind)
+            parent_note = f", parent='{parent_name}'" if parent_place_id else ""
+            return f"Stored place '{place.name}' (kind={kind}{parent_note}, id={place.id})."
+
         if update_type == "routine":
             name = d.get("name", "")
             if not name:
@@ -228,7 +275,7 @@ def register_world_model_tools(agent: Agent[AgentDeps, str]) -> None:
 
         return (
             f"Unknown update_type '{update_type}'. "
-            "Use: member, fact, alias, interest, activity, goal, routine."
+            "Use: member, place, fact, alias, interest, activity, goal, routine."
         )
 
     @agent.tool
