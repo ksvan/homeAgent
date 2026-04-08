@@ -41,6 +41,13 @@ if __name__ == "__main__":
         enabled or ["none"],
     )
 
+    passthrough = settings.passthrough_env_dict()
+    if passthrough:
+        logger.info("Subprocess env passthrough: %d var(s) configured: %s",
+                    len(passthrough), ", ".join(passthrough.keys()))
+    else:
+        logger.info("Subprocess env passthrough: none configured (TOOLS_PASSTHROUGH_ENV not set)")
+
     register_tools(settings)
 
     mcp.run(
