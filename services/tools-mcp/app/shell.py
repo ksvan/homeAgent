@@ -128,6 +128,7 @@ async def run_command(
     workspace_dir: Path,
     allowed_commands: frozenset[str],
     max_output_bytes: int = _MAX_OUTPUT_BYTES,
+    extra_env: dict[str, str] | None = None,
 ) -> RunResult:
     """
     Execute argv as a subprocess confined to workspace_dir.
@@ -189,6 +190,8 @@ async def run_command(
         "LANG": "en_US.UTF-8",
         "TERM": "dumb",
     }
+    if extra_env:
+        env.update(extra_env)
 
     logger.info("Shell runner: %s  cwd=%s  timeout=%ss", argv, resolved_cwd, timeout_s)
 

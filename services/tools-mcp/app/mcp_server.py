@@ -71,6 +71,7 @@ def register_tools(settings: Settings) -> None:
     """Register enabled tools on the FastMCP server based on feature flags."""
 
     workspace = Path(settings.workspace_dir)
+    passthrough_env = settings.passthrough_env_dict()
 
     # ------------------------------------------------------------------
     # Bash tool
@@ -116,6 +117,7 @@ def register_tools(settings: Settings) -> None:
                 workspace_dir=workspace,
                 allowed_commands=allowed,
                 max_output_bytes=bash_max_output,
+                extra_env=passthrough_env or None,
             )
             parts: list[str] = []
             if result.stdout:
@@ -182,6 +184,7 @@ def register_tools(settings: Settings) -> None:
                 workspace_dir=workspace,
                 allowed_commands=frozenset({"python3"}),
                 max_output_bytes=py_max_output,
+                extra_env=passthrough_env or None,
             )
 
             artifacts: list[str] = []

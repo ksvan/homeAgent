@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import os
 from functools import lru_cache
 
 from pydantic_settings import BaseSettings, SettingsConfigDict
@@ -49,9 +50,23 @@ class Settings(BaseSettings):
     tavily_api_key: str = ""
     search_max_results: int = 5
 
+    # Subprocess env passthrough — CSV list of env var names forwarded to
+    # bash and python subprocesses. Use for skill credentials and API keys.
+    # Example: TOOLS_PASSTHROUGH_ENV=VEGVESEN_DATEX_USERNAME,VEGVESEN_DATEX_PASSWORD
+    tools_passthrough_env: str = ""
+
     def bash_allowed_commands_list(self) -> list[str]:
         """Parse the CSV bash_allowed_commands string into a list."""
         return [x.strip() for x in self.bash_allowed_commands.split(",") if x.strip()]
+
+    def passthrough_env_dict(self) -> dict[str, str]:
+        """Return env vars that should be forwarded to subprocesses."""
+        result = {}
+        for name in self.tools_passthrough_env.split(","):
+            name = name.strip()
+            if name and name in os.environ:
+                result[name] = os.environ[name]
+        return result
 
 
 @lru_cache(maxsize=1)
