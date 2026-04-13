@@ -38,6 +38,7 @@ For normal agent runs, the runtime assembles context from:
 - household profile
 - household world model
 - active task context
+- available skills index
 - relevant episodic memories
 - recent conversation turns and summary
 
@@ -69,6 +70,8 @@ Internal tools can create or update:
 - multi-step tasks
 - reminders
 - scheduled prompts
+- event rules
+- skill lookups
 - future task resumes
 
 Those future triggers come back into the system later and re-enter the runtime
@@ -101,7 +104,7 @@ flowchart TB
 
     subgraph CONTEXT["Build working context"]
         PROMPTS["Prompt files + time_context"]
-        DYNAMIC["User profile + household profile<br/>world model + active task<br/>memories + recent turns"]
+        DYNAMIC["User profile + household profile<br/>world model + active task<br/>skills index + memories + recent turns"]
         CTX["assemble_context() output"]
         PROMPTS --> CTX
         DYNAMIC --> CTX
@@ -117,7 +120,7 @@ flowchart TB
     KIND --> HOMEY["Homey MCP"]
     KIND --> PROM["Prometheus MCP"]
     KIND --> TOOLS["Tools MCP"]
-    KIND --> INTERNAL["Internal tools<br/>memory, calendar, world model,<br/>tasks, reminders, scheduled prompts"]
+    KIND --> INTERNAL["Internal tools<br/>memory, calendar, world model,<br/>tasks, reminders, scheduled prompts,<br/>event rules, skills"]
 
     HOMEY --> POLICY{High-impact action<br/>requires confirmation?}
     POLICY -->|No| TOOLRES["Tool result returned to model"]
@@ -128,7 +131,7 @@ flowchart TB
     PROM --> TOOLRES
     TOOLS --> TOOLRES
 
-    INTERNAL --> STATEWRITE["May create/update:<br/>task state, reminders,<br/>scheduled prompts, world model, memory"]
+    INTERNAL --> STATEWRITE["May create/update:<br/>task state, reminders,<br/>scheduled prompts, event rules,<br/>world model, memory"]
     STATEWRITE --> TOOLRES
     STATEWRITE --> SCHED["APScheduler / future triggers"]
     SCHED --> FUTURE["Reminder fire, scheduled prompt,<br/>or task resume later"]

@@ -31,7 +31,7 @@ flowchart TB
         BOT --> CMD[Slash Command Dispatcher]
         CMD --> CMDS[Command Handlers<br>/help /contextstats /history /schedule /prompts /status /users]
 
-        BOT --> CTX[Context Assembly<br>profiles + world model + summary + memories + recent turns]
+        BOT --> CTX[Context Assembly<br>profiles + world model + active task + summary + memories + skills index + recent turns]
         CTX --> AGENT[Conversation Agent<br>PydanticAI]
         AGENT --> ROUTER[LLM Router]
         ROUTER --> CLAUDE[Anthropic models]
@@ -41,7 +41,7 @@ flowchart TB
         TOOLS --> HOMEY[Homey MCP]
         TOOLS --> PROM[Prometheus MCP]
         TOOLS --> TOOLSMCP[Tools MCP]
-        TOOLS --> BUILTIN[Built-in tools<br>memory / reminders / actions / scheduled prompts / world model]
+        TOOLS --> BUILTIN[Built-in tools<br>memory / reminders / actions / tasks / scheduled prompts / world model / event rules / skills]
 
         HOMEY --> POLICY[Policy Gate]
         POLICY --> PENDING[Pending Confirmation Flow]
@@ -56,6 +56,8 @@ flowchart TB
         WMBOOT --> DBU
         STARTUP --> HPROF[refresh_home_profile]
         HPROF --> DBM
+        STARTUP --> SKILLS[SkillRegistry<br>app/skills]
+        SKILLS --> CTX
 
         AGENT --> BG[Background tasks<br>memory extract + conversation summarize]
         BG --> DBM
@@ -66,8 +68,14 @@ flowchart TB
         JOBS --> DBM
 
         ADMIN[Admin API / Dashboard] --> SSE[SSE Event Bus]
+        ADMIN --> SKILLS
+        ADMIN --> CTRLTAB[Control Loop tab<br>dispatcher + event rules + active tasks]
+        CTRLTAB --> EVENTBUS[Inbound Event Bus]
+        EVENTBUS --> DISPATCH[Event Dispatcher]
+        DISPATCH --> AGENT
         AGENT --> SSE
         SCHED --> SSE
+        DISPATCH --> SSE
     end
 ```
 
@@ -95,8 +103,10 @@ flowchart LR
     CMDCHK -->|No or unhandled| CTX[assemble_context]
     CTX --> PROF[Profiles<br>memory.db]
     CTX --> WORLD[World model snapshot<br>users.db]
+    CTX --> TASKCTX[Active task context<br>users.db]
     CTX --> HIST[Recent turns + summary<br>memory.db]
     CTX --> MEM[Episodic retrieval<br>sqlite-vec]
+    CTX --> SKIDX[Available skills index<br>SkillRegistry]
 
     CTX --> RUN[run_conversation<br>app/agent/agent.py]
     RUN --> PROMPTS[persona.md + instructions.md<br>+ time_context block]
@@ -104,7 +114,9 @@ flowchart LR
     RUN --> MCPHOMEY[Homey MCP]
     RUN --> MCPPROM[Prometheus MCP]
     RUN --> MCPTOOLS[Tools MCP]
-    RUN --> BUILTIN[Built-in tools<br>memory/reminders/actions/prompts/world-model]
+    RUN --> BUILTIN[Built-in tools<br>memory/reminders/actions/tasks/prompts/world-model/event-rules/skills]
+    SKTOOL[get_skill / list_skills<br>app/agent/tools/skills.py] --> SKIDX
+    RUN --> SKTOOL
 
     MCPHOMEY --> POL[Policy evaluate]
     POL --> NEED{Confirmation needed?}
@@ -124,7 +136,7 @@ flowchart LR
     RESP --> SAVEPAIR[save_message_pair]
     RESP --> SAVETURN[save_conversation_turn]
     RESP --> RUNLOG[write agent run log]
-    RESP --> EVT[emit run/cmd/world events]
+    RESP --> EVT[emit run/cmd/world/task/job events]
     RESP --> BG[async memory extraction + summarization]
 
     BG --> DBM[(memory.db)]
@@ -135,8 +147,15 @@ flowchart LR
     START --> SCH[Start scheduler]
     SCH --> RESTORE[restore reminders/actions/prompts]
     START --> BOOT[bootstrap_world_model + refresh_home_profile]
+    START --> EDISP[Start inbound event dispatcher]
+    EDISP --> EB[Inbound event bus]
+    EB --> MATCH[match enabled EventRules]
+    MATCH --> CTRL[resolve/reuse control Task]
+    CTRL --> RUNNER[run_agent_turn]
+    RUNNER --> RUN
 
-    ADMIN[/admin APIs<br>/stats /stream /scheduler /world-model/] --> EVT
+    ADMIN[/admin APIs<br>/stats /stream /scheduler /world-model /event-rules /tasks /skills/] --> EVT
+    ADMIN --> EB
 ```
 
 ---
@@ -151,8 +170,9 @@ flowchart TB
     MIG --> LIFE[FastAPI lifespan]
 
     LIFE --> MCP[Start Homey / Prom / Tools MCP]
-    LIFE --> RELOAD[reload agent with connected toolsets]
-    LIFE --> SCH[Start scheduler + restore jobs + cleanup jobs]
+    LIFE --> RELOAD[reload agent with connected toolsets<br>reset prompt + skill caches]
+    LIFE --> SCH[Start scheduler + restore reminders/actions/prompts + cleanup]
+    LIFE --> DISP[Start inbound event dispatcher]
     LIFE --> BOOT[fire-and-forget startup syncs]
     BOOT --> WM[bootstrap_world_model]
     BOOT --> HP[refresh_home_profile]
@@ -162,7 +182,7 @@ flowchart TB
     WH --> MSG[handle_incoming_message]
     MSG --> CMD{slash command?}
     CMD -->|Yes handled| CR[Return command response]
-    CMD -->|No| CTX[assemble_context]
+    CMD -->|No| CTX[assemble_context<br>profiles + world model + skills index + memories]
     CTX --> RUN[run_conversation]
     RUN --> POL{tool call requires confirm?}
     POL -->|Yes| PEND[pending action + inline buttons]
@@ -173,6 +193,11 @@ flowchart TB
     OUT --> SAVE[persist turn + run log + snapshots]
     SAVE --> BG[async extract + summarize]
     SAVE --> REPLY[Telegram reply]
+
+    DISP --> EVBUS[inbound event bus]
+    EVBUS --> RULES[event rules]
+    RULES --> CTRL[control task]
+    CTRL --> RUN
 ```
 
 ---
