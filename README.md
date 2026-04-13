@@ -18,6 +18,7 @@ Developed by Claude, with assistance from me and Codex.
 - **Cross-user features** — ask it to remind a family member about something
 - **Personal assistant** — find restaurants, answer questions, set reminders
 - **Event-driven** — reacts to home events, runs scheduled tasks
+- **Domain skills** — file-based skills extend the agent with specialised APIs and data sources (Norwegian weather, road traffic) without modifying code
 
 ---
 
@@ -174,31 +175,26 @@ HOMEY_WEBHOOK_SECRET=<generate with: python -c "import secrets; print(secrets.to
 
 ### 2. Create an EventRule
 
-Insert a row directly into `data/db/users.db` (or via the admin API once a UI is added):
+Rules can be created three ways:
 
-```sql
-INSERT INTO eventrule (
-  id, household_id, user_id, channel_user_id,
-  name, source, event_type, entity_id, capability,
-  value_filter_json, condition_json, cooldown_minutes,
-  prompt_template, enabled, created_at, updated_at
-) VALUES (
-  hex(randomblob(16)),
-  '<your-household-id>',
-  '<your-user-id>',
-  '<your-telegram-id>',
-  'Motion alert after 22:00',
-  'homey',
-  'device_state_change',
-  '<homey-device-uuid>',
-  'alarm_motion',
-  '{"eq": true}',
-  '{"quiet_hours_start": "07:00", "quiet_hours_end": "22:00"}',
-  10,
-  'Motion detected in {zone} at {time}. Is anyone expected home?',
-  1,
-  datetime('now'), datetime('now')
-);
+**Via the admin dashboard** — open the Control Loop tab at `http://<host>:9090/admin`, click **+ New Rule**, fill in the form, and save. A **Test** button fires a synthetic event through the real dispatcher so you can verify rule behaviour without waiting for a live Homey event.
+
+**Via the agent** — ask the agent directly: *"Create an event rule that alerts me when the front door opens after 22:00."* The agent has `create_event_rule`, `list_event_rules`, `enable_event_rule`, `disable_event_rule`, and `delete_event_rule` tools.
+
+**Via the admin API** — `POST /admin/event-rules` with a JSON body:
+
+```json
+{
+  "name": "Motion alert after 22:00",
+  "source": "homey",
+  "event_type": "device_state_change",
+  "entity_id": "<homey-device-uuid>",
+  "capability": "alarm_motion",
+  "value_filter_json": "{\"eq\": true}",
+  "condition_json": "{\"quiet_hours_start\": \"07:00\", \"quiet_hours_end\": \"22:00\"}",
+  "cooldown_minutes": 10,
+  "prompt_template": "Motion detected in {zone} at {time}. Is anyone expected home?"
+}
 ```
 
 Fields:
@@ -282,6 +278,7 @@ homeAgent/
 │   ├── memory/             # Memory layers: profiles, episodic, vector
 │   ├── models/             # SQLModel database models
 │   ├── scheduler/          # APScheduler jobs and cron tasks
+│   ├── skills/             # File-based domain skills (weather, traffic, …)
 │   ├── tasks/              # Multi-step task orchestration
 │   ├── world/              # Household world model
 │   ├── api/                # FastAPI routes and webhook handlers
@@ -323,6 +320,7 @@ docker buildx build \
 - [Agent Design](docs/agent-design.md)
 - [Memory Design](docs/memory-design.md)
 - [Household World Model](docs/household-world-model-design.md)
+- [Agent Skills](docs/agent-skills-design.md)
 - [Multi-Step Tasks](docs/multi-step-task-design.md)
 - [Observability](docs/observability.md)
 - [Slash Commands](docs/slash-commands-design.md)

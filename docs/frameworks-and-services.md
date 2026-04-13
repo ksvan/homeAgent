@@ -63,6 +63,8 @@
 | **Homey** (MCP) | Smart home hub — controls devices, flows, and zones | Agent calls Homey MCP for live home automation and also uses `get_home_structure` during startup to bootstrap `Place` and `DeviceEntity` rows in the world model |
 | **Prometheus** (MCP) | Time-series metrics database | Read-only metrics access (power, temperature, uptime). Wrapped in `services/prometheus-mcp` to expose it as an MCP server |
 | **Tavily** | Web search SaaS API | Powers the `search` tool in `services/tools-mcp`; used when the agent needs to query current facts or the web |
+| **MET Norway (api.met.no)** | Free Norwegian weather API | Accessed via the `metno-norway-weather` skill — forecasts, nowcasts, alerts, tides, sunrise data. No API key required; credentials forwarded via `TOOLS_PASSTHROUGH_ENV` are not needed for this service |
+| **Statens vegvesen DATEX II** | Norwegian road traffic API | Accessed via the `vegvesen-datex` skill — situations, travel times, road weather, CCTV. Requires Basic Auth credentials (`VEGVESEN_DATEX_USERNAME`, `VEGVESEN_DATEX_PASSWORD`) forwarded via `TOOLS_PASSTHROUGH_ENV` |
 | **Cloudflare Tunnel** | Tunneling service for NAT traversal | Exposes the FastAPI webhook endpoint to the internet without port forwarding, enabling Telegram to reach the bot at home |
 
 ---
@@ -98,6 +100,7 @@
 | **BeautifulSoup4** | HTML parser | Backs the `scrape` tool in `services/tools-mcp` for extracting readable text from web pages |
 | **recurring-ical-events** + **icalendar** | iCalendar parsing and RRULE expansion | Used in the calendar tool to parse `.ics` feeds and expand recurring events into discrete occurrences |
 | **psutil** | Cross-platform process and system utilities | Available in `services/tools-mcp` for system introspection from the bash/python tool |
+| **PyYAML** | YAML parser | Parses `agents/agent.yaml` skill interface files in `SkillRegistry` |
 
 ---
 

@@ -67,6 +67,7 @@ Feature flags are a `FeatureFlags` settings object loaded from `.env` at startup
 | `FEATURE_ACTION_VERIFY` | `true` | Verify device state after write actions |
 | `FEATURE_LOCAL_MODEL` | `false` | Route background tasks to Ollama (future) |
 | `FEATURE_WHATSAPP` | `false` | Enable WhatsApp channel adapter |
+| `FEATURE_WORLD_MODEL_TOOLS` | `true` | Enable agent tools for world model read/write |
 | `FEATURE_VOICE` | `false` | Enable voice input via Whisper (future) |
 | `FEATURE_MULTI_HOME` | `false` | Enable multi-home routing (future) |
 
@@ -201,6 +202,7 @@ dependencies = [
     "structlog",                # Structured JSON logging
     "pydantic-settings",        # Settings management from .env
     "python-dotenv",            # .env loading
+    "pyyaml",                   # YAML parsing for skill agent.yaml files
 ]
 
 [tool.uv]

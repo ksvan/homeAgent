@@ -116,6 +116,7 @@ The conversation agent then adds:
 
 - prompt files (`persona.md`, `instructions.md`)
 - a machine-readable `<time_context>` block with current ISO timestamp and timezone
+- a compact `## Available Skills` index from the `SkillRegistry`
 
 Current device state is still **not** preloaded into the prompt. For live state, the agent is expected to call Homey tools.
 
@@ -139,7 +140,7 @@ The current schema also includes:
 - `RoutineEntity`
 - `Relationship`
 
-The agent sees a compact formatted snapshot of this model on every run, and also has explicit tools to read and update it conservatively.
+The agent sees a compact formatted snapshot of this model on every run, and also has explicit tools to read and update it conservatively. The `update_world_model` tool supports all entity types including `place` (rooms, floors, zones) with optional `external_zone_id` for deduplication against Homey zone UUIDs.
 
 ### Channel abstraction
 
@@ -209,6 +210,21 @@ It does **not** yet perform strong semantic expected-vs-actual matching for ever
 The schema is still broad enough for future multi-step conversational task orchestration, but that broader task-resume flow is not yet wired into runtime context assembly.
 
 Detailed proposal: [multi-step-task-design.md](multi-step-task-design.md)
+
+### Skills
+
+Skills are file-based domain-specific knowledge packages in `app/skills/<name>/`. Each skill bundles:
+
+- `SKILL.md` — frontmatter (name, description) and full workflow guidance
+- `agents/agent.yaml` — display name and invocation hint for the system prompt index
+- `references/` — API reference documents (read on demand)
+- `scripts/` — Python helper scripts (mounted read-only into the tools container at `/workspace/skills/`)
+
+The `SkillRegistry` scans the skills directory at startup and on admin `/reload`. The agent sees a compact `## Available Skills` index in every system prompt, then calls `get_skill(name)` to load full guidance on demand. Scripts are executed via `run_python_script` using `/workspace/skills/<name>/scripts/<script>.py`.
+
+Skill credentials (API keys, passwords) are forwarded to subprocesses via `TOOLS_PASSTHROUGH_ENV` — a comma-separated list of env var names that are explicitly added to the otherwise clean subprocess environment.
+
+See [agent-skills-design.md](agent-skills-design.md).
 
 ---
 
@@ -299,7 +315,8 @@ Detailed evolution proposal: [proactive-scheduled-behaviour-design.md](proactive
 5. Start APScheduler
 6. Restore pending reminders, actions, and scheduled prompts
 7. Register cleanup jobs
-8. Fire-and-forget startup syncs:
+8. Load SkillRegistry from `app/skills/`
+9. Fire-and-forget startup syncs:
      - refresh_home_profile()
      - bootstrap_world_model()
 9. Initialize Telegram channel
@@ -401,8 +418,10 @@ Current capabilities include:
 - scheduler inspection
 - a dedicated **World Model** view backed by `GET /admin/world-model`
 - authenticated write endpoints for world facts, routines, aliases, member details, and entity deletion
+- a **Control Loop** tab showing dispatcher state, event bus queue depth, active control tasks, event rules management (create/edit/toggle/delete/test), in-flight runs, and recent activity
+- a **Skills** panel listing loaded skills with name, invoke token, and description (`GET /admin/skills`)
 
-The world-model admin endpoints are served from the same FastAPI app; there is no separate admin service.
+The admin endpoints are served from the same FastAPI app; there is no separate admin service.
 
 ---
 
