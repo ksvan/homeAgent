@@ -19,6 +19,8 @@ The goal is not to build a general workflow engine. The goal is to give the
 existing single-agent runtime enough durable state and explicit operations to
 pursue a task across multiple runs without relying on conversational memory.
 
+![Autonomous Task Pursuit](diagrams/autonomous-task-pursuit.svg)
+
 ---
 
 ## Current State
@@ -773,6 +775,45 @@ Rules:
 
 ---
 
+## Mermaid Source
+
+```mermaid
+flowchart TB
+    TRIGGER["User message, event,<br/>or scheduled resume"] --> LOCK["Per-user run lock"]
+    LOCK --> CONTEXT["assemble_context()<br/>active task + pursuit state"]
+    CONTEXT --> AGENT["Agent run"]
+
+    AGENT --> DECIDE{What is needed?}
+    DECIDE -->|Try approach| ATTEMPT["record_task_attempt<br/>approach + result + next action"]
+    DECIDE -->|Step done/failed| STEP["advance_task_step<br/>checkpoint result note"]
+    DECIDE -->|Plan wrong| REPLAN["replan_task<br/>replace remaining steps"]
+    DECIDE -->|Need time| FOLLOW["schedule_task_followup<br/>reason + expected observation"]
+    DECIDE -->|Need user| INPUT["await_task_input"]
+    DECIDE -->|Solved| DONE["complete_task"]
+    DECIDE -->|Cannot continue| FAIL["fail_task"]
+
+    ATTEMPT --> STORE[(Task.context pursuit<br/>recent attempts + retry budget)]
+    STEP --> STORE
+    REPLAN --> STORE
+    INPUT --> STORE
+    DONE --> STORE
+    FAIL --> STORE
+
+    FOLLOW --> BUDGET{Retry budget OK?}
+    BUDGET -->|No| EXHAUST["emit task.retry_budget_exhausted"]
+    EXHAUST --> FAIL
+    BUDGET -->|Yes| WAIT["Task status AWAITING_RESUME<br/>resume_after + resume intent"]
+    WAIT --> SCHED["APScheduler task resume"]
+    SCHED --> RESUME["Rich resume prompt<br/>reason + expected observation"]
+    RESUME --> TRIGGER
+
+    STORE --> EVENTS["Emit task events<br/>attempt, step, replan,<br/>follow-up, resume, fail"]
+    WAIT --> EVENTS
+    EVENTS --> ADMIN["Admin stream + Control Loop tab"]
+```
+
+---
+
 ## Safety Boundaries
 
 Autonomous pursuit does not bypass the existing policy gate.
@@ -846,4 +887,3 @@ Recommended answers:
 - Use global defaults with per-task overrides.
 - Let admin cancel/resume first; editing retry policy can come later.
 - Keep `control` and `pursuit` separate but render them together in admin.
-

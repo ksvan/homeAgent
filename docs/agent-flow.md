@@ -92,7 +92,7 @@ After the run:
 
 ```mermaid
 flowchart TB
-    START["Chat message, callback,<br/>scheduled prompt, or task resume"] --> ENTRY["Webhook handler or scheduler job"]
+    START["Chat message, callback,<br/>scheduled prompt, event,<br/>or task follow-up resume"] --> ENTRY["Webhook handler, dispatcher,<br/>or scheduler job"]
     ENTRY --> AUTH{Valid source,<br/>enabled feature, allowed user?}
     AUTH -->|No| DROP["Reject, drop, or mark failed"]
     AUTH -->|Yes| USER["Resolve user + household"]
@@ -104,7 +104,7 @@ flowchart TB
 
     subgraph CONTEXT["Build working context"]
         PROMPTS["Prompt files + time_context"]
-        DYNAMIC["User profile + household profile<br/>world model + active task<br/>skills index + memories + recent turns"]
+        DYNAMIC["User profile + household profile<br/>world model + active task<br/>pursuit state + skills index<br/>memories + recent turns"]
         CTX["assemble_context() output"]
         PROMPTS --> CTX
         DYNAMIC --> CTX
@@ -131,10 +131,12 @@ flowchart TB
     PROM --> TOOLRES
     TOOLS --> TOOLRES
 
-    INTERNAL --> STATEWRITE["May create/update:<br/>task state, reminders,<br/>scheduled prompts, event rules,<br/>world model, memory"]
+    INTERNAL --> PURSUIT["Autonomous task pursuit tools<br/>record attempt, advance step,<br/>replan, follow-up, fail"]
+    PURSUIT --> STATEWRITE["May create/update:<br/>task state + pursuit context,<br/>attempt checkpoints, reminders,<br/>scheduled prompts, event rules,<br/>world model, memory"]
+    INTERNAL --> STATEWRITE
     STATEWRITE --> TOOLRES
     STATEWRITE --> SCHED["APScheduler / future triggers"]
-    SCHED --> FUTURE["Reminder fire, scheduled prompt,<br/>or task resume later"]
+    SCHED --> FUTURE["Reminder fire, scheduled prompt,<br/>or task follow-up resume later"]
     FUTURE --> ENTRY
 
     TOOLRES --> THINK
@@ -146,11 +148,11 @@ flowchart TB
     OUT --> SAVE["Persist turn + run log + snapshots"]
     SAVE --> REPLY["Reply to chat"]
     SAVE --> BG["Background work:<br/>memory extraction + summarization"]
-    SAVE --> OBS["Emit run / task / world / job events"]
+    SAVE --> OBS["Emit run / task / world / job events<br/>including attempts, follow-ups,<br/>resumes, replans, failures"]
 
-    NOTE1["Same core agent loop is reused for<br/>normal chat, scheduled prompts, and task resumes"]:::note
+    NOTE1["Same core agent loop is reused for<br/>normal chat, scheduled prompts,<br/>events, and task resumes"]:::note
     CTX -.-> NOTE1
-    NOTE2["Tasks let the agent pause, wait for input,<br/>schedule follow-up work, and resume later"]:::note
+    NOTE2["Pursuit state lets the agent remember<br/>attempts, retry budgets, next actions,<br/>and resume intent"]:::note
     STATEWRITE -.-> NOTE2
 
     classDef note fill:#f7f4e8,stroke:#8a6d3b,color:#5a4630;

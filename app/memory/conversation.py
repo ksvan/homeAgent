@@ -20,10 +20,16 @@ from app.models.memory import ConversationMessage, ConversationSummary, Conversa
 logger = logging.getLogger(__name__)
 
 # Keep this many message *pairs* in the rolling window passed to the agent
-_MAX_RECENT_PAIRS = 10
+_MAX_RECENT_PAIRS = 7
 
 # Keep full tool results only for the most recent N turns; strip them from older turns
-_FULL_TURNS_KEPT = 3
+_FULL_TURNS_KEPT = 2
+
+# Hard character budget for the entire recent-message window.
+# Turns are loaded newest-first and dropped once this is exceeded.
+# The 2 most recent turns are always kept regardless of size.
+_MAX_RECENT_CHARS = 60_000
+_MIN_TURNS_KEPT = 2
 
 # Summarize oldest _SUMMARY_BATCH messages once total exceeds _SUMMARY_THRESHOLD
 _SUMMARY_THRESHOLD = 20
@@ -128,8 +134,26 @@ def load_recent_messages(
         ).all()
 
     if turns:
+        # turns is newest-first from the query; apply char budget before reversing.
+        # Always keep the _MIN_TURNS_KEPT most recent regardless of size.
+        selected: list[ConversationTurn] = []
+        cumulative_chars = 0
+        for i, turn in enumerate(turns):
+            size = len(turn.messages_json)
+            if i < _MIN_TURNS_KEPT or cumulative_chars + size <= _MAX_RECENT_CHARS:
+                selected.append(turn)
+                cumulative_chars += size
+            else:
+                break  # budget exhausted; older turns dropped
+
+        if len(selected) < len(turns):
+            logger.debug(
+                "Recent message budget: kept %d/%d turns (%d chars)",
+                len(selected), len(turns), cumulative_chars,
+            )
+
         # Chronological order; strip tool results from older turns to save context space
-        all_turns = list(reversed(turns))
+        all_turns = list(reversed(selected))
         full_turns = all_turns[-_FULL_TURNS_KEPT:]
         old_turns = all_turns[:-_FULL_TURNS_KEPT]
 

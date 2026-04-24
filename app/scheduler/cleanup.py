@@ -13,7 +13,7 @@ _TURNS_PURGE_JOB_ID = "cleanup_old_turns"
 _PROMPT_RUN_PURGE_JOB_ID = "cleanup_old_prompt_runs"
 _TASK_RETENTION_DAYS = 8
 _STALE_TASK_DAYS = 7
-_TURNS_MAX_KEEP = 200  # maximum ConversationTurn rows retained per user
+_TURNS_MAX_KEEP = 100  # maximum ConversationTurn rows retained per user
 _PROMPT_RUN_RETENTION_DAYS = 14
 
 

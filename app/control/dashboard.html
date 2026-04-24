@@ -633,6 +633,17 @@ function addEvent(type, data) {
     'task.cancel':  ['b-error','TASK'],
     'task.link':    ['b-sched','TASK'],
     'task.schedule_resume':['b-sched','TASK'],
+    'task.attempt_recorded':['b-tool','TASK'],
+    'task.followup_scheduled':['b-sched','TASK'],
+    'task.resume_started':['b-sched','TASK'],
+    'task.resume_completed':['b-done','TASK'],
+    'task.resume_failed':['b-error','TASK'],
+    'task.resume_missed':['b-error','TASK'],
+    'task.retry_budget_exhausted':['b-error','TASK'],
+    'task.replanned':['b-tool','TASK'],
+    'task.step_advanced':['b-tool','TASK'],
+    'task.step_failed':['b-error','TASK'],
+    'task.fail':    ['b-error','TASK'],
     'proactive.fire':    ['b-sched','PROACTIVE'],
     'proactive.deliver': ['b-done','PROACTIVE'],
     'proactive.skip':    ['b-mem','PROACTIVE'],
@@ -686,6 +697,48 @@ function addEvent(type, data) {
     body = '<strong>' + (data.type || 'proposal') + '</strong> ' + st
       + ' <span class="d">' + Math.round((data.confidence || 0) * 100) + '% — ' + (data.reason || '') + '</span>';
     loadProposals();
+  } else if (type === 'task.attempt_recorded') {
+    const res = data.result || '?';
+    const note = data.result_note ? data.result_note.slice(0, 80) : '';
+    const cnt = data.attempt_count !== undefined ? ' (' + data.attempt_count + '/' + (data.max_attempts||5) + ')' : '';
+    body = '<strong>attempt</strong> <span class="d">' + res + cnt + (note ? ' — ' + note : '') + '</span>';
+    loadTasks();
+  } else if (type === 'task.followup_scheduled') {
+    const at = data.resume_at ? new Date(data.resume_at).toLocaleTimeString() : '?';
+    const reason = data.reason ? data.reason.slice(0, 60) : '';
+    body = '<strong>follow-up</strong> <span class="d">@ ' + at + (reason ? ' — ' + reason : '') + '</span>';
+    loadTasks();
+  } else if (type === 'task.resume_started') {
+    body = '<strong>resume_started</strong>' + (data.task_id ? ' <span class="d">' + data.task_id.slice(0,8) + '</span>' : '');
+    loadTasks();
+  } else if (type === 'task.resume_completed') {
+    body = '<strong>resume done</strong>' + (data.task_id ? ' <span class="d">' + data.task_id.slice(0,8) + '</span>' : '');
+    loadTasks();
+  } else if (type === 'task.resume_failed') {
+    body = '<strong>resume failed</strong> <span class="err">' + (data.error || '') + '</span>';
+    loadTasks();
+  } else if (type === 'task.resume_missed') {
+    const overdue = data.overdue_minutes !== undefined ? ' (' + data.overdue_minutes + 'm overdue)' : '';
+    body = '<strong>resume missed</strong> <span class="err">' + overdue + '</span>';
+    loadTasks();
+  } else if (type === 'task.retry_budget_exhausted') {
+    const cnt = data.attempt_count !== undefined ? data.attempt_count + '/' + (data.max_attempts||5) : '';
+    body = '<strong>budget exhausted</strong> <span class="err">' + cnt + '</span>';
+    loadTasks();
+  } else if (type === 'task.replanned') {
+    const added = data.new_step_count !== undefined ? ' +' + data.new_step_count + ' steps' : '';
+    const reason = data.replan_reason ? data.replan_reason.slice(0, 60) : '';
+    body = '<strong>replanned</strong> <span class="d">' + added + (reason ? ' — ' + reason : '') + '</span>';
+    loadTasks();
+  } else if (type === 'task.step_advanced' || type === 'task.step_failed') {
+    const outcome = type === 'task.step_failed' ? '<span class="err">failed</span>' : '<span style="color:var(--green)">done</span>';
+    const title = data.step_title ? data.step_title.slice(0, 60) : (data.step_index !== undefined ? 'step ' + data.step_index : '');
+    body = '<strong>step</strong> ' + outcome + (title ? ' <span class="d">— ' + title + '</span>' : '');
+    loadTasks();
+  } else if (type === 'task.fail') {
+    const reason = data.summary || data.reason || '';
+    body = '<strong>task failed</strong>' + (reason ? ' <span class="err">— ' + reason.slice(0, 80) + '</span>' : '');
+    loadTasks();
   } else if (type.startsWith('task.')) {
     const action = type.split('.')[1] || '';
     const title = data.title || data.summary || data.prompt_hint || data.reason || '';
@@ -1175,11 +1228,12 @@ async function loadTasks() {
       tbody.innerHTML = '<tr><td colspan="7" style="color:var(--dim);padding:12px 10px">No tasks</td></tr>';
       return;
     }
-    const statusColor = {ACTIVE:'var(--green)',AWAITING_INPUT:'var(--yellow)',AWAITING_CONFIRMATION:'var(--yellow)',COMPLETED:'var(--dim)',FAILED:'var(--red)',CANCELLED:'var(--dim)'};
+    const statusColor = {ACTIVE:'var(--green)',AWAITING_INPUT:'var(--yellow)',AWAITING_CONFIRMATION:'var(--yellow)',AWAITING_RESUME:'var(--accent)',COMPLETED:'var(--dim)',FAILED:'var(--red)',CANCELLED:'var(--dim)'};
     tbody.innerHTML = tasks.map(function(t) {
       const sc = statusColor[t.status] || 'var(--dim)';
       const updated = t.updated_at ? new Date(t.updated_at).toLocaleString() : '';
-      const actions = (t.status === 'ACTIVE' || t.status === 'AWAITING_INPUT' || t.status === 'AWAITING_CONFIRMATION')
+      const nonTerminal = t.status === 'ACTIVE' || t.status === 'AWAITING_INPUT' || t.status === 'AWAITING_CONFIRMATION' || t.status === 'AWAITING_RESUME';
+      const actions = nonTerminal
         ? '<button onclick="taskAction(\'' + esc(t.id) + '\',\'cancel\')" style="background:none;border:none;color:var(--red);cursor:pointer;font-size:11px">Cancel</button>'
           + (t.status !== 'ACTIVE' ? ' <button onclick="taskAction(\'' + esc(t.id) + '\',\'resume\')" style="background:none;border:none;color:var(--green);cursor:pointer;font-size:11px">Resume</button>' : '')
         : '';
@@ -1213,7 +1267,8 @@ async function showTaskDetail(taskId) {
       html += '<div style="margin-bottom:8px"><strong>Steps:</strong></div><div style="margin-left:12px">';
       t.steps.forEach(function(s) {
         var icon = {done:'[x]', active:'[>]', failed:'[!]', cancelled:'[-]'}[s.status] || '[ ]';
-        html += '<div style="font-size:12px;margin-bottom:2px"><code>' + icon + '</code> ' + esc(s.title) + ' <span style="color:var(--dim)">(' + esc(s.type) + ')</span></div>';
+        var note = s.details && s.details.result_note ? ' <span style="color:var(--dim);font-size:11px">→ ' + esc(s.details.result_note.slice(0, 80)) + '</span>' : '';
+        html += '<div style="font-size:12px;margin-bottom:2px"><code>' + icon + '</code> ' + esc(s.title) + ' <span style="color:var(--dim)">(' + esc(s.type) + ')</span>' + note + '</div>';
       });
       html += '</div>';
     }
@@ -1223,6 +1278,38 @@ async function showTaskDetail(taskId) {
         html += '<div style="font-size:12px;margin-bottom:2px">' + esc(ln.entity_type) + ': ' + esc(ln.entity_id) + ' (' + esc(ln.role) + ')</div>';
       });
       html += '</div>';
+    }
+    if (t.pursuit) {
+      var p = t.pursuit;
+      html += '<div style="margin-top:12px"><strong>Pursuit:</strong></div><div style="margin-left:12px;font-size:12px">';
+      if (p.attempt_count) {
+        html += '<div style="margin-bottom:3px">Attempts: <strong>' + p.attempt_count + ' / ' + (p.max_attempts || 5) + '</strong></div>';
+      }
+      if (p.current_approach) {
+        html += '<div style="margin-bottom:3px">Approach: ' + esc(p.current_approach.slice(0, 100)) + '</div>';
+      }
+      if (p.last_attempt) {
+        var la = p.last_attempt;
+        var laColor = la.result === 'success' ? 'var(--green)' : la.result === 'failed' || la.result === 'blocked' ? 'var(--red)' : 'var(--yellow)';
+        html += '<div style="margin-bottom:3px">Last attempt: <span style="color:' + laColor + '">' + esc(la.result || '?') + '</span>'
+          + (la.result_note ? ' — ' + esc(la.result_note.slice(0, 80)) : '') + '</div>';
+      }
+      if (p.next_action) {
+        html += '<div style="margin-bottom:3px">Next action: ' + esc(p.next_action.slice(0, 100)) + '</div>';
+      }
+      if (p.resume) {
+        var rs = p.resume;
+        if (rs.resume_at) html += '<div style="margin-bottom:3px">Resume at: <span style="color:var(--accent)">' + esc(new Date(rs.resume_at).toLocaleString()) + '</span></div>';
+        if (rs.reason) html += '<div style="margin-bottom:3px">Reason: ' + esc(rs.reason.slice(0, 100)) + '</div>';
+        if (rs.expected_observation) html += '<div style="margin-bottom:3px">Expected: ' + esc(rs.expected_observation.slice(0, 100)) + '</div>';
+      }
+      if (p.replan_reason) {
+        html += '<div style="margin-bottom:3px;color:var(--yellow)">Replanned: ' + esc(p.replan_reason.slice(0, 100)) + '</div>';
+      }
+      html += '</div>';
+    }
+    if (t.status === 'AWAITING_RESUME' && t.resume_after) {
+      html += '<div style="margin-top:8px;color:var(--accent)">&#9201; Resumes at: ' + esc(new Date(t.resume_after).toLocaleString()) + '</div>';
     }
     if (t.control) {
       var c = t.control;
@@ -1720,7 +1807,7 @@ async function loadControlLoop() {
       var d2 = await r2.json();
       var tasks = (d2.tasks || []);
       var controlTasks = tasks.filter(function(t) { return t.control && t.status !== 'COMPLETED' && t.status !== 'FAILED' && t.status !== 'CANCELLED'; });
-      var waitingTasks = tasks.filter(function(t) { return t.status === 'AWAITING_INPUT' || t.status === 'AWAITING_CONFIRMATION'; });
+      var waitingTasks = tasks.filter(function(t) { return t.status === 'AWAITING_INPUT' || t.status === 'AWAITING_CONFIRMATION' || t.status === 'AWAITING_RESUME'; });
 
       document.getElementById('cl-active-count').textContent = controlTasks.length ? '(' + controlTasks.length + ')' : '';
       var activeEl = document.getElementById('cl-active-work');
@@ -1754,20 +1841,22 @@ async function loadControlLoop() {
       var waitEl = document.getElementById('cl-waiting');
       var waitItems = [];
       waitingTasks.forEach(function(t) {
-        var hint = t.awaiting_input_hint ? ' — ' + t.awaiting_input_hint : '';
-        var statusLabel = t.status === 'AWAITING_CONFIRMATION' ? 'awaiting confirmation' : 'awaiting input';
-        waitItems.push('<div class="cl-item">'
-          + '<div class="cl-item-title" style="color:var(--yellow)">' + esc(t.title || '(untitled)') + '</div>'
-          + '<div class="cl-item-meta">' + statusLabel + esc(hint) + '</div>'
-          + '</div>');
-      });
-      // Also check tasks with resume_after (scheduled resumes)
-      var resumeTasks = tasks.filter(function(t) { return t.resume_after && t.status === 'ACTIVE'; });
-      resumeTasks.forEach(function(t) {
-        waitItems.push('<div class="cl-item">'
-          + '<div class="cl-item-title" style="color:var(--dim)">' + esc(t.title || '(untitled)') + '</div>'
-          + '<div class="cl-item-meta">scheduled resume: ' + esc(t.resume_after || '') + '</div>'
-          + '</div>');
+        if (t.status === 'AWAITING_RESUME') {
+          var atStr = t.resume_after ? ' @ ' + new Date(t.resume_after).toLocaleString() : '';
+          var attempts = t.pursuit && t.pursuit.attempt_count ? ' · ' + t.pursuit.attempt_count + '/' + (t.pursuit.max_attempts||5) + ' attempts' : '';
+          var reason = t.awaiting_input_hint ? ' — ' + t.awaiting_input_hint : '';
+          waitItems.push('<div class="cl-item">'
+            + '<div class="cl-item-title" style="color:var(--accent)">' + esc(t.title || '(untitled)') + '</div>'
+            + '<div class="cl-item-meta">autonomous resume' + atStr + attempts + esc(reason) + '</div>'
+            + '</div>');
+        } else {
+          var hint = t.awaiting_input_hint ? ' — ' + t.awaiting_input_hint : '';
+          var statusLabel = t.status === 'AWAITING_CONFIRMATION' ? 'awaiting confirmation' : 'awaiting input';
+          waitItems.push('<div class="cl-item">'
+            + '<div class="cl-item-title" style="color:var(--yellow)">' + esc(t.title || '(untitled)') + '</div>'
+            + '<div class="cl-item-meta">' + statusLabel + esc(hint) + '</div>'
+            + '</div>');
+        }
       });
       waitEl.innerHTML = waitItems.length ? waitItems.join('') : '<span style="color:var(--dim)">Nothing waiting.</span>';
     }

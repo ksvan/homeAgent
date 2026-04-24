@@ -795,8 +795,20 @@ async def admin_tasks() -> dict[str, Any]:
         try:
             ctx_data = _json.loads(t.context or "{}")
             control = ctx_data.get("control") or None
+            raw_pursuit = ctx_data.get("pursuit") or {}
+            pursuit = {
+                "attempt_count": raw_pursuit.get("attempt_count", 0),
+                "max_attempts": raw_pursuit.get("max_attempts", 5),
+                "current_approach": raw_pursuit.get("current_approach"),
+                "next_action": raw_pursuit.get("next_action"),
+                "last_attempt": raw_pursuit.get("last_attempt"),
+                "recent_attempts": raw_pursuit.get("recent_attempts", []),
+                "resume": raw_pursuit.get("resume"),
+                "replan_reason": raw_pursuit.get("replan_reason"),
+            } if raw_pursuit else None
         except Exception:
             control = None
+            pursuit = None
         result.append({
             "id": t.id,
             "title": t.title,
@@ -804,13 +816,21 @@ async def admin_tasks() -> dict[str, Any]:
             "status": t.status,
             "summary": t.summary,
             "awaiting_input_hint": t.awaiting_input_hint,
+            "resume_after": t.resume_after.isoformat() if t.resume_after else None,
             "current_step": t.current_step,
             "user": user_names.get(t.user_id, t.user_id[:8]),
             "created_at": t.created_at.isoformat() if t.created_at else None,
             "updated_at": t.updated_at.isoformat() if t.updated_at else None,
             "control": control,
+            "pursuit": pursuit,
             "steps": [
-                {"index": s.step_index, "title": s.title, "status": s.status, "type": s.step_type}
+                {
+                    "index": s.step_index,
+                    "title": s.title,
+                    "status": s.status,
+                    "type": s.step_type,
+                    "details": _json.loads(s.details_json) if s.details_json else {},
+                }
                 for s in steps
             ],
             "links": [
