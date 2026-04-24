@@ -1,9 +1,11 @@
-"""Unit tests for autonomous task pursuit state — record_task_attempt logic,
-schedule_task_followup budget enforcement, and _render_full_task pursuit rendering.
+"""Unit tests for autonomous task pursuit state.
 
-These tests operate on repository and service layer directly without going through
-the agent tool wrappers (which require RunContext). Agent-tool integration is
-covered by the existing test_task_state_machine.py patterns.
+Covers: record_task_attempt logic, schedule_task_followup budget enforcement,
+_render_full_task pursuit rendering, advance_task_step step outcome storage,
+fail_task status transition and summary, and step result_note rendering.
+
+Tests operate on repository and service layer directly without going through
+the agent tool wrappers (which require RunContext).
 """
 from __future__ import annotations
 
@@ -261,3 +263,148 @@ def test_render_skips_zero_attempt_count(repo: TaskRepository) -> None:
     output = _render_full_task(repo, repo.get_task(task.id))
     assert "attempts:" not in output
     assert "current approach: Start" in output
+
+
+# ---------------------------------------------------------------------------
+# Phase 2: advance_task_step — step outcome storage via repository
+# ---------------------------------------------------------------------------
+
+
+def test_update_step_stores_result_note_in_details_json(repo: TaskRepository) -> None:
+    task = _make_task(repo, steps=[{"title": "Check state", "step_type": "tool"}])
+    steps = repo.get_steps(task.id)
+    assert len(steps) == 1
+    step = steps[0]
+    repo.update_step(
+        step.id,
+        status="done",
+        details_json=json.dumps({"result_note": "Device online, state confirmed"}),
+    )
+    refreshed = repo.get_steps(task.id)[0]
+    details = json.loads(refreshed.details_json)
+    assert details["result_note"] == "Device online, state confirmed"
+    assert refreshed.status == "done"
+
+
+def test_update_step_failed_status(repo: TaskRepository) -> None:
+    task = _make_task(repo, steps=[{"title": "Run check", "step_type": "tool"}])
+    step = repo.get_steps(task.id)[0]
+    repo.update_step(
+        step.id,
+        status="failed",
+        details_json=json.dumps({"result_note": "Tool timed out"}),
+    )
+    refreshed = repo.get_steps(task.id)[0]
+    assert refreshed.status == "failed"
+    assert json.loads(refreshed.details_json)["result_note"] == "Tool timed out"
+
+
+def test_advance_step_activates_next_when_done(repo: TaskRepository) -> None:
+    task = _make_task(
+        repo,
+        steps=[
+            {"title": "Step A", "step_type": "research"},
+            {"title": "Step B", "step_type": "tool"},
+        ],
+    )
+    repo.advance_step(task.id, completed_step_index=0)
+    steps = {s.step_index: s for s in repo.get_steps(task.id)}
+    assert steps[0].status == "done"
+    assert steps[1].status == "active"
+
+
+# ---------------------------------------------------------------------------
+# Phase 2: fail_task — FAILED transition and summary
+# ---------------------------------------------------------------------------
+
+
+def test_transition_to_failed_from_active(repo: TaskRepository) -> None:
+    task = _make_task(repo)
+    updated = repo.transition_status(task.id, "FAILED")
+    assert updated.status == "FAILED"
+    assert updated.completed_at is not None
+
+
+def test_transition_to_failed_from_awaiting_resume(repo: TaskRepository) -> None:
+    task = _make_task(repo)
+    repo.transition_status(task.id, "AWAITING_RESUME")
+    updated = repo.transition_status(task.id, "FAILED")
+    assert updated.status == "FAILED"
+
+
+def test_failed_task_summary_stored(repo: TaskRepository) -> None:
+    task = _make_task(repo)
+    repo.transition_status(task.id, "FAILED")
+    repo.update_task(task.id, summary="Failed: retry budget exhausted after 5 attempts")
+    reloaded = repo.get_task(task.id)
+    assert reloaded is not None
+    assert "retry budget exhausted" in (reloaded.summary or "")
+
+
+def test_failed_task_excluded_from_active_tasks(repo: TaskRepository) -> None:
+    task = _make_task(repo)
+    repo.transition_status(task.id, "FAILED")
+    active = repo.get_active_tasks("user-1")
+    assert not any(t.id == task.id for t in active)
+
+
+def test_failed_is_terminal_cannot_reactivate(repo: TaskRepository) -> None:
+    task = _make_task(repo)
+    repo.transition_status(task.id, "FAILED")
+    with pytest.raises(ValueError):
+        repo.transition_status(task.id, "ACTIVE")
+
+
+# ---------------------------------------------------------------------------
+# Phase 2: _render_full_task — step result_note appears in output
+# ---------------------------------------------------------------------------
+
+
+def test_render_step_result_note_appears_for_done_step(repo: TaskRepository) -> None:
+    task = _make_task(
+        repo,
+        steps=[{"title": "Verify state", "step_type": "tool"}],
+    )
+    step = repo.get_steps(task.id)[0]
+    repo.update_step(
+        step.id,
+        status="done",
+        details_json=json.dumps({"result_note": "State verified successfully"}),
+    )
+    output = _render_full_task(repo, repo.get_task(task.id))
+    assert "result: State verified successfully" in output
+
+
+def test_render_step_result_note_appears_for_failed_step(repo: TaskRepository) -> None:
+    task = _make_task(
+        repo,
+        steps=[{"title": "Call API", "step_type": "tool"}],
+    )
+    step = repo.get_steps(task.id)[0]
+    repo.update_step(
+        step.id,
+        status="failed",
+        details_json=json.dumps({"result_note": "Connection refused"}),
+    )
+    output = _render_full_task(repo, repo.get_task(task.id))
+    assert "result: Connection refused" in output
+
+
+def test_render_step_no_result_note_when_details_empty(repo: TaskRepository) -> None:
+    task = _make_task(
+        repo,
+        steps=[{"title": "Pending step", "step_type": "research"}],
+    )
+    output = _render_full_task(repo, repo.get_task(task.id))
+    assert "result:" not in output
+
+
+def test_render_step_result_note_not_shown_when_no_note_key(repo: TaskRepository) -> None:
+    task = _make_task(
+        repo,
+        steps=[{"title": "Some step", "step_type": "tool"}],
+    )
+    step = repo.get_steps(task.id)[0]
+    repo.update_step(step.id, status="done", details_json=json.dumps({"other_key": "value"}))
+    output = _render_full_task(repo, repo.get_task(task.id))
+    assert "result:" not in output

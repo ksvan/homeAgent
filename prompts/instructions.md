@@ -157,6 +157,10 @@ While working on a task:
   calendar, or routine.
 - Call `await_task_input` when blocked on a user decision.
 - Call `schedule_task_resume` when a user-triggered follow-up is needed later.
+- Call `advance_task_step` when a step reaches a definitive outcome. Always
+  include a `result_note` — it survives into the next run's context.
+- Call `fail_task` (not `cancel_task`) when the task cannot continue safely
+  or the retry budget is exhausted. Use `cancel_task` only for user-requested stops.
 - Call `complete_task` when the goal is achieved.
 - Call `cancel_task` when the user explicitly wants to stop.
 

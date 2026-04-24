@@ -679,3 +679,152 @@ def register_task_tools(agent: Agent[AgentDeps, str]) -> None:
 
         friendly = resume_at.strftime("%A, %d %B %Y at %H:%M")
         return f"Autonomous follow-up scheduled for {friendly}. Reason: {reason}"
+
+    @agent.tool
+    async def advance_task_step(
+        ctx: RunContext[AgentDeps],
+        task_id: str,
+        step_index: int,
+        status: str,
+        result_note: str = "",
+        activate_next: bool = True,
+    ) -> str:
+        """Complete or fail a task step and optionally activate the next one.
+
+        Call this when a step reaches a definitive outcome. Stores result_note
+        in the step's details so it survives into the next run's context.
+
+        Args:
+            task_id: The task ID.
+            step_index: Zero-based index of the step to update.
+            status: Outcome — one of "done", "failed", "cancelled".
+            result_note: One-sentence summary of what happened at this step.
+            activate_next: If True (default) and status is "done", activate
+                           the next pending step automatically.
+        """
+        from datetime import datetime, timezone
+
+        from app.control.events import emit
+        from app.tasks.repository import TaskRepository
+
+        valid_statuses = {"done", "failed", "cancelled"}
+        if status not in valid_statuses:
+            return f"status must be one of: {', '.join(sorted(valid_statuses))}"
+
+        repo = TaskRepository()
+        task = repo.get_task(task_id)
+        if task is None or task.user_id != ctx.deps.user_id:
+            return f"Task {task_id} not found."
+
+        steps = repo.get_steps(task_id)
+        step_by_index = {s.step_index: s for s in steps}
+        if step_index not in step_by_index:
+            available = sorted(step_by_index)
+            return f"Step index {step_index} not found. Available: {available}"
+
+        step = step_by_index[step_index]
+        now = datetime.now(timezone.utc)
+
+        step_fields: dict[str, object] = {"status": status}
+        if result_note:
+            step_fields["details_json"] = json.dumps({"result_note": result_note})
+        if status == "done":
+            step_fields["completed_at"] = now
+        elif status in ("failed", "cancelled"):
+            step_fields["completed_at"] = now
+
+        repo.update_step(step.id, **step_fields)
+
+        event_type = "task.step_advanced" if status == "done" else "task.step_failed"
+        emit(
+            event_type,
+            {
+                "task_id": task_id,
+                "step_index": step_index,
+                "step_title": step.title,
+                "status": status,
+                "result_note": result_note,
+                "run_id": ctx.deps.run_id,
+            },
+            run_id=ctx.deps.run_id,
+        )
+
+        # Activate the next pending step when requested
+        next_activated = ""
+        if status == "done" and activate_next:
+            next_step = step_by_index.get(step_index + 1)
+            if next_step and next_step.status == "pending":
+                repo.update_step(next_step.id, status="active", started_at=now)
+                repo.update_task(task_id, current_step=step_index + 1)
+                next_activated = f" Next step activated: '{next_step.title}'."
+
+        repo.update_task(task_id, last_agent_run_id=ctx.deps.run_id)
+        return (
+            f"Step {step_index} ('{step.title}') marked {status}."
+            + (f" Note: {result_note}" if result_note else "")
+            + next_activated
+        )
+
+    @agent.tool
+    async def fail_task(
+        ctx: RunContext[AgentDeps],
+        task_id: str,
+        reason: str,
+        recoverable: bool = False,
+        suggested_user_action: str = "",
+    ) -> str:
+        """Explicitly fail a task when it cannot continue safely or usefully.
+
+        Use this (not cancel_task) when the task has exhausted its options,
+        hit an unrecoverable error, or reached a state where continuing
+        autonomously would be unsafe or pointless.
+
+        Do NOT use for user-initiated stops — use cancel_task for those.
+
+        Args:
+            task_id: The task ID.
+            reason: Why the task cannot continue.
+            recoverable: True if a user action could unblock it; False if the
+                         objective is simply not achievable under current conditions.
+            suggested_user_action: Optional hint for what the user could do next.
+        """
+        from app.control.events import emit
+        from app.tasks.repository import TaskRepository
+
+        repo = TaskRepository()
+        task = repo.get_task(task_id)
+        if task is None or task.user_id != ctx.deps.user_id:
+            return f"Task {task_id} not found."
+
+        summary_parts = [f"Failed: {reason}"]
+        if recoverable and suggested_user_action:
+            summary_parts.append(f"To recover: {suggested_user_action}")
+        summary = " ".join(summary_parts)
+
+        try:
+            repo.transition_status(task_id, "FAILED")
+        except ValueError as exc:
+            return str(exc)
+
+        repo.update_task(
+            task_id,
+            summary=summary,
+            last_agent_run_id=ctx.deps.run_id,
+        )
+
+        emit(
+            "task.fail",
+            {
+                "task_id": task_id,
+                "reason": reason,
+                "recoverable": recoverable,
+                "suggested_user_action": suggested_user_action,
+                "run_id": ctx.deps.run_id,
+            },
+            run_id=ctx.deps.run_id,
+        )
+
+        msg = f"Task failed: {reason}"
+        if recoverable and suggested_user_action:
+            msg += f" Suggested action: {suggested_user_action}"
+        return msg

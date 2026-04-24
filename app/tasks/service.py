@@ -75,6 +75,13 @@ def _render_full_task(repo: TaskRepository, task: object) -> str:
             status_markers = {"done": "[x]", "active": "[>]", "failed": "[!]", "cancelled": "[-]"}
             marker = status_markers.get(s.status, "[ ]")
             lines.append(f"  {marker} {s.title}")
+            try:
+                step_details = json.loads(s.details_json or "{}")
+                note = step_details.get("result_note", "")
+            except (json.JSONDecodeError, AttributeError):
+                note = ""
+            if note:
+                lines.append(f"      result: {note}")
 
     if task.status == "AWAITING_INPUT" and task.awaiting_input_hint:
         lines.append(f"- waiting for: {task.awaiting_input_hint}")
