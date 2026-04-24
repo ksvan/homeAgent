@@ -20,7 +20,11 @@ TERMINAL_STATUSES = {"COMPLETED", "FAILED", "CANCELLED"}
 
 # Allowed status transitions
 ALLOWED_TRANSITIONS: dict[str, set[str]] = {
-    "ACTIVE": {"AWAITING_INPUT", "AWAITING_CONFIRMATION", "COMPLETED", "FAILED", "CANCELLED"},
+    "ACTIVE": {
+        "AWAITING_INPUT", "AWAITING_CONFIRMATION", "AWAITING_RESUME",
+        "COMPLETED", "FAILED", "CANCELLED",
+    },
+    "AWAITING_RESUME": {"ACTIVE", "FAILED", "CANCELLED"},
     "AWAITING_INPUT": {"ACTIVE", "CANCELLED"},
     "AWAITING_CONFIRMATION": {"ACTIVE", "CANCELLED"},
 }
@@ -31,7 +35,8 @@ class Task(SQLModel, table=True):
     household_id: str = Field(index=True)
     user_id: str = Field(foreign_key="user.id", index=True)
     title: str
-    # ACTIVE | AWAITING_INPUT | AWAITING_CONFIRMATION | COMPLETED | FAILED | CANCELLED
+    # ACTIVE | AWAITING_INPUT | AWAITING_CONFIRMATION | AWAITING_RESUME
+    # COMPLETED | FAILED | CANCELLED
     status: str = "ACTIVE"
     # "plan" | "track" | "prepare" | "handoff" | "legacy"
     task_kind: Optional[str] = None

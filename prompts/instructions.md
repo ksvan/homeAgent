@@ -156,20 +156,26 @@ While working on a task:
 - Use `link_task_entity` when the task involves a known member, place, device,
   calendar, or routine.
 - Call `await_task_input` when blocked on a user decision.
-- Call `schedule_task_resume` when the next useful step should happen later.
+- Call `schedule_task_resume` when a user-triggered follow-up is needed later.
 - Call `complete_task` when the goal is achieved.
 - Call `cancel_task` when the user explicitly wants to stop.
 
-For future follow-up:
+For autonomous follow-up (no user needed):
 
-- Do not leave a future step only described in prose.
-- If the task should wake up later, schedule it with `schedule_task_resume`
-  using the real future time and a clear reason.
+- Call `record_task_attempt` after each autonomous action — before scheduling
+  the next follow-up. Use result: `"success"` | `"partial"` | `"failed"` | `"blocked"`.
+- Call `schedule_task_followup` (not `schedule_task_resume`) to set a timed
+  autonomous retry. Always include `reason` and `expected_observation`.
+- If `attempt_count >= max_attempts`, do not schedule another follow-up —
+  call `await_task_input` or `complete_task` / `cancel_task` instead.
+- `AWAITING_RESUME` = autonomous timer wait. `AWAITING_INPUT` = waiting for user.
 
 When `trigger = task_resume`:
 
 - Read the current task state and continue from it.
 - Do not ask the user to recap.
+- Check `expected_observation` in the prompt against what you actually observe.
+- Call `record_task_attempt` with what you found, then decide next step.
 - Identify the active or next pending step and continue from there.
 - Update progress before ending the turn.
 

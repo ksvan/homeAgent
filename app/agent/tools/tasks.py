@@ -464,3 +464,218 @@ def register_task_tools(agent: Agent[AgentDeps, str]) -> None:
         )
 
         return f"Linked {entity_type} '{entity_name}' to task."
+
+    @agent.tool
+    async def record_task_attempt(
+        ctx: RunContext[AgentDeps],
+        task_id: str,
+        approach: str,
+        result: str,
+        result_note: str,
+        next_action: str,
+        retryable: bool = True,
+    ) -> str:
+        """Record one autonomous attempt on a task and update pursuit state.
+
+        Call this after each autonomous action so the task retains a durable
+        record of what was tried, what happened, and what to try next. Always
+        call this before scheduling a follow-up with schedule_task_followup.
+
+        Args:
+            task_id: The task ID.
+            approach: Short description of what was attempted this run.
+            result: Outcome — one of "success", "partial", "failed", "blocked".
+            result_note: One-sentence human-readable result summary.
+            next_action: What should happen next if the task is not done.
+            retryable: Whether the task can still make progress autonomously.
+        """
+        from app.control.events import emit
+        from app.tasks.repository import TaskRepository
+
+        valid_results = {"success", "partial", "failed", "blocked"}
+        if result not in valid_results:
+            return f"result must be one of: {', '.join(sorted(valid_results))}"
+
+        repo = TaskRepository()
+        task = repo.get_task(task_id)
+        if task is None or task.user_id != ctx.deps.user_id:
+            return f"Task {task_id} not found."
+
+        try:
+            ctx_data: dict[str, object] = json.loads(task.context or "{}")
+        except json.JSONDecodeError:
+            ctx_data = {}
+
+        pursuit = ctx_data.get("pursuit", {})
+        if not isinstance(pursuit, dict):
+            pursuit = {}
+
+        attempt_count: int = int(pursuit.get("attempt_count", 0)) + 1
+        entry = {
+            "approach": approach,
+            "result": result,
+            "result_note": result_note,
+            "run_id": ctx.deps.run_id,
+        }
+        recent: list[object] = list(pursuit.get("recent_attempts", []))
+        recent.append(entry)
+        if len(recent) > 5:
+            recent = recent[-5:]
+
+        pursuit["attempt_count"] = attempt_count
+        pursuit["current_approach"] = approach
+        pursuit["last_attempt"] = entry
+        pursuit["next_action"] = next_action
+        pursuit["retryable"] = retryable
+        pursuit["recent_attempts"] = recent
+        if "max_attempts" not in pursuit:
+            pursuit["max_attempts"] = 5
+
+        ctx_data["pursuit"] = pursuit
+        repo.update_task(
+            task_id,
+            context=json.dumps(ctx_data),
+            summary=result_note,
+            last_agent_run_id=ctx.deps.run_id,
+        )
+
+        emit(
+            "task.attempt_recorded",
+            {
+                "task_id": task_id,
+                "attempt_count": attempt_count,
+                "max_attempts": pursuit["max_attempts"],
+                "approach": approach,
+                "result": result,
+                "retryable": retryable,
+                "next_action": next_action,
+                "run_id": ctx.deps.run_id,
+            },
+            run_id=ctx.deps.run_id,
+        )
+
+        return (
+            f"Attempt {attempt_count} recorded: {result} — {result_note}"
+        )
+
+    @agent.tool
+    async def schedule_task_followup(
+        ctx: RunContext[AgentDeps],
+        task_id: str,
+        resume_at_iso: str,
+        reason: str,
+        expected_observation: str,
+    ) -> str:
+        """Schedule an autonomous follow-up for a task.
+
+        Use this when the task needs to check back autonomously — not waiting
+        for the user to reply. The agent will be re-invoked at the scheduled
+        time with the reason and expected observation in the prompt.
+
+        Always call record_task_attempt before calling this so the task has
+        a record of what was just tried.
+
+        The retry budget is enforced: if attempt_count >= max_attempts the
+        follow-up will be rejected — call await_task_input or complete_task
+        instead.
+
+        Args:
+            task_id: The task ID.
+            resume_at_iso: When to resume, as ISO-8601 datetime with timezone.
+                          Example: "2026-04-24T14:00:00+02:00"
+            reason: Why this follow-up is scheduled (survives into resume prompt).
+            expected_observation: What the agent should look for on resume.
+        """
+        import json as _json
+        from datetime import datetime, timedelta, timezone
+
+        from app.control.events import emit
+        from app.tasks.repository import TaskRepository
+        from app.tasks.service import schedule_task_resume as _schedule
+
+        _MIN_DELAY_SECONDS = 60
+
+        repo = TaskRepository()
+        task = repo.get_task(task_id)
+        if task is None or task.user_id != ctx.deps.user_id:
+            return f"Task {task_id} not found."
+
+        try:
+            resume_at = datetime.fromisoformat(resume_at_iso.replace("Z", "+00:00"))
+        except ValueError:
+            return f"Invalid datetime: {resume_at_iso!r}. Use ISO-8601 with timezone."
+
+        if resume_at.tzinfo is None:
+            resume_at = resume_at.replace(tzinfo=timezone.utc)
+
+        now = datetime.now(timezone.utc)
+        if resume_at <= now + timedelta(seconds=_MIN_DELAY_SECONDS):
+            earliest = (now + timedelta(seconds=_MIN_DELAY_SECONDS)).isoformat()
+            return (
+                f"Follow-up must be at least {_MIN_DELAY_SECONDS}s in the future."
+                f" Earliest: {earliest}"
+            )
+
+        # Check retry budget
+        try:
+            ctx_data: dict[str, object] = _json.loads(task.context or "{}")
+        except _json.JSONDecodeError:
+            ctx_data = {}
+
+        pursuit = ctx_data.get("pursuit", {})
+        if not isinstance(pursuit, dict):
+            pursuit = {}
+
+        attempt_count = int(pursuit.get("attempt_count", 0))
+        max_attempts = int(pursuit.get("max_attempts", 5))
+
+        if attempt_count >= max_attempts:
+            return (
+                f"Retry budget exhausted ({attempt_count}/{max_attempts} attempts). "
+                "Call await_task_input to ask the user, or complete_task / cancel_task."
+            )
+
+        # Store resume intent in pursuit context
+        pursuit["resume"] = {
+            "reason": reason,
+            "expected_observation": expected_observation,
+            "resume_at": resume_at_iso,
+        }
+        ctx_data["pursuit"] = pursuit
+
+        try:
+            repo.transition_status(task_id, "AWAITING_RESUME")
+        except ValueError as exc:
+            return str(exc)
+
+        repo.update_task(
+            task_id,
+            awaiting_input_hint=reason,
+            resume_after=resume_at,
+            context=_json.dumps(ctx_data),
+            last_agent_run_id=ctx.deps.run_id,
+        )
+
+        await _schedule(
+            task_id=task_id,
+            resume_at=resume_at,
+            user_id=ctx.deps.user_id,
+            household_id=ctx.deps.household_id,
+            channel_user_id=ctx.deps.channel_user_id,
+        )
+
+        emit(
+            "task.followup_scheduled",
+            {
+                "task_id": task_id,
+                "resume_at": resume_at_iso,
+                "reason": reason,
+                "expected_observation": expected_observation,
+                "attempt_count": attempt_count,
+                "max_attempts": max_attempts,
+            },
+            run_id=ctx.deps.run_id,
+        )
+
+        friendly = resume_at.strftime("%A, %d %B %Y at %H:%M")
+        return f"Autonomous follow-up scheduled for {friendly}. Reason: {reason}"

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import logging
 import re
 from datetime import datetime
@@ -77,6 +78,33 @@ def _render_full_task(repo: TaskRepository, task: object) -> str:
 
     if task.status == "AWAITING_INPUT" and task.awaiting_input_hint:
         lines.append(f"- waiting for: {task.awaiting_input_hint}")
+
+    # Pursuit state (autonomous attempt tracking)
+    try:
+        ctx_data = json.loads(task.context or "{}")
+        pursuit = ctx_data.get("pursuit", {})
+    except (json.JSONDecodeError, AttributeError):
+        pursuit = {}
+    if isinstance(pursuit, dict) and pursuit:
+        if pursuit.get("current_approach"):
+            lines.append(f"- current approach: {pursuit['current_approach']}")
+        attempt_count = int(pursuit.get("attempt_count", 0))
+        max_attempts = int(pursuit.get("max_attempts", 5))
+        if attempt_count:
+            lines.append(f"- attempts: {attempt_count} / {max_attempts}")
+        last = pursuit.get("last_attempt")
+        if isinstance(last, dict):
+            lines.append(
+                f"- last attempt: {last.get('result', '?')} — {last.get('result_note', '')}"
+            )
+        if pursuit.get("next_action"):
+            lines.append(f"- next action: {pursuit['next_action']}")
+        resume_info = pursuit.get("resume", {})
+        if isinstance(resume_info, dict):
+            if resume_info.get("reason"):
+                lines.append(f"- resume reason: {resume_info['reason']}")
+            if resume_info.get("expected_observation"):
+                lines.append(f"- expected observation: {resume_info['expected_observation']}")
 
     # Linked entities
     links = repo.get_links(task.id)

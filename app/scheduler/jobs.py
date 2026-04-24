@@ -166,7 +166,9 @@ async def resume_task(
     Transitions the task back to ACTIVE, runs the agent with full assembled
     context via agent_run(), and delivers the response to the user.
     """
+    import json as _json
     import uuid as _uuid
+    from datetime import datetime, timezone
 
     from app.agent.runner import agent_run, get_user_run_lock
     from app.channels.registry import get_channel
@@ -180,27 +182,65 @@ async def resume_task(
     emit("job.fire", {"job": "task_resume", "task_id": task_id}, run_id=run_id)
     logger.info("Task resume starting: task_id=%s run_id=%s", task_id, run_id)
 
-    # Load task and check it's still resumable
+    # Load task, extract pursuit state, and transition to ACTIVE
+    pursuit: dict[str, object] = {}
+    resume_info: dict[str, object] = {}
     with users_session() as session:
         task = session.get(Task, task_id)
         if task is None or task.status in ("COMPLETED", "FAILED", "CANCELLED"):
             logger.info("Task resume skipped (terminal state): task_id=%s", task_id)
             return
 
-        # Transition back to ACTIVE
-        if task.status in ("AWAITING_INPUT", "AWAITING_CONFIRMATION"):
-            from datetime import datetime, timezone
+        if task.status not in ("AWAITING_INPUT", "AWAITING_CONFIRMATION", "AWAITING_RESUME"):
+            logger.info(
+                "Task resume skipped (unexpected status=%s): task_id=%s",
+                task.status, task_id,
+            )
+            return
 
-            task.status = "ACTIVE"
-            task.awaiting_input_hint = None
-            task.resume_after = None
-            task.updated_at = datetime.now(timezone.utc)
-            session.add(task)
-            session.commit()
+        # Read and clear pursuit.resume so it doesn't repeat on next run
+        try:
+            ctx_data: dict[str, object] = _json.loads(task.context or "{}")
+        except (_json.JSONDecodeError, AttributeError):
+            ctx_data = {}
+        pursuit = ctx_data.get("pursuit", {})  # type: ignore[assignment]
+        if not isinstance(pursuit, dict):
+            pursuit = {}
+        resume_info = pursuit.pop("resume", {})  # type: ignore[assignment]
+        if not isinstance(resume_info, dict):
+            resume_info = {}
+        if resume_info:
+            ctx_data["pursuit"] = pursuit
+            task.context = _json.dumps(ctx_data)
 
-    prompt = (
-        f"[Task resume] The scheduled follow-up time has arrived for task {task_id}."
-        " Please review the task state and continue or report back to the user."
+        task.status = "ACTIVE"
+        task.awaiting_input_hint = None
+        task.resume_after = None
+        task.updated_at = datetime.now(timezone.utc)
+        session.add(task)
+        session.commit()
+
+    # Build rich resume prompt from stored intent
+    attempt_count = int(pursuit.get("attempt_count", 0))
+    max_attempts = int(pursuit.get("max_attempts", 5))
+    lines = [f"[Task resume] Task ID: {task_id}"]
+    if resume_info.get("reason"):
+        lines.append(f"Reason: {resume_info['reason']}")
+    if resume_info.get("expected_observation"):
+        lines.append(f"Expected observation: {resume_info['expected_observation']}")
+    if pursuit.get("next_action"):
+        lines.append(f"Previous next action: {pursuit['next_action']}")
+    lines.append(f"Attempts so far: {attempt_count} / {max_attempts}")
+    lines.append(
+        "Review the task state, record an attempt, then continue, schedule another "
+        "follow-up, await user input, complete, or fail the task safely."
+    )
+    prompt = "\n".join(lines)
+
+    emit(
+        "task.resume_started",
+        {"task_id": task_id, "attempt_count": attempt_count, "max_attempts": max_attempts},
+        run_id=run_id,
     )
 
     # Use the shared per-user lock so this job doesn't race with an incoming
@@ -217,6 +257,15 @@ async def resume_task(
         )
 
     duration_ms = int((_time.monotonic() - t0) * 1000)
+    emit(
+        "task.resume_completed" if outcome.success else "task.resume_failed",
+        {
+            "task_id": task_id,
+            "duration_ms": duration_ms,
+            "success": outcome.success,
+        },
+        run_id=run_id,
+    )
     emit(
         "job.complete" if outcome.success else "job.error",
         {
