@@ -35,6 +35,7 @@ async def _lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     from app.scheduler.engine import start_scheduler, stop_scheduler
     from app.scheduler.reminders import restore_pending_reminders
     from app.scheduler.scheduled_prompts import restore_scheduled_prompts
+    from app.scheduler.task_resumes import restore_pending_task_resumes
     from app.tools.mcp_client import start_mcp as start_tools_mcp
     from app.tools.mcp_client import stop_mcp as stop_tools_mcp
 
@@ -57,11 +58,12 @@ async def _lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
         "ok" if _get_tools_mcp() else "missing",
     )
 
-    # Start APScheduler, restore pending reminders, register cleanup job
+    # Start APScheduler, restore pending jobs, register cleanup job
     await start_scheduler()
     await restore_pending_reminders()
     await restore_pending_actions()
     await restore_scheduled_prompts()
+    await restore_pending_task_resumes()
     await register_cleanup_jobs()
 
     # Trigger home profile refresh in background (don't block startup)

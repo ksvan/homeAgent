@@ -142,7 +142,7 @@ async def schedule_task_resume(
         logger.warning("Scheduler not running — task resume for %s will not fire", task_id)
         return
 
-    schedule_id = f"{task_id}_resume"
+    schedule_id = f"task:{task_id}:resume"
     await scheduler.add_schedule(
         resume_task,
         DateTrigger(run_time=resume_at),

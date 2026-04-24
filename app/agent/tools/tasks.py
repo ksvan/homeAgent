@@ -630,6 +630,19 @@ def register_task_tools(agent: Agent[AgentDeps, str]) -> None:
         max_attempts = int(pursuit.get("max_attempts", 5))
 
         if attempt_count >= max_attempts:
+            emit(
+                "task.retry_budget_exhausted",
+                {
+                    "task_id": task_id,
+                    "attempt_count": attempt_count,
+                    "max_attempts": max_attempts,
+                    "last_result": pursuit.get("last_attempt", {}).get("result", "unknown")
+                    if isinstance(pursuit.get("last_attempt"), dict)
+                    else "unknown",
+                    "next_required_action": "Ask user or fail task",
+                },
+                run_id=ctx.deps.run_id,
+            )
             return (
                 f"Retry budget exhausted ({attempt_count}/{max_attempts} attempts). "
                 "Call await_task_input to ask the user, or complete_task / cancel_task."
@@ -828,3 +841,125 @@ def register_task_tools(agent: Agent[AgentDeps, str]) -> None:
         if recoverable and suggested_user_action:
             msg += f" Suggested action: {suggested_user_action}"
         return msg
+
+    @agent.tool
+    async def replan_task(
+        ctx: RunContext[AgentDeps],
+        task_id: str,
+        reason: str,
+        new_steps: str,
+        preserve_completed: bool = True,
+    ) -> str:
+        """Replace the remaining steps of a task with a new plan.
+
+        Use this when the original approach is clearly not working — not for
+        minor progress updates. Completed steps are preserved by default so
+        the history is not lost.
+
+        Args:
+            task_id: The task ID.
+            reason: Why the current plan is being replaced.
+            new_steps: JSON array of new step objects, each with "title" (str)
+                       and "step_type" ("research"|"decision"|"tool"|"wait"|"message").
+                       Example: [{"title": "Try alternative API", "step_type": "tool"}]
+            preserve_completed: If True (default), keep steps that are already
+                                done or cancelled. If False, cancel all existing
+                                steps before adding the new ones.
+        """
+        from datetime import datetime, timezone
+
+        from app.control.events import emit
+        from app.db import users_session
+        from app.models.tasks import TaskStep
+        from app.tasks.repository import TaskRepository
+
+        repo = TaskRepository()
+        task = repo.get_task(task_id)
+        if task is None or task.user_id != ctx.deps.user_id:
+            return f"Task {task_id} not found."
+
+        try:
+            step_list = json.loads(new_steps)
+            if not isinstance(step_list, list) or not step_list:
+                return "new_steps must be a non-empty JSON array of {title, step_type} objects."
+        except json.JSONDecodeError:
+            return "new_steps must be valid JSON."
+
+        valid_types = {"research", "decision", "tool", "wait", "message"}
+        for s in step_list:
+            if not isinstance(s, dict) or not s.get("title"):
+                return "Each step must have a 'title' field."
+            if s.get("step_type", "research") not in valid_types:
+                return f"step_type must be one of: {', '.join(sorted(valid_types))}"
+
+        now = datetime.now(timezone.utc)
+        existing_steps = repo.get_steps(task_id)
+        terminal_step_statuses = {"done", "cancelled"}
+
+        with users_session() as session:
+            # Cancel or preserve existing non-terminal steps
+            cancelled_count = 0
+            max_existing_index = -1
+            for step in existing_steps:
+                max_existing_index = max(max_existing_index, step.step_index)
+                if step.status not in terminal_step_statuses:
+                    if not preserve_completed or step.status not in terminal_step_statuses:
+                        step.status = "cancelled"
+                        step.updated_at = now
+                        session.add(step)
+                        cancelled_count += 1
+
+            # Add new steps starting after the highest existing index
+            start_index = max_existing_index + 1
+            new_step_objects = []
+            for i, step_def in enumerate(step_list):
+                new_step = TaskStep(
+                    task_id=task_id,
+                    step_index=start_index + i,
+                    title=step_def["title"],
+                    step_type=step_def.get("step_type", "research"),
+                    status="active" if i == 0 else "pending",
+                    started_at=now if i == 0 else None,
+                )
+                session.add(new_step)
+                new_step_objects.append(new_step)
+
+            # Update task current_step and store replan reason in context
+            try:
+                ctx_data: dict[str, object] = json.loads(task.context or "{}")
+            except json.JSONDecodeError:
+                ctx_data = {}
+            pursuit = ctx_data.get("pursuit", {})
+            if not isinstance(pursuit, dict):
+                pursuit = {}
+            pursuit["replan_reason"] = reason
+            ctx_data["pursuit"] = pursuit
+
+            task_row = session.get(type(task), task_id)
+            if task_row is not None:
+                task_row.current_step = start_index
+                task_row.context = json.dumps(ctx_data)
+                task_row.last_agent_run_id = ctx.deps.run_id
+                task_row.updated_at = now
+                session.add(task_row)
+
+            session.commit()
+
+        emit(
+            "task.replanned",
+            {
+                "task_id": task_id,
+                "reason": reason,
+                "new_step_count": len(step_list),
+                "cancelled_step_count": cancelled_count,
+                "preserve_completed": preserve_completed,
+                "run_id": ctx.deps.run_id,
+            },
+            run_id=ctx.deps.run_id,
+        )
+
+        titles = ", ".join(f"'{s['title']}'" for s in step_list)
+        return (
+            f"Task replanned: {cancelled_count} step(s) cancelled, "
+            f"{len(step_list)} new step(s) added ({titles}). Reason: {reason}"
+        )
