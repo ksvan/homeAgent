@@ -4,6 +4,7 @@ import asyncio
 import logging
 from datetime import date, datetime, timezone
 from typing import Any
+from zoneinfo import ZoneInfo
 
 import httpx
 from pydantic_ai import Agent, RunContext
@@ -39,9 +40,6 @@ def _parse_events(ics_text: str, start: date, end: date) -> list[dict[str, Any]]
         if dt_prop is None:
             continue
         dt = dt_prop.dt
-        # Normalize to datetime; all-day events stay as date
-        if isinstance(dt, datetime):
-            dt = dt.astimezone(timezone.utc)
         events.append(
             {
                 "dt": dt,
@@ -50,19 +48,32 @@ def _parse_events(ics_text: str, start: date, end: date) -> list[dict[str, Any]]
             }
         )
 
-    return sorted(  # type: ignore[arg-type]
-        events,
-        key=lambda x: x["dt"]
-        if isinstance(x["dt"], datetime)
-        else datetime.combine(x["dt"], datetime.min.time(), tzinfo=timezone.utc),
-    )
+    return sorted(events, key=lambda x: _sort_key(x["dt"]))
 
 
-def _format_event(ev: dict[str, Any], member_label: str | None) -> str:
+def _sort_key(dt: date | datetime) -> datetime:
+    if isinstance(dt, datetime):
+        if dt.tzinfo is not None:
+            return dt.astimezone(timezone.utc)
+        return dt.replace(tzinfo=timezone.utc)
+    return datetime.combine(dt, datetime.min.time(), tzinfo=timezone.utc)
+
+
+def _format_event(
+    ev: dict[str, Any],
+    member_label: str | None,
+    display_tz: ZoneInfo,
+) -> str:
     dt = ev["dt"]
     if isinstance(dt, datetime):
+        if dt.tzinfo is None:
+            dt = dt.replace(tzinfo=display_tz)
+        else:
+            dt = dt.astimezone(display_tz)
         day_str = dt.strftime("%A %-d %b")
         time_str = dt.strftime("%H:%M")
+        tz_str = dt.tzname() or display_tz.key
+        time_str = f"{time_str} {tz_str}"
     else:
         day_str = dt.strftime("%A %-d %b")  # type: ignore[union-attr]
         time_str = "all day"
@@ -206,6 +217,7 @@ def register_calendar_tools(agent: Agent[AgentDeps, str]) -> None:
         """
         from sqlmodel import select
 
+        from app.config import get_settings
         from app.db import users_session
         from app.models.calendars import Calendar
 
@@ -217,6 +229,16 @@ def register_calendar_tools(agent: Agent[AgentDeps, str]) -> None:
 
         if end < start:
             return "end_iso must be on or after start_iso."
+
+        settings = get_settings()
+        try:
+            display_tz = ZoneInfo(settings.household_timezone)
+        except Exception:
+            logger.warning(
+                "Invalid HOUSEHOLD_TIMEZONE=%r; falling back to UTC",
+                settings.household_timezone,
+            )
+            display_tz = ZoneInfo("UTC")
 
         with users_session() as session:
             query = select(Calendar).where(Calendar.household_id == ctx.deps.household_id)
@@ -248,12 +270,16 @@ def register_calendar_tools(agent: Agent[AgentDeps, str]) -> None:
         all_events: list[tuple[Any, str | None, str]] = []
         for cal, events in results:
             for ev in events:
-                all_events.append((ev["dt"], cal.member_name, _format_event(ev, cal.member_name)))
+                all_events.append(
+                    (
+                        ev["dt"],
+                        cal.member_name,
+                        _format_event(ev, cal.member_name, display_tz),
+                    )
+                )
 
         all_events.sort(  # type: ignore[arg-type]
-            key=lambda x: x[0]
-            if isinstance(x[0], datetime)
-            else datetime.combine(x[0], datetime.min.time(), tzinfo=timezone.utc),
+            key=lambda x: _sort_key(x[0]),
         )
 
         if not all_events:

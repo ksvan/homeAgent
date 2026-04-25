@@ -795,6 +795,14 @@ async def admin_tasks() -> dict[str, Any]:
         try:
             ctx_data = _json.loads(t.context or "{}")
             control = ctx_data.get("control") or None
+            raw_goal = ctx_data.get("goal") or {}
+            goal = {
+                "intent": raw_goal.get("intent"),
+                "success_criteria": raw_goal.get("success_criteria"),
+                "acceptance_test": raw_goal.get("acceptance_test"),
+                "outcome": raw_goal.get("outcome"),
+                "completion_rejection_count": raw_goal.get("completion_rejection_count", 0),
+            } if raw_goal else None
             raw_pursuit = ctx_data.get("pursuit") or {}
             pursuit = {
                 "attempt_count": raw_pursuit.get("attempt_count", 0),
@@ -808,6 +816,7 @@ async def admin_tasks() -> dict[str, Any]:
             } if raw_pursuit else None
         except Exception:
             control = None
+            goal = None
             pursuit = None
         result.append({
             "id": t.id,
@@ -822,6 +831,7 @@ async def admin_tasks() -> dict[str, Any]:
             "created_at": t.created_at.isoformat() if t.created_at else None,
             "updated_at": t.updated_at.isoformat() if t.updated_at else None,
             "control": control,
+            "goal": goal,
             "pursuit": pursuit,
             "steps": [
                 {

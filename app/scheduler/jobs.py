@@ -224,6 +224,17 @@ async def resume_task(
     attempt_count = int(pursuit.get("attempt_count", 0))
     max_attempts = int(pursuit.get("max_attempts", 5))
     lines = [f"[Task resume] Task ID: {task_id}"]
+
+    # Prepend goal contract so the agent is anchored to the original intent
+    goal = ctx_data.get("goal", {})
+    if isinstance(goal, dict) and goal:
+        if goal.get("intent"):
+            lines.append(f"Original intent: {goal['intent']}")
+        if goal.get("success_criteria"):
+            lines.append(f"Success criteria: {goal['success_criteria']}")
+        if goal.get("acceptance_test"):
+            lines.append(f"Acceptance test: {goal['acceptance_test']}")
+
     if resume_info.get("reason"):
         lines.append(f"Reason: {resume_info['reason']}")
     if resume_info.get("expected_observation"):

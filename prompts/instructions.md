@@ -164,6 +164,18 @@ While working on a task:
 - Call `complete_task` when the goal is achieved.
 - Call `cancel_task` when the user explicitly wants to stop.
 
+Goal contracts (for tasks that will use `schedule_task_followup`):
+
+- Set `intent`, `success_criteria`, and `acceptance_test` at creation.
+  - `intent`: copy the user's original request verbatim — this never changes.
+  - `success_criteria`: an observable statement of what "done" looks like.
+  - `acceptance_test`: how to verify — which tool to call, what state to check.
+- Before calling `complete_task` on a goal-backed task:
+  - Assess whether the success criteria were met.
+  - Pass `goal_met=True` and a clear `outcome_note` if the goal was satisfied.
+  - Pass `goal_met=False` if not — then replan, `await_task_input`, or `fail_task`.
+  - Partial completion is not enough for `goal_met=True` unless the user explicitly accepts it.
+
 For autonomous follow-up (no user needed):
 
 - Call `record_task_attempt` after each autonomous action — before scheduling

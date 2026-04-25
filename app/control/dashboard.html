@@ -633,6 +633,10 @@ function addEvent(type, data) {
     'task.cancel':  ['b-error','TASK'],
     'task.link':    ['b-sched','TASK'],
     'task.schedule_resume':['b-sched','TASK'],
+    'task.goal_set':            ['b-done','TASK'],
+    'task.goal_missing':        ['b-error','TASK'],
+    'task.goal_checked':        ['b-tool','TASK'],
+    'task.completion_rejected': ['b-error','TASK'],
     'task.attempt_recorded':['b-tool','TASK'],
     'task.followup_scheduled':['b-sched','TASK'],
     'task.resume_started':['b-sched','TASK'],
@@ -697,6 +701,22 @@ function addEvent(type, data) {
     body = '<strong>' + (data.type || 'proposal') + '</strong> ' + st
       + ' <span class="d">' + Math.round((data.confidence || 0) * 100) + '% — ' + (data.reason || '') + '</span>';
     loadProposals();
+  } else if (type === 'task.goal_set') {
+    var hasCriteria = data.has_criteria ? ' ✓ criteria' : ' (no criteria)';
+    body = '<strong>goal set</strong> <span class="d">' + hasCriteria + '</span>';
+    loadTasks();
+  } else if (type === 'task.goal_missing') {
+    body = '<strong>goal missing</strong> <span class="err">no success_criteria — scheduled anyway</span>';
+    loadTasks();
+  } else if (type === 'task.goal_checked') {
+    var metLabel = data.goal_met ? '<span style="color:var(--green)">met</span>' : '<span class="err">not met</span>';
+    var gcNote = data.outcome_note ? ' — ' + esc(data.outcome_note.slice(0,60)) : '';
+    body = '<strong>goal checked</strong> ' + metLabel + gcNote;
+    loadTasks();
+  } else if (type === 'task.completion_rejected') {
+    var rejCnt = data.completion_rejection_count ? ' (' + data.completion_rejection_count + 'x)' : '';
+    body = '<strong>completion rejected</strong> <span class="err">' + esc(data.reason || '') + rejCnt + '</span>';
+    loadTasks();
   } else if (type === 'task.attempt_recorded') {
     const res = data.result || '?';
     const note = data.result_note ? data.result_note.slice(0, 80) : '';
@@ -1277,6 +1297,23 @@ async function showTaskDetail(taskId) {
       t.links.forEach(function(ln) {
         html += '<div style="font-size:12px;margin-bottom:2px">' + esc(ln.entity_type) + ': ' + esc(ln.entity_id) + ' (' + esc(ln.role) + ')</div>';
       });
+      html += '</div>';
+    }
+    if (t.goal) {
+      var g = t.goal;
+      html += '<div style="margin-top:12px"><strong>Goal contract:</strong></div><div style="margin-left:12px;font-size:12px">';
+      if (g.intent) html += '<div style="margin-bottom:3px">Intent: ' + esc(g.intent.slice(0,120)) + '</div>';
+      if (g.success_criteria) html += '<div style="margin-bottom:3px">Success criteria: ' + esc(g.success_criteria.slice(0,120)) + '</div>';
+      if (g.acceptance_test) html += '<div style="margin-bottom:3px">Acceptance test: ' + esc(g.acceptance_test.slice(0,120)) + '</div>';
+      if (g.outcome) {
+        var oc = g.outcome;
+        var ocColor = oc.goal_met ? 'var(--green)' : 'var(--red)';
+        html += '<div style="margin-bottom:3px">Outcome: <span style="color:' + ocColor + '">' + esc(oc.completion_basis || '') + '</span>'
+          + (oc.note ? ' — ' + esc(oc.note.slice(0,80)) : '') + '</div>';
+      }
+      if (g.completion_rejection_count) {
+        html += '<div style="margin-bottom:3px;color:var(--yellow)">Rejected: ' + g.completion_rejection_count + ' time(s)</div>';
+      }
       html += '</div>';
     }
     if (t.pursuit) {

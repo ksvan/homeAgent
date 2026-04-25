@@ -27,6 +27,9 @@ def register_task_tools(agent: Agent[AgentDeps, str]) -> None:
         task_kind: str,
         summary: str,
         steps: str,
+        intent: str = "",
+        success_criteria: str = "",
+        acceptance_test: str = "",
     ) -> str:
         """Create a multi-step task to track work that spans multiple turns.
 
@@ -41,6 +44,11 @@ def register_task_tools(agent: Agent[AgentDeps, str]) -> None:
           - Single immediate tool actions (use the tool directly)
           - Simple reminders (use set_reminder instead)
 
+        For tasks that will use schedule_task_followup, set the goal contract fields:
+          - intent: copy the user's original request verbatim
+          - success_criteria: observable statement of what "done" looks like
+          - acceptance_test: how to verify — which tool to call, what state to check
+
         Args:
             title: Short descriptive title for the task.
             task_kind: One of "plan" (compare/recommend/choose), "track" (monitor
@@ -52,6 +60,9 @@ def register_task_tools(agent: Agent[AgentDeps, str]) -> None:
                    "message"). Example:
                    [{"title": "Gather options", "step_type": "research"},
                     {"title": "User chooses", "step_type": "decision"}]
+            intent: Original user request verbatim (immutable anchor across replans).
+            success_criteria: Observable statement of what "done" looks like.
+            acceptance_test: How to verify completion — what tool to call, what to check.
         """
         from app.control.events import emit
         from app.tasks.repository import TaskRepository
@@ -77,6 +88,31 @@ def register_task_tools(agent: Agent[AgentDeps, str]) -> None:
             steps=step_list,
         )
         task = repo.update_task(task.id, last_agent_run_id=ctx.deps.run_id)
+
+        # Store goal contract if any field was provided
+        if intent or success_criteria or acceptance_test:
+            try:
+                ctx_data: dict[str, object] = json.loads(task.context or "{}")
+            except json.JSONDecodeError:
+                ctx_data = {}
+            ctx_data["goal"] = {
+                "intent": intent or title,
+                "success_criteria": success_criteria,
+                "acceptance_test": acceptance_test,
+                "outcome": None,
+                "completion_rejection_count": 0,
+            }
+            repo.update_task(task.id, context=json.dumps(ctx_data))
+            emit(
+                "task.goal_set",
+                {
+                    "task_id": task.id,
+                    "has_criteria": bool(success_criteria),
+                    "has_acceptance_test": bool(acceptance_test),
+                    "run_id": ctx.deps.run_id,
+                },
+                run_id=ctx.deps.run_id,
+            )
 
         emit(
             "task.create",
@@ -223,15 +259,29 @@ def register_task_tools(agent: Agent[AgentDeps, str]) -> None:
         ctx: RunContext[AgentDeps],
         task_id: str,
         summary: str = "",
+        goal_met: bool | None = None,
+        outcome_note: str = "",
     ) -> str:
         """Mark a multi-step task as completed.
 
         Call when the user's goal has been achieved.
 
+        If the task has a goal contract (set at creation with success_criteria),
+        you must assess whether the goal was met:
+          - goal_met=True + outcome_note: goal satisfied — completes the task.
+          - goal_met=False: completion rejected — replan, await_task_input, or fail_task.
+        Partial completion requires explicit user acceptance before goal_met=True.
+
         Args:
             task_id: The task ID.
             summary: Final outcome summary (optional, updates the task summary).
+            goal_met: Whether the goal contract was satisfied. Required when the
+                      task has a goal contract (success_criteria was set).
+            outcome_note: One-sentence description of what was achieved. Required
+                          when goal_met=True.
         """
+        from datetime import datetime, timezone
+
         from app.control.events import emit
         from app.tasks.repository import TaskRepository
 
@@ -239,6 +289,67 @@ def register_task_tools(agent: Agent[AgentDeps, str]) -> None:
         task = repo.get_task(task_id)
         if task is None or task.user_id != ctx.deps.user_id:
             return f"Task {task_id} not found."
+
+        # Goal contract check
+        try:
+            ctx_data: dict[str, object] = json.loads(task.context or "{}")
+        except json.JSONDecodeError:
+            ctx_data = {}
+
+        goal = ctx_data.get("goal")
+        if goal and isinstance(goal, dict):
+            if goal_met is None:
+                return (
+                    "This task has a goal contract. Before completing, assess whether "
+                    "the goal was met and call complete_task with goal_met=True or "
+                    "goal_met=False."
+                )
+
+            emit(
+                "task.goal_checked",
+                {
+                    "task_id": task_id,
+                    "goal_met": goal_met,
+                    "outcome_note": outcome_note,
+                    "run_id": ctx.deps.run_id,
+                },
+                run_id=ctx.deps.run_id,
+            )
+
+            if not goal_met:
+                goal["completion_rejection_count"] = (
+                    int(goal.get("completion_rejection_count", 0)) + 1
+                )
+                ctx_data["goal"] = goal
+                repo.update_task(task_id, context=json.dumps(ctx_data))
+                emit(
+                    "task.completion_rejected",
+                    {
+                        "task_id": task_id,
+                        "reason": "goal_met_false",
+                        "outcome_note": outcome_note,
+                        "completion_rejection_count": goal["completion_rejection_count"],
+                        "run_id": ctx.deps.run_id,
+                    },
+                    run_id=ctx.deps.run_id,
+                )
+                return (
+                    "Goal not met — completion rejected. "
+                    "Options: call replan_task, await_task_input, or fail_task."
+                )
+
+            if not outcome_note:
+                return "Provide an outcome_note summarising what was achieved before completing."
+
+            goal["outcome"] = {
+                "goal_met": True,
+                "completion_basis": "criteria_met",
+                "note": outcome_note,
+                "checked_at": datetime.now(timezone.utc).isoformat(),
+                "run_id": ctx.deps.run_id,
+            }
+            ctx_data["goal"] = goal
+            repo.update_task(task_id, context=json.dumps(ctx_data))
 
         try:
             repo.transition_status(task_id, "COMPLETED")
@@ -621,6 +732,18 @@ def register_task_tools(agent: Agent[AgentDeps, str]) -> None:
             ctx_data: dict[str, object] = _json.loads(task.context or "{}")
         except _json.JSONDecodeError:
             ctx_data = {}
+
+        # Warn if task has no success_criteria (soft guard — proceeds regardless)
+        goal = ctx_data.get("goal", {})
+        if not isinstance(goal, dict) or not goal.get("success_criteria"):
+            logger.warning(
+                "Task %s scheduled autonomous follow-up without success_criteria", task_id
+            )
+            emit(
+                "task.goal_missing",
+                {"task_id": task_id, "reason": "no_success_criteria", "run_id": ctx.deps.run_id},
+                run_id=ctx.deps.run_id,
+            )
 
         pursuit = ctx_data.get("pursuit", {})
         if not isinstance(pursuit, dict):

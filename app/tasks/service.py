@@ -64,6 +64,28 @@ def _render_full_task(repo: TaskRepository, task: object) -> str:
     if task.summary:
         lines.append(f"- summary: {task.summary}")
 
+    # Parse context once; reused for goal and pursuit blocks below
+    try:
+        ctx_data = json.loads(task.context or "{}")
+    except (json.JSONDecodeError, AttributeError):
+        ctx_data = {}
+
+    # Goal contract
+    goal = ctx_data.get("goal", {}) if isinstance(ctx_data, dict) else {}
+    if goal and isinstance(goal, dict):
+        if goal.get("intent"):
+            lines.append(f"- original intent: {goal['intent']}")
+        if goal.get("success_criteria"):
+            lines.append(f"- success criteria: {goal['success_criteria']}")
+        if goal.get("acceptance_test"):
+            lines.append(f"- acceptance test: {goal['acceptance_test']}")
+        outcome = goal.get("outcome")
+        if isinstance(outcome, dict) and outcome.get("note"):
+            lines.append(f"- outcome: {outcome['note']}")
+        rejection_count = int(goal.get("completion_rejection_count", 0))
+        if rejection_count:
+            lines.append(f"- completion rejected: {rejection_count} time(s)")
+
     steps = repo.get_steps(task.id)
     if steps:
         current = next((s for s in steps if s.status == "active"), None)
@@ -87,11 +109,7 @@ def _render_full_task(repo: TaskRepository, task: object) -> str:
         lines.append(f"- waiting for: {task.awaiting_input_hint}")
 
     # Pursuit state (autonomous attempt tracking)
-    try:
-        ctx_data = json.loads(task.context or "{}")
-        pursuit = ctx_data.get("pursuit", {})
-    except (json.JSONDecodeError, AttributeError):
-        pursuit = {}
+    pursuit = ctx_data.get("pursuit", {}) if isinstance(ctx_data, dict) else {}
     if isinstance(pursuit, dict) and pursuit:
         if pursuit.get("current_approach"):
             lines.append(f"- current approach: {pursuit['current_approach']}")
