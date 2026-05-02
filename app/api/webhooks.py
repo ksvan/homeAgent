@@ -129,3 +129,42 @@ async def homey_event_webhook(
     )
     enqueue_event(event)
     return {"ok": True}
+
+
+@router.post("/webhook/flights/{vendor}/{webhook_token}")
+async def flight_webhook(
+    request: Request,
+    vendor: str,
+    webhook_token: str,
+) -> dict:  # type: ignore[type-arg]
+    """Receive push alerts from flight data providers (AeroDataBox etc.)."""
+    from app.config import get_settings
+
+    settings = get_settings()
+    if not settings.feature_flight_monitor:
+        raise HTTPException(status_code=404, detail="Flight monitor feature not enabled")
+
+    _FLIGHT_MAX_BODY = 256 * 1024  # 256 KB
+
+    content_length = request.headers.get("content-length")
+    if content_length and int(content_length) > _FLIGHT_MAX_BODY:
+        return Response(status_code=413)  # type: ignore[return-value]
+    raw_body = await request.body()
+    if len(raw_body) > _FLIGHT_MAX_BODY:
+        return Response(status_code=413)  # type: ignore[return-value]
+
+    headers = dict(request.headers)
+
+    import asyncio
+
+    from app.flights.service import ingest_webhook
+
+    def _task_done(fut: asyncio.Future) -> None:  # type: ignore[type-arg]
+        if not fut.cancelled() and (exc := fut.exception()):
+            logger.error("ingest_webhook failed: %s", exc, exc_info=exc)
+
+    asyncio.create_task(
+        ingest_webhook(vendor, webhook_token, headers, raw_body)
+    ).add_done_callback(_task_done)
+
+    return {"ok": True}

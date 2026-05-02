@@ -142,6 +142,12 @@ def _make_conversation_agent() -> Agent[AgentDeps, str]:
         register_wine_tools(a)
         logger.info("Wine cellar tools registered")
 
+    if settings.feature_flight_monitor:
+        from app.agent.tools.flights import register_flight_tools
+
+        register_flight_tools(a)
+        logger.info("Flight monitor tools registered")
+
     return a
 
 

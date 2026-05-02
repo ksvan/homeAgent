@@ -72,6 +72,12 @@ async def _lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
 
         await schedule_wine_refresh()
 
+    # Register flight monitor scheduler jobs if feature is enabled
+    if settings.feature_flight_monitor:
+        from app.flights.scheduler import register_flight_scheduler_jobs
+
+        await register_flight_scheduler_jobs()
+
     # Trigger home profile refresh in background (don't block startup)
     with users_session() as session:
         household = session.exec(select(Household)).first()

@@ -209,6 +209,42 @@ class Settings(BaseSettings):
     wine_search_default_limit: int = 20
 
     # ------------------------------------------------------------------
+    # Flight monitor  (requires FEATURE_FLIGHT_MONITOR=true)
+    # ------------------------------------------------------------------
+    feature_flight_monitor: bool = False
+
+    flight_provider: str = "aerodatabox"
+
+    # AeroDataBox via RapidAPI
+    flight_aerodatabox_rapidapi_key: str = ""
+    flight_aerodatabox_rapidapi_host: str = "aerodatabox.p.rapidapi.com"
+    flight_aerodatabox_base_url: str = "https://aerodatabox.p.rapidapi.com"
+    flight_aerodatabox_alerts_enabled: bool = True
+    flight_aerodatabox_allow_airport_alerts: bool = False
+
+    # Public base URL used when building per-watch webhook URLs for the provider
+    flight_webhook_public_base_url: str = ""
+
+    # Suppress polling when a webhook already refreshed within this window (minutes)
+    flight_poll_recent_webhook_suppress_minutes: int = 20
+
+    # How many days before departure to start retrying deferred alert subscriptions
+    flight_subscription_retry_lead_days: int = 7
+
+    # Consecutive provider errors before a watch is moved to FAILED
+    flight_watch_fail_consecutive_errors: int = 5
+
+    # Low alert-credit warning threshold (AeroDataBox credits)
+    flight_alert_min_credits: int = 25
+
+    # How many hours after scheduled arrival monitoring remains active before cleanup
+    flight_monitor_ends_hours_after_arrival: int = 24
+
+    # Retention periods
+    flight_raw_event_retention_days: int = 60
+    flight_completed_watch_retention_days: int = 180
+
+    # ------------------------------------------------------------------
     # Competing action detection
     # ------------------------------------------------------------------
     competing_action_window_seconds: int = 60
