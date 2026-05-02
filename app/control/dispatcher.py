@@ -21,6 +21,7 @@ import asyncio
 import json
 import logging
 from datetime import datetime, timedelta, timezone
+from zoneinfo import ZoneInfo
 
 from app.control.event_bus import InboundEvent, get_event
 
@@ -143,8 +144,12 @@ def _schedule_agent_run(
     from app.agent.runner import agent_run, get_user_run_lock
 
     async def _run() -> None:
+        from app.channels.registry import get_channel
+        from app.control.events import emit as _emit
+
+        run_mode = getattr(rule, "run_mode", "notify_only")
         async with get_user_run_lock(rule.user_id):  # type: ignore[attr-defined]
-            await agent_run(
+            outcome = await agent_run(
                 text=text,
                 user_id=rule.user_id,  # type: ignore[attr-defined]
                 household_id=event.household_id,
@@ -153,6 +158,34 @@ def _schedule_agent_run(
                 save_history=False,
                 control_task_id=task_id,
             )
+
+        if run_mode == "notify_only" and outcome.success and outcome.response:
+            channel = get_channel()
+            if channel is not None:
+                try:
+                    await channel.send_message(
+                        rule.channel_user_id,  # type: ignore[attr-defined]
+                        outcome.response,
+                    )
+                    _emit("event.delivered", {"rule_id": rule.id}, run_id=outcome.run_id)  # type: ignore[attr-defined]
+                except Exception as exc:
+                    logger.error(
+                        "Failed to deliver event-triggered response rule=%s: %s",
+                        rule.name,  # type: ignore[attr-defined]
+                        exc,
+                        exc_info=exc,
+                    )
+                    _emit(
+                        "event.delivery_failed",
+                        {"rule_id": rule.id, "error": str(exc)},  # type: ignore[attr-defined]
+                        run_id=outcome.run_id,
+                    )
+            else:
+                _emit(
+                    "event.delivery_failed",
+                    {"rule_id": rule.id, "error": "no_channel"},  # type: ignore[attr-defined]
+                    run_id=outcome.run_id,
+                )
 
     def _on_done(fut: asyncio.Future) -> None:  # type: ignore[type-arg]
         if not fut.cancelled() and (exc := fut.exception()):
@@ -271,7 +304,9 @@ def _in_quiet_hours(rule: object) -> bool:
     if not qh_start or not qh_end:
         return False
 
-    now_time = datetime.now(timezone.utc).strftime("%H:%M")
+    from app.config import get_settings
+    tz = ZoneInfo(get_settings().household_timezone)
+    now_time = datetime.now(tz).strftime("%H:%M")
     # Simple string comparison works for HH:MM when start < end (same day).
     # For overnight ranges (e.g. 22:00–07:00) we check the complement.
     if qh_start <= qh_end:

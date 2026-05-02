@@ -127,6 +127,7 @@ async def extract_and_store_memories(
                 content=content,
                 source_run_id=run_id,
                 importance=importance,
+                user_id=user_id,
             )
             stored_facts.append(content)
         except Exception:

@@ -752,6 +752,29 @@ def register_task_tools(agent: Agent[AgentDeps, str]) -> None:
         attempt_count = int(pursuit.get("attempt_count", 0))
         max_attempts = int(pursuit.get("max_attempts", 5))
 
+        # Require that record_task_attempt was called in this run before scheduling
+        # a follow-up (only enforced once at least one attempt has been recorded).
+        if attempt_count > 0:
+            last_attempt = pursuit.get("last_attempt", {})
+            last_run_id = (
+                last_attempt.get("run_id") if isinstance(last_attempt, dict) else None
+            )
+            if last_run_id != ctx.deps.run_id:
+                emit(
+                    "task.attempt_missing",
+                    {
+                        "task_id": task_id,
+                        "attempt_count": attempt_count,
+                        "last_run_id": last_run_id,
+                        "current_run_id": ctx.deps.run_id,
+                    },
+                    run_id=ctx.deps.run_id,
+                )
+                return (
+                    "Call record_task_attempt before scheduling a follow-up. "
+                    "No attempt was recorded for this run."
+                )
+
         if attempt_count >= max_attempts:
             emit(
                 "task.retry_budget_exhausted",
@@ -779,11 +802,8 @@ def register_task_tools(agent: Agent[AgentDeps, str]) -> None:
         }
         ctx_data["pursuit"] = pursuit
 
-        try:
-            repo.transition_status(task_id, "AWAITING_RESUME")
-        except ValueError as exc:
-            return str(exc)
-
+        # Persist context and hint before attempting to schedule so metadata is
+        # durable even if the scheduler step fails.
         repo.update_task(
             task_id,
             awaiting_input_hint=reason,
@@ -792,13 +812,35 @@ def register_task_tools(agent: Agent[AgentDeps, str]) -> None:
             last_agent_run_id=ctx.deps.run_id,
         )
 
-        await _schedule(
+        # Only transition status after the scheduler accepts the job so the task
+        # is never stranded in AWAITING_RESUME without a live APScheduler job.
+        scheduled = await _schedule(
             task_id=task_id,
             resume_at=resume_at,
             user_id=ctx.deps.user_id,
             household_id=ctx.deps.household_id,
             channel_user_id=ctx.deps.channel_user_id,
         )
+
+        if not scheduled:
+            emit(
+                "task.followup_schedule_failed",
+                {
+                    "task_id": task_id,
+                    "reason": "scheduler_unavailable",
+                    "resume_at": resume_at_iso,
+                },
+                run_id=ctx.deps.run_id,
+            )
+            return (
+                "Scheduler is not running — follow-up could not be registered. "
+                "Call await_task_input to keep the task active or try again later."
+            )
+
+        try:
+            repo.transition_status(task_id, "AWAITING_RESUME")
+        except ValueError as exc:
+            return str(exc)
 
         emit(
             "task.followup_scheduled",
@@ -863,7 +905,12 @@ def register_task_tools(agent: Agent[AgentDeps, str]) -> None:
 
         step_fields: dict[str, object] = {"status": status}
         if result_note:
-            step_fields["details_json"] = json.dumps({"result_note": result_note})
+            try:
+                existing_details: dict[str, object] = json.loads(step.details_json or "{}")
+            except (json.JSONDecodeError, AttributeError):
+                existing_details = {}
+            existing_details["result_note"] = result_note
+            step_fields["details_json"] = json.dumps(existing_details)
         if status == "done":
             step_fields["completed_at"] = now
         elif status in ("failed", "cancelled"):

@@ -148,8 +148,11 @@ async def schedule_task_resume(
     user_id: str,
     household_id: str,
     channel_user_id: str,
-) -> None:
-    """Schedule an APScheduler job to resume a task at a future time."""
+) -> bool:
+    """Schedule an APScheduler job to resume a task at a future time.
+
+    Returns True if the job was accepted, False if the scheduler is unavailable.
+    """
     from apscheduler.triggers.date import DateTrigger
 
     from app.scheduler.engine import get_scheduler
@@ -158,7 +161,7 @@ async def schedule_task_resume(
     scheduler = get_scheduler()
     if scheduler is None:
         logger.warning("Scheduler not running — task resume for %s will not fire", task_id)
-        return
+        return False
 
     schedule_id = f"task:{task_id}:resume"
     await scheduler.add_schedule(
@@ -173,6 +176,7 @@ async def schedule_task_resume(
         },
     )
     logger.info("Task resume scheduled: task_id=%s at=%s", task_id, resume_at.isoformat())
+    return True
 
 
 def resolve_task_for_message(user_id: str, text: str) -> str | None:
