@@ -200,16 +200,26 @@ After Homey write actions, the runtime schedules a fire-and-forget verification 
 
 It does **not** yet perform strong semantic expected-vs-actual matching for every device type.
 
-### Unified scheduled task persistence
+### Multi-step task orchestration
 
-`Task` rows in `users.db` are currently used as durable records for:
+`Task` rows in `users.db` are the durable backbone for all multi-turn work:
 
-- reminders
-- scheduled Homey actions
+- reminders and scheduled Homey actions (legacy `task_kind=None`)
+- multi-step conversational tasks (`task_kind` = `plan`, `track`, `prepare`, `handoff`)
+- autonomous pursuit tasks with retry budgets (`context["pursuit"]`)
+- goal-backed tasks with success criteria and acceptance tests (`context["goal"]`)
 
-The schema is still broad enough for future multi-step conversational task orchestration, but that broader task-resume flow is not yet wired into runtime context assembly.
+Active task context is injected into every agent run via
+`app/tasks/service.py:get_active_task_context()`, which renders the task title,
+status, steps, pursuit state, and goal contract into a `## Active Task` section of
+the system prompt. Autonomous task resumes are scheduled via APScheduler jobs
+in `app/scheduler/jobs.py:resume_task()`.
 
-Detailed proposal: [multi-step-task-design.md](multi-step-task-design.md)
+Current design docs:
+
+- [multi-step-task-design.md](multi-step-task-design.md)
+- [autonomous-task-pursuit-design.md](autonomous-task-pursuit-design.md)
+- [autonomous-goal-reflection-design.md](autonomous-goal-reflection-design.md)
 
 ### Skills
 

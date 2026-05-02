@@ -10,6 +10,112 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 
 ### Added
 
+#### Wine Cellar Inventory Tool
+
+Read-only wine inventory backed by a Microsoft 365 Excel workbook. The agent can
+search, filter, and recommend bottles by category, region, pairing, vintage, and
+availability. Sync is eTag-based (download only on change) with a daily background
+refresh.
+
+- **`app/wine/`** (new) — `graph_client.py` (Graph API token + eTag-aware download),
+  `parser.py` (xlsx → `WineBottle` list with Norwegian column aliases and `Drukket`
+  field parsing), `models.py` (`WineBottle` dataclass with `drink_status`/`available`
+  derived fields; `WineSyncResult`), `repository.py` (atomic snapshot upsert into
+  `cache.db`), `sync.py` (`sync_wine_cellar(force)` with `asyncio.Lock`, eTag+TTL
+  check, stale-cache fallback).
+- **`app/models/wine.py`** (new) — `WineBottleRow` and `WineSyncMeta` SQLModel
+  tables for `cache.db`.
+- **`app/agent/tools/wine.py`** (new) — four agent tools: `search_wine_cellar`
+  (structured filtering with three ranking modes: food/occasion, availability,
+  attribute), `get_wine_details`, `refresh_wine_cellar`, `get_wine_sync_status`.
+- **`app/scheduler/wine.py`** (new) — daily `CronTrigger` background refresh
+  (`WINE_REFRESH_CRON`, default `0 6 * * *` household timezone).
+- **`alembic/versions/0002_cache_db_wine.py`** (new) — migration creating
+  `winebottlerow` and `winesyncmeta` in `cache.db`.
+- **`app/config.py`** — wine settings block (`WINE_GRAPH_*`, `WINE_EXCEL_*`,
+  `WINE_CACHE_TTL_SECONDS`, `WINE_REFRESH_CRON`, `WINE_SEARCH_DEFAULT_LIMIT`);
+  `FEATURE_WINE=false` flag.
+- **`app/agent/agent.py`** — wine tools registered when `FEATURE_WINE=true`.
+- **`app/api/server.py`** — wine refresh scheduler wired into lifespan.
+- **`prompts/instructions.md`** — `## Wine Cellar` section with 6 rules for
+  iterative querying, food pairing decomposition, and availability ranking.
+- **`pyproject.toml`** — added `openpyxl` dependency.
+- **`tests/unit/wine/`** (new) — 22 unit tests covering parser, models, and
+  drink status logic.
+- **`docs/wine-cellar-agent-design.md`** (new) — full design document.
+- **`.env.example`** — complete wine section with setup instructions.
+
+#### Flight Monitor Design
+
+Design document for a proactive flight monitoring feature with vendor webhook
+ingestion, polling fallback, and deterministic change filtering before LLM
+triggering.
+
+- **`docs/flight-monitor-agent-design.md`** (new) — vendor landscape analysis
+  (AeroDataBox recommended for V1), data model, state machine, webhook security
+  model, alert subscription timing strategy, and phased implementation plan.
+
+### Improved
+
+#### Task Pursuit Follow-up Reliability
+
+- **`app/agent/tools/tasks.py`** — `schedule_task_followup` now requires
+  `record_task_attempt` to have been called in the current run before scheduling
+  a follow-up (enforced once at least one attempt exists). Context and hint are
+  persisted before the scheduler call so metadata is durable even if scheduling
+  fails. Status transitions to `AWAITING_RESUME` only after the scheduler accepts
+  the job — prevents stranded tasks.
+- **`app/tasks/service.py`** — `schedule_task_resume` now returns `bool`
+  (True = accepted, False = scheduler unavailable) so callers can handle failures.
+
+#### Event Rule Notify-Only Delivery
+
+- **`app/control/dispatcher.py`** — event-triggered agent runs with
+  `run_mode=notify_only` now deliver the agent response to the user via the
+  active channel after the run completes.
+- **`app/control/dashboard.html`** — added `event.delivered` and
+  `event.delivery_failed` SSE badges to the admin event stream.
+
+### Fixed
+
+#### World Model Sync — Homey Structure Parsing
+
+- **`app/world/sync.py`** — `direct_call_tool` returns a `list[TextContent]`,
+  not a plain string. `str()` on a list produces Python repr, not the JSON
+  payload. Added `_extract_text()` helper that correctly extracts `.text` from
+  content part lists, handles dicts and single content parts, and falls back to
+  `str()`. Fixes world model bootstrap silently skipping all zones and devices
+  on every restart.
+
+#### Admin Interface Binding
+
+- **`app/__main__.py`** — admin uvicorn now binds to `settings.admin_host`
+  instead of a hardcoded `"0.0.0.0"`. Fixes inaccessible admin interface when
+  the default was incorrectly set to `127.0.0.1` (loopback inside Docker blocks
+  the port forwarder).
+- **`app/config.py`** — `admin_host` setting added (default `"0.0.0.0"`);
+  LAN/internet restriction is enforced by the docker-compose host binding
+  (`127.0.0.1:9090:9090`), not by uvicorn's bind address.
+
+#### Cloudflared QUIC Timeout on Restricted Networks
+
+- **`docker-compose.yml`** — cloudflared command now forces `--protocol http2`
+  (TCP), preventing QUIC/UDP timeout failures on corporate and restricted
+  networks. Admin port binding tightened to `127.0.0.1:9090:9090` so only
+  loopback-accessible from the host.
+
+#### Memory Extraction Missing User Association
+
+- **`app/memory/extraction.py`** — `user_id` was missing from
+  `store_episodic_memory` calls during background extraction. Memories were
+  stored without a user link, making per-user retrieval incomplete.
+
+---
+
+## [0.12.0] - 2026-04-24
+
+### Added
+
 #### File-Based Agent Skills System
 
 Domain-specific knowledge, API workflows, and helper scripts packaged as
