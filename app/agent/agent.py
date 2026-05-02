@@ -136,6 +136,12 @@ def _make_conversation_agent() -> Agent[AgentDeps, str]:
     register_event_rule_tools(a)
     register_skills_tools(a)
 
+    if settings.feature_wine:
+        from app.agent.tools.wine import register_wine_tools
+
+        register_wine_tools(a)
+        logger.info("Wine cellar tools registered")
+
     return a
 
 

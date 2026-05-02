@@ -38,6 +38,8 @@ from app.models import (  # noqa: E402, F401  — imported for side effects (met
     Task,
     User,
     UserProfile,
+    WineBottleRow,
+    WineSyncMeta,
     WorldFact,
 )
 from sqlmodel import SQLModel  # noqa: E402
@@ -59,7 +61,8 @@ DATABASES: dict[str, set[str]] = {
         "conversationmessage",
         "conversationsummary",
     },
-    "cache": {"devicesnapshot", "eventlog", "agentrunlog", "pendingaction"},
+    "cache": {"devicesnapshot", "eventlog", "agentrunlog", "pendingaction",
+               "winebottlerow", "winesyncmeta"},
 }
 
 # Alembic branch labels must match the branch_labels in each migration file.

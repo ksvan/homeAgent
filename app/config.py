@@ -134,6 +134,7 @@ class Settings(BaseSettings):
     log_format: str = "console"
     port: int = 8080
     admin_port: int = 9090
+    admin_host: str = "0.0.0.0"
     app_secret_key: str = ""
     agent_name: str = "Home"
     household_timezone: str = "UTC"  # e.g. Europe/Oslo — used in agent time context
@@ -190,6 +191,22 @@ class Settings(BaseSettings):
     memory_ttl_important_days: int = 365
     # Near-duplicate suppression — L2 distance threshold in sqlite-vec space
     memory_dedup_distance_threshold: float = 0.15
+
+    # ------------------------------------------------------------------
+    # Wine cellar  (requires FEATURE_WINE=true)
+    # ------------------------------------------------------------------
+    feature_wine: bool = False
+
+    wine_graph_tenant_id: str = ""
+    wine_graph_client_id: str = ""
+    wine_graph_client_secret: str = ""
+    wine_graph_drive_id: str = ""
+    wine_graph_item_id: str = ""
+    wine_excel_table_name: str = ""
+    wine_worksheet_name: str = ""
+    wine_cache_ttl_seconds: int = 21600         # 6 hours
+    wine_refresh_cron: str = "0 6 * * *"        # daily at 06:00 household TZ
+    wine_search_default_limit: int = 20
 
     # ------------------------------------------------------------------
     # Competing action detection

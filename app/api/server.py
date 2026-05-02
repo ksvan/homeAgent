@@ -66,6 +66,12 @@ async def _lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     await restore_pending_task_resumes()
     await register_cleanup_jobs()
 
+    # Register wine cellar daily refresh job if feature is enabled
+    if settings.feature_wine:
+        from app.scheduler.wine import schedule_wine_refresh
+
+        await schedule_wine_refresh()
+
     # Trigger home profile refresh in background (don't block startup)
     with users_session() as session:
         household = session.exec(select(Household)).first()
