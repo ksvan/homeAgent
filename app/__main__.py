@@ -70,7 +70,12 @@ async def _run() -> None:
     admin_app = FastAPI(docs_url=None, redoc_url=None)
     admin_app.include_router(admin_router)
     admin_server = _AdminServer(
-        uvicorn.Config(admin_app, host="0.0.0.0", port=settings.admin_port, log_level="warning")
+        uvicorn.Config(
+            admin_app,
+            host=settings.admin_host,
+            port=settings.admin_port,
+            log_level="warning",
+        )
     )
     admin_task = asyncio.ensure_future(admin_server.serve())
 

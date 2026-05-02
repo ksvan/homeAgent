@@ -136,9 +136,9 @@ async def _sync_homey(household_id: str) -> None:
     if not result:
         return
 
-    # The result comes back as a string representation. Try to parse as JSON.
-    text = str(result)
-    # MCP tool results may be wrapped — try to extract JSON from the string
+    # direct_call_tool may return a dict (structuredContent), a single content
+    # part, a list of content parts, or a plain string.
+    text = _extract_text(result)
     data = _try_parse_home_structure(text)
     if data is None:
         logger.info(
@@ -150,6 +150,24 @@ async def _sync_homey(household_id: str) -> None:
 
     zone_id_map = _sync_zones(household_id, data)
     _sync_devices_from_structure(household_id, data, zone_id_map)
+
+
+def _extract_text(result: object) -> str:
+    """Extract a plain string from a direct_call_tool result.
+
+    Handles: dict (structuredContent), list of content parts (each with .text),
+    a single content part with .text, or a plain string/other.
+    """
+    if isinstance(result, dict):
+        import json as _json
+
+        return _json.dumps(result)
+    if isinstance(result, list):
+        parts = [p.text for p in result if hasattr(p, "text")]
+        return parts[0] if parts else ""
+    if hasattr(result, "text"):
+        return str(result.text)  # type: ignore[union-attr]
+    return str(result)
 
 
 def _try_parse_home_structure(text: str) -> dict | None:
