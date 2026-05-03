@@ -661,7 +661,7 @@ async def check_alert_credit_balance() -> None:
     try:
         balance = await provider.get_alert_credit_balance()
     except ProviderError as exc:
-        logger.warning("Could not check alert credit balance: %s", exc)
+        logger.debug("Could not check alert credit balance: %s", exc)
         return
 
     if balance.empty:

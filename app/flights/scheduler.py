@@ -161,6 +161,7 @@ async def alert_subscription_retry_job() -> None:
         token_hash = hashlib.sha256(raw_token.encode()).hexdigest()
         webhook_url = f"{public_base}/webhook/flights/{provider.name}/{raw_token}"
 
+        await asyncio.sleep(3)
         try:
             alert = await provider.create_alert(watch, webhook_url)
             watch.provider_alert_id = alert.alert_id
