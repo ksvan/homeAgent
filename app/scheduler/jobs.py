@@ -289,7 +289,7 @@ async def resume_task(
     )
 
     channel = get_channel()
-    if channel and channel_user_id:
+    if channel and channel_user_id and outcome.response:
         try:
             await channel.send_message(channel_user_id, outcome.response)
         except Exception:

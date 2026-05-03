@@ -67,7 +67,13 @@ async def restore_pending_task_resumes() -> None:
             mapping = session.exec(
                 select(ChannelMapping).where(ChannelMapping.user_id == task.user_id)
             ).first()
-            channel_user_id = mapping.channel_user_id if mapping else task.user_id
+            if mapping is None:
+                logger.warning(
+                    "Task resume: no channel mapping for user_id=%s, task_id=%s — "
+                    "will run agent but cannot deliver response",
+                    task.user_id, task.id,
+                )
+            channel_user_id = mapping.channel_user_id if mapping else ""
 
             if resume_at > now:
                 # Still in the future — reschedule normally
