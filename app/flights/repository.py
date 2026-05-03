@@ -161,8 +161,8 @@ def _row_to_watch(row: object) -> object:
         tail_number=row.tail_number,
         status=row.status,
         status_reason=row.status_reason,
-        monitoring_starts_at=row.monitoring_starts_at,
-        monitoring_ends_at=row.monitoring_ends_at,
+        monitoring_starts_at=_utc(row.monitoring_starts_at),
+        monitoring_ends_at=_utc(row.monitoring_ends_at),
         provider=row.provider,
         provider_flight_id=row.provider_flight_id,
         provider_alert_id=row.provider_alert_id,
@@ -170,9 +170,9 @@ def _row_to_watch(row: object) -> object:
         webhook_token_hash=row.webhook_token_hash,
         consecutive_provider_errors=row.consecutive_provider_errors,
         notify_policy=policy,
-        created_at=row.created_at,
-        updated_at=row.updated_at,
-        completed_at=row.completed_at,
+        created_at=_utc(row.created_at),
+        updated_at=_utc(row.updated_at),
+        completed_at=_utc(row.completed_at),
     )
 
 
@@ -240,6 +240,14 @@ def get_latest_snapshot(watch_id: str) -> object | None:
         return _row_to_snapshot(row)
 
 
+def _utc(dt: object) -> object:
+    """Ensure a datetime read from SQLite is timezone-aware (UTC)."""
+    from datetime import datetime, timezone
+    if isinstance(dt, datetime) and dt.tzinfo is None:
+        return dt.replace(tzinfo=timezone.utc)
+    return dt
+
+
 def _row_to_snapshot(row: object) -> object:
     from app.flights.models import FlightStatusSnapshot
     from app.models.flights import FlightStatusSnapshotRow
@@ -249,21 +257,21 @@ def _row_to_snapshot(row: object) -> object:
         id=row.id,
         watch_id=row.watch_id,
         provider=row.provider,
-        provider_updated_at=row.provider_updated_at,
-        fetched_at=row.fetched_at,
+        provider_updated_at=_utc(row.provider_updated_at),
+        fetched_at=_utc(row.fetched_at),
         state=row.state,
-        scheduled_out=row.scheduled_out,
-        estimated_out=row.estimated_out,
-        actual_out=row.actual_out,
-        scheduled_off=row.scheduled_off,
-        estimated_off=row.estimated_off,
-        actual_off=row.actual_off,
-        scheduled_on=row.scheduled_on,
-        estimated_on=row.estimated_on,
-        actual_on=row.actual_on,
-        scheduled_in=row.scheduled_in,
-        estimated_in=row.estimated_in,
-        actual_in=row.actual_in,
+        scheduled_out=_utc(row.scheduled_out),
+        estimated_out=_utc(row.estimated_out),
+        actual_out=_utc(row.actual_out),
+        scheduled_off=_utc(row.scheduled_off),
+        estimated_off=_utc(row.estimated_off),
+        actual_off=_utc(row.actual_off),
+        scheduled_on=_utc(row.scheduled_on),
+        estimated_on=_utc(row.estimated_on),
+        actual_on=_utc(row.actual_on),
+        scheduled_in=_utc(row.scheduled_in),
+        estimated_in=_utc(row.estimated_in),
+        actual_in=_utc(row.actual_in),
         departure_terminal=row.departure_terminal,
         departure_gate=row.departure_gate,
         arrival_terminal=row.arrival_terminal,

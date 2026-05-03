@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import logging
 from datetime import datetime, timedelta, timezone
 
@@ -23,6 +24,7 @@ async def flight_watchdog_job() -> None:
     from app.flights.service import poll_watch
 
     watches = list_active_watches()
+    logger.info("Watchdog: %d active watches", len(watches))
     if not watches:
         return
 
@@ -35,24 +37,38 @@ async def flight_watchdog_job() -> None:
 
         dep_dt = _departure_datetime(watch, now)
         if dep_dt is None:
+            logger.info("Watchdog: skipping %s — no departure time", watch.id)
             continue
 
         delta = dep_dt - now
         poll_interval = _poll_interval_for_delta(delta)
         if poll_interval is None:
-            continue  # flight is too far out — no polling yet
+            logger.info(
+                "Watchdog: skipping %s — too far out (%.1fh)", watch.id,
+                delta.total_seconds() / 3600,
+            )
+            continue
 
         # Check when the snapshot was last fetched
         last = get_latest_snapshot(watch.id)
         if last:
-            age = now - last.fetched_at
+            fetched_at = last.fetched_at
+            if fetched_at.tzinfo is None:
+                fetched_at = fetched_at.replace(tzinfo=timezone.utc)
+            age = now - fetched_at
             if age < poll_interval:
-                continue  # not due yet
+                logger.info(
+                    "Watchdog: skipping %s — fetched %.0fm ago (interval %s)",
+                    watch.id, age.total_seconds() / 60, poll_interval,
+                )
+                continue
 
+        logger.info("Watchdog: polling watch %s", watch.id)
         try:
             await poll_watch(watch.id)
         except Exception:
             logger.exception("Watchdog: poll_watch failed for watch %s", watch.id)
+        await asyncio.sleep(3)
 
 
 def _departure_datetime(watch: object, now: datetime) -> datetime | None:
@@ -65,6 +81,8 @@ def _departure_datetime(watch: object, now: datetime) -> datetime | None:
     if snap and isinstance(snap, FlightStatusSnapshot):
         candidate = snap.estimated_off or snap.scheduled_off
         if candidate:
+            if candidate.tzinfo is None:
+                candidate = candidate.replace(tzinfo=timezone.utc)
             return candidate
 
     # Use scheduled departure date at midnight UTC as a fallback
@@ -212,16 +230,8 @@ async def register_flight_scheduler_jobs() -> None:
     jobs = [
         (flight_watchdog_job, IntervalTrigger(minutes=15), _WATCHDOG_JOB_ID),
         (alert_subscription_retry_job, IntervalTrigger(hours=24), _ALERT_RETRY_JOB_ID),
-        (
-            alert_credit_check_job,
-            IntervalTrigger(hours=24, start_delay=timedelta(hours=1)),
-            _CREDIT_CHECK_JOB_ID,
-        ),
-        (
-            flight_retention_job,
-            IntervalTrigger(hours=24, start_delay=timedelta(hours=4)),
-            _RETENTION_JOB_ID,
-        ),
+        (alert_credit_check_job, IntervalTrigger(hours=24), _CREDIT_CHECK_JOB_ID),
+        (flight_retention_job, IntervalTrigger(hours=24), _RETENTION_JOB_ID),
     ]
 
     for fn, trigger, job_id in jobs:

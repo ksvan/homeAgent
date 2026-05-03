@@ -26,6 +26,7 @@ logger = logging.getLogger(__name__)
 # Normalized state mapping from AeroDataBox flight states
 _STATE_MAP: dict[str, str] = {
     "Unknown": "UNKNOWN",
+    "Expected": "SCHEDULED",
     "Scheduled": "SCHEDULED",
     "Delayed": "SCHEDULED",
     "Departed": "OUT_GATE",
@@ -75,16 +76,22 @@ class AeroDataBoxProvider(FlightProvider):
         """Look up a flight by number and date to get provider IDs and segment details."""
         import httpx
 
-        date_str = query.departure_date.strftime("%Y-%m-%dT00:00")
-        url = f"{self._base_url}/flights/{query.carrier_code}{query.flight_number}/{date_str}"
-        params: dict[str, str] = {}
-        if query.origin:
-            params["withAircraftImage"] = "false"
+        date_str = query.departure_date.strftime("%Y-%m-%d")
+        url = (
+            f"{self._base_url}/flights/number"
+            f"/{query.carrier_code}{query.flight_number}/{date_str}"
+        )
+        params: dict[str, str] = {
+            "withAircraftImage": "false",
+            "withLocation": "false",
+            "withFlightPlan": "false",
+            "dateLocalRole": "Both",
+        }
 
         async with httpx.AsyncClient(timeout=15) as client:
             resp = await client.get(url, headers=self._headers(), params=params)
 
-        if resp.status_code == 404:
+        if resp.status_code in (204, 404):
             raise ProviderFlightNotFoundError(
                 f"Flight {query.carrier_code}{query.flight_number}"
                 f" on {query.departure_date} not found"
@@ -115,14 +122,22 @@ class AeroDataBoxProvider(FlightProvider):
 
         import httpx
 
-
-        date_str = query.departure_date.strftime("%Y-%m-%dT00:00")
-        url = f"{self._base_url}/flights/{query.carrier_code}{query.flight_number}/{date_str}"
+        date_str = query.departure_date.strftime("%Y-%m-%d")
+        url = (
+            f"{self._base_url}/flights/number"
+            f"/{query.carrier_code}{query.flight_number}/{date_str}"
+        )
+        params: dict[str, str] = {
+            "withAircraftImage": "false",
+            "withLocation": "false",
+            "withFlightPlan": "false",
+            "dateLocalRole": "Both",
+        }
 
         async with httpx.AsyncClient(timeout=15) as client:
-            resp = await client.get(url, headers=self._headers())
+            resp = await client.get(url, headers=self._headers(), params=params)
 
-        if resp.status_code == 404:
+        if resp.status_code in (204, 404):
             raise ProviderFlightNotFoundError(
                 f"Flight {query.carrier_code}{query.flight_number} not found"
             )
@@ -310,21 +325,26 @@ def _pick_best(
 def _parse_resolved_flight(f: dict[str, Any]) -> ResolvedFlight:
     carrier = f.get("airline") or {}
     iata = carrier.get("iata") or f.get("iata") or f.get("carrierCode") or ""
-    number = f.get("flightNumber") or f.get("number") or f.get("iataNumber") or ""
-    dep_date_raw = (
-        (f.get("departure") or {}).get("scheduledTimeLocal")
-        or (f.get("departure") or {}).get("scheduledTime")
-        or ""
-    )
+
+    # "number" field is the full IATA flight number e.g. "DY 4104" — strip carrier prefix
+    number_raw = f.get("flightNumber") or f.get("number") or f.get("iataNumber") or ""
+    if iata and number_raw.startswith(iata):
+        number = number_raw[len(iata):].strip()
+    else:
+        number = number_raw.strip()
+
+    dep = f.get("departure") or {}
+    arr = f.get("arrival") or {}
+
+    # scheduledTime is a nested object: {"utc": "...", "local": "..."}
+    dep_sched = dep.get("scheduledTime") or {}
+    dep_date_raw = dep_sched.get("local") or dep_sched.get("utc") or ""
     try:
         from datetime import date as _date
         dep_date = _date.fromisoformat(dep_date_raw[:10]) if dep_date_raw else _date.today()
     except Exception:
         from datetime import date as _date
         dep_date = _date.today()
-
-    dep = f.get("departure") or {}
-    arr = f.get("arrival") or {}
 
     return ResolvedFlight(
         provider_flight_id=str(f.get("id") or f.get("flightId") or f"{iata}{number}"),
@@ -370,11 +390,22 @@ def _parse_snapshot(
     )
     state = _STATE_MAP.get(status_raw, "UNKNOWN")
 
-    delay_dep = dep.get("delay")
-    try:
-        delay = int(delay_dep) if delay_dep is not None else None
-    except Exception:
-        delay = None
+    def _utc(block: dict[str, Any] | None, key: str = "utc") -> str | None:
+        """Extract UTC string from a nested time block like {"utc": "...", "local": "..."}."""
+        return (block or {}).get(key)
+
+    # Compute delay from scheduled vs revised departure (API doesn't expose it directly)
+    sched_off_str = _utc(dep.get("scheduledTime"))
+    revised_off_str = _utc(dep.get("revisedTime"))
+    delay: int | None = None
+    if sched_off_str and revised_off_str:
+        try:
+            sched_dt = datetime.fromisoformat(sched_off_str.replace("Z", "+00:00"))
+            rev_dt = datetime.fromisoformat(revised_off_str.replace("Z", "+00:00"))
+            diff = int((rev_dt - sched_dt).total_seconds() / 60)
+            delay = diff if diff > 0 else None
+        except Exception:
+            pass
 
     return FlightStatusSnapshot(
         id=snapshot_id,
@@ -382,12 +413,12 @@ def _parse_snapshot(
         provider="aerodatabox",
         fetched_at=datetime.now(timezone.utc),
         state=state,
-        scheduled_off=_dt(dep.get("scheduledTimeUtc") or dep.get("scheduledTime")),
-        estimated_off=_dt(dep.get("revisedTimeUtc") or dep.get("estimatedTimeUtc")),
-        actual_off=_dt(dep.get("actualTimeUtc")),
-        scheduled_in=_dt(arr.get("scheduledTimeUtc") or arr.get("scheduledTime")),
-        estimated_in=_dt(arr.get("revisedTimeUtc") or arr.get("estimatedTimeUtc")),
-        actual_in=_dt(arr.get("actualTimeUtc")),
+        scheduled_off=_dt(_utc(dep.get("scheduledTime"))),
+        estimated_off=_dt(_utc(dep.get("revisedTime")) or _utc(dep.get("predictedTime"))),
+        actual_off=_dt(_utc(dep.get("actualTime"))),
+        scheduled_in=_dt(_utc(arr.get("scheduledTime"))),
+        estimated_in=_dt(_utc(arr.get("revisedTime")) or _utc(arr.get("predictedTime"))),
+        actual_in=_dt(_utc(arr.get("actualTime"))),
         departure_terminal=dep.get("terminal"),
         departure_gate=dep.get("gate"),
         arrival_terminal=arr.get("terminal"),

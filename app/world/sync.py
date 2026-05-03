@@ -164,7 +164,7 @@ def _extract_text(result: object) -> str:
         return _json.dumps(result)
     if isinstance(result, list):
         parts = [p.text for p in result if hasattr(p, "text")]
-        return parts[0] if parts else ""
+        return "".join(parts)
     if hasattr(result, "text"):
         return str(result.text)  # type: ignore[union-attr]
     return str(result)
