@@ -171,38 +171,28 @@ class AeroDataBoxProvider(FlightProvider):
         watch: "FlightWatch",
         webhook_url: str,
     ) -> ProviderAlert:
-        """Subscribe to push alerts for a flight number.
-
-        Phase 0 note: verify the exact endpoint and payload format from live API.
-        """
+        """Subscribe to push alerts for a flight number via webhook."""
         import httpx
 
         if not self._alerts_enabled:
             raise ProviderError("AeroDataBox alerts are not enabled")
 
-        # AeroDataBox Flight Alert API — endpoint to be confirmed in Phase 0 spike
-        url = f"{self._base_url}/alerts/subscriptions/flight-number"
-        body = {
-            "carrierCode": watch.carrier_code,
-            "flightNumber": watch.flight_number,
-            "startDate": watch.scheduled_departure_date.isoformat(),
-            "endDate": watch.scheduled_departure_date.isoformat(),
-            "callbackUrl": webhook_url,
-        }
+        flight_id = f"{watch.carrier_code}{watch.flight_number}"
+        url = f"{self._base_url}/subscriptions/webhook/FlightByNumber/{flight_id}"
+        body = {"endpoint": webhook_url}
+        params = {"useCredits": "true"}
 
         async with httpx.AsyncClient(timeout=15) as client:
-            resp = await client.post(url, headers=self._headers(), json=body)
+            resp = await client.post(url, headers=self._headers(), json=body, params=params)
 
         if resp.status_code == 429:
             raise ProviderQuotaError("AeroDataBox quota exceeded when creating alert")
 
-        # Some providers return 400/422 when the flight is too far out
         if resp.status_code in (400, 422):
             text = resp.text.lower()
             if "lead" in text or "advance" in text or "too early" in text or "future" in text:
                 raise ProviderAlertDeferredError(
-                    f"Flight {watch.carrier_code}{watch.flight_number}"
-                    " is too far out for alert subscription"
+                    f"Flight {flight_id} is too far out for alert subscription"
                 )
             raise ProviderError(f"AeroDataBox create_alert {resp.status_code}: {resp.text[:200]}")
 
@@ -210,7 +200,7 @@ class AeroDataBoxProvider(FlightProvider):
             raise ProviderError(f"AeroDataBox create_alert {resp.status_code}: {resp.text[:200]}")
 
         data = resp.json()
-        alert_id = str(data.get("subscriptionId") or data.get("id") or data.get("alertId") or "")
+        alert_id = str(data.get("id") or "")
         if not alert_id:
             raise ProviderError(f"AeroDataBox create_alert returned no ID: {data}")
 
@@ -223,7 +213,7 @@ class AeroDataBoxProvider(FlightProvider):
     async def delete_alert(self, provider_alert_id: str) -> None:
         import httpx
 
-        url = f"{self._base_url}/alerts/subscriptions/{provider_alert_id}"
+        url = f"{self._base_url}/subscriptions/{provider_alert_id}"
         async with httpx.AsyncClient(timeout=10) as client:
             resp = await client.delete(url, headers=self._headers())
 
@@ -244,7 +234,7 @@ class AeroDataBoxProvider(FlightProvider):
 
         from app.config import get_settings
 
-        url = f"{self._base_url}/alerts/balance"
+        url = f"{self._base_url}/subscriptions/balance"
         async with httpx.AsyncClient(timeout=10) as client:
             resp = await client.get(url, headers=self._headers())
 
@@ -252,7 +242,7 @@ class AeroDataBoxProvider(FlightProvider):
             raise ProviderError(f"AeroDataBox balance check {resp.status_code}: {resp.text[:200]}")
 
         data = resp.json()
-        remaining = int(data.get("remaining") or data.get("credits") or data.get("balance") or 0)
+        remaining = int(data.get("creditsRemaining") or 0)
         total = data.get("total")
         settings = get_settings()
         threshold = settings.flight_alert_min_credits
