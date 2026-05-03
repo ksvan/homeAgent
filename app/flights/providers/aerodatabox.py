@@ -179,7 +179,7 @@ class AeroDataBoxProvider(FlightProvider):
 
         flight_id = f"{watch.carrier_code}{watch.flight_number}"
         url = f"{self._base_url}/subscriptions/webhook/FlightByNumber/{flight_id}"
-        body = {"endpoint": webhook_url}
+        body = {"url": webhook_url}
         params = {"useCredits": "true"}
 
         async with httpx.AsyncClient(timeout=15) as client:
@@ -241,7 +241,10 @@ class AeroDataBoxProvider(FlightProvider):
         if resp.status_code >= 400:
             raise ProviderError(f"AeroDataBox balance check {resp.status_code}: {resp.text[:200]}")
 
-        data = resp.json()
+        try:
+            data = resp.json()
+        except Exception:
+            data = {}
         remaining = int(data.get("creditsRemaining") or 0)
         total = data.get("total")
         settings = get_settings()
