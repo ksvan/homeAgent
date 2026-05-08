@@ -277,6 +277,16 @@ async def _ingest_agentmail_event(
     _, from_email = parseaddr(from_addr)
     from_email = from_email.strip().lower()
 
+    # Intake throttle — check before persisting or doing any expensive work
+    from app.email.throttle import check_and_record
+
+    throttle_reason = check_and_record(from_email, user_id=None)
+    if throttle_reason:
+        logger.info(
+            "AgentMail webhook: throttled from=%s reason=%s", from_email, throttle_reason
+        )
+        return
+
     # Build minimized provider metadata (no raw body)
     provider_metadata = {
         "event_id": provider_event_id,

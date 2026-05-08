@@ -78,6 +78,12 @@ async def _lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
 
         await register_flight_scheduler_jobs()
 
+    # Register email channel worker jobs if feature is enabled
+    if settings.feature_email_channel:
+        from app.email.worker import register_email_worker_jobs
+
+        await register_email_worker_jobs()
+
     # Trigger home profile refresh in background (don't block startup)
     with users_session() as session:
         household = session.exec(select(Household)).first()
