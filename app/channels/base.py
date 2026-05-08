@@ -44,3 +44,17 @@ class Channel(ABC):
         the second webhook can look up the pending action.
         Confirmation is NOT blocking — see architecture.md for the two-webhook pattern.
         """
+
+    @abstractmethod
+    async def send_email_intake_prompt(
+        self,
+        channel_user_id: str,
+        prompt_text: str,
+        token: str,
+    ) -> None:
+        """
+        Send an inline Yes/No prompt for an email intake confirmation.
+
+        token is an EmailIntakeConfirmation UUID. Uses email_confirm:/email_cancel:
+        callback prefixes to route separately from policy-gate confirmations.
+        """

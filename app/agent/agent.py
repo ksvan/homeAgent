@@ -151,6 +151,12 @@ def _make_conversation_agent() -> Agent[AgentDeps, str]:
         register_flight_tools(a)
         logger.info("Flight monitor tools registered")
 
+    if settings.feature_email_channel:
+        from app.agent.tools.email import register_email_tools
+
+        register_email_tools(a)
+        logger.info("Email channel tools registered")
+
     return a
 
 

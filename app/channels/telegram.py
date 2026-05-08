@@ -163,6 +163,12 @@ class TelegramChannel(Channel):
         elif data.startswith("cancel:"):
             token = data[len("cancel:"):]
             await self._cancel_pending_action(query, token, telegram_id)
+        elif data.startswith("email_confirm:"):
+            token = data[len("email_confirm:"):]
+            await self._execute_email_intake(query, token, telegram_id)
+        elif data.startswith("email_cancel:"):
+            token = data[len("email_cancel:"):]
+            await self._cancel_email_intake(query, token, telegram_id)
         else:
             await query.answer("Unknown action")
 
@@ -265,6 +271,89 @@ class TelegramChannel(Channel):
             ).first()
         return user is not None and user.id == action_user_id
 
+    async def _execute_email_intake(
+        self, query: CallbackQuery, token: str, telegram_id: int
+    ) -> None:
+        from app.email.confirmation import delete_confirmation, get_confirmation
+
+        confirmation = get_confirmation(token)
+        if confirmation is None:
+            await query.answer()
+            await query.edit_message_text("⚠️ This email action has expired or was already handled.")
+            return
+
+        if not await self._action_belongs_to(telegram_id, confirmation.user_id):
+            await query.answer("This action doesn't belong to you.")
+            return
+
+        delete_confirmation(token)
+        await query.answer("Processing…")
+        await query.edit_message_text("✅ Got it — processing your email now.")
+
+        from app.agent.runner import agent_run
+
+        try:
+            outcome = await agent_run(
+                text=confirmation.intake_text,
+                user_id=confirmation.user_id,
+                household_id=confirmation.household_id,
+                channel_user_id=str(telegram_id),
+                trigger="email_confirmed",
+                save_history=False,
+            )
+            if outcome.response:
+                await self.send_message(str(telegram_id), outcome.response)
+        except Exception:
+            logger.exception("email_intake agent_run failed (token=%s)", token)
+            await self.send_message(
+                str(telegram_id), "⚠️ Something went wrong processing your email."
+            )
+
+        from sqlmodel import select
+
+        from app.db import cache_session
+        from app.email.models import EmailMessage
+        from app.email.repository import update_status
+
+        with cache_session() as session:
+            msg = session.exec(
+                select(EmailMessage).where(EmailMessage.confirmation_id == token)
+            ).first()
+            if msg:
+                update_status(msg.id, "PROCESSED")
+
+    async def _cancel_email_intake(
+        self, query: CallbackQuery, token: str, telegram_id: int
+    ) -> None:
+        from app.email.confirmation import delete_confirmation, get_confirmation
+
+        confirmation = get_confirmation(token)
+        if confirmation is None:
+            await query.answer()
+            await query.edit_message_text("⚠️ This email action has expired or was already handled.")
+            return
+
+        if not await self._action_belongs_to(telegram_id, confirmation.user_id):
+            await query.answer("This action doesn't belong to you.")
+            return
+
+        await query.answer("Skipped")
+        delete_confirmation(token)
+        await query.edit_message_text("⏭️ Email skipped.")
+
+        from sqlmodel import select
+
+        from app.db import cache_session
+        from app.email.models import EmailMessage
+        from app.email.repository import update_status
+
+        with cache_session() as session:
+            msg = session.exec(
+                select(EmailMessage).where(EmailMessage.confirmation_id == token)
+            ).first()
+            if msg:
+                update_status(msg.id, "IGNORED", status_reason="user_skipped")
+
     # ------------------------------------------------------------------
     # Channel interface
     # ------------------------------------------------------------------
@@ -290,6 +379,26 @@ class TelegramChannel(Channel):
         await self._app.bot.send_message(
             chat_id=int(channel_user_id),
             text=f"Confirm action: {action_description}",
+            reply_markup=keyboard,
+        )
+
+    async def send_email_intake_prompt(
+        self,
+        channel_user_id: str,
+        prompt_text: str,
+        token: str,
+    ) -> None:
+        keyboard = InlineKeyboardMarkup(
+            [
+                [
+                    InlineKeyboardButton("✅ Yes", callback_data=f"email_confirm:{token}"),
+                    InlineKeyboardButton("⏭️ Skip", callback_data=f"email_cancel:{token}"),
+                ]
+            ]
+        )
+        await self._app.bot.send_message(
+            chat_id=int(channel_user_id),
+            text=prompt_text,
             reply_markup=keyboard,
         )
 

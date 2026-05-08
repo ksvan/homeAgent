@@ -245,6 +245,26 @@ class Settings(BaseSettings):
     flight_completed_watch_retention_days: int = 180
 
     # ------------------------------------------------------------------
+    # Email channel via AgentMail  (requires FEATURE_EMAIL_CHANNEL=true)
+    # ------------------------------------------------------------------
+    feature_email_channel: bool = False
+
+    agentmail_api_key: str = ""
+    agentmail_inbox_id: str = ""           # inbox email address, e.g. agent@agentmail.to
+    agentmail_address: str = ""            # same address for loopback rejection
+    agentmail_webhook_id: str = ""         # Svix webhook endpoint id
+    agentmail_webhook_secret: str = ""     # Svix signing secret (whsec_...)
+    agentmail_webhook_public_url: str = "" # public URL AgentMail posts to
+
+    email_channel_require_mapped_sender: bool = True
+    email_channel_save_history: bool = False
+    email_channel_max_agent_chars: int = 12_000
+    email_channel_max_raw_body_bytes: int = 1_048_576
+    email_channel_lookback_hours: int = 24
+    email_channel_force_check_limit: int = 10
+    email_channel_retention_days: int = 90
+
+    # ------------------------------------------------------------------
     # Competing action detection
     # ------------------------------------------------------------------
     competing_action_window_seconds: int = 60

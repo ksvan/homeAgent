@@ -45,6 +45,11 @@ from app.models import (  # noqa: E402, F401  — imported for side effects (met
     WineSyncMeta,
     WorldFact,
 )
+from app.email.models import (  # noqa: E402, F401
+    EmailAttachment,
+    EmailIntakeConfirmation,
+    EmailMessage,
+)
 from sqlmodel import SQLModel  # noqa: E402
 
 # ---------------------------------------------------------------------------
@@ -68,6 +73,7 @@ DATABASES: dict[str, set[str]] = {
         "devicesnapshot", "eventlog", "agentrunlog", "pendingaction",
         "winebottlerow", "winesyncmeta",
         "flightwatch", "flightstatussnapshot", "flightevent",
+        "emailmessage", "emailattachment", "emailintakeconfirmation",
     },
 }
 

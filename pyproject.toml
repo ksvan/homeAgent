@@ -28,6 +28,8 @@ dependencies = [
     "recurring-ical-events",
     "pyyaml>=6.0.3",
     "openpyxl",
+    "agentmail",
+    "svix",
 ]
 
 [dependency-groups]
