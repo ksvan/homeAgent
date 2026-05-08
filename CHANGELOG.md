@@ -6,6 +6,33 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 
 ---
 
+## [0.14.1] - 2026-05-08
+
+### Added
+
+- **Email admin tab** — new "Email" tab in the admin dashboard showing the full
+  email queue with sender, subject, colour-coded status, auth pass/fail badge,
+  instruction excerpt, extracted flight numbers / booking refs, and received time.
+  Includes a status filter dropdown and auto-refreshes on email SSE events.
+- **Email live feed events** — all `email.*` events now appear in the Live tab
+  with a sky-blue EMAIL badge. `email.received` shows sender and subject as emails
+  arrive; `email.confirmation_requested`, `email.retry_scheduled`,
+  `email.dead_lettered` etc. each render with appropriate context.
+- **`email.received` admin event** — emitted at webhook intake so the live feed
+  updates in real time when a new email lands.
+- **`app/email/extractor.py`** — regex-based extraction of IATA flight numbers,
+  route pairs (OSL→CPH), booking references, and travel dates from email body.
+  Results stored as `proposed_action_json` on `EmailMessage` and included in the
+  intake summary passed to the agent.
+- **Optional ack reply** (`app/email/reply.py`) — sends a short acknowledgement
+  email back to the sender via the AgentMail API after the user confirms intake in
+  Telegram. Gated on `EMAIL_CHANNEL_ALLOW_REPLY_TO=true` (default `false`).
+  Added `EMAIL_CHANNEL_ALLOW_REPLY_TO` to `.env.example`.
+- **`GET /admin/email/messages`** — admin API endpoint returning recent
+  `EmailMessage` rows with status, auth, instruction excerpt, and extracted signals.
+
+---
+
 ## [0.14.0] - 2026-05-08
 
 ### Added
