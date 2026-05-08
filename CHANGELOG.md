@@ -6,9 +6,45 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 
 ---
 
-## Unreleased
+## [0.14.0] - 2026-05-08
 
 ### Added
+
+#### Email Channel via AgentMail
+
+Email as an untrusted intake channel. Inbound emails are received via
+Svix-signed webhooks, mapped to a known user via `ChannelMapping(channel="email")`,
+preprocessed into a compact intake summary, and held behind a Telegram Yes/Skip
+confirmation before `agent_run()` is called. Email proposes; Telegram confirms.
+
+- **`app/email/`** (new module) — `agentmail_client.py` (SDK wrapper, `fetch_message`,
+  `list_messages`, `parse_auth_status` from `Authentication-Results` header),
+  `models.py` (`EmailMessage` durable queue, `EmailAttachment` metadata,
+  `EmailIntakeConfirmation` pending confirmation), `repository.py` (persist,
+  deduplicate, update status), `preprocessor.py` (plain-text extraction, forwarded
+  content split, boilerplate removal, bounded intake summary),
+  `confirmation.py` (create/get/delete `EmailIntakeConfirmation`),
+  `service.py` (full pipeline: sender mapping → API fetch → preprocess → confirm),
+  `throttle.py` (per-sender 20/hr, per-user 30/hr, global 30/min),
+  `worker.py` (retry every 2 min, stale-lock sweeper every 5 min, daily retention).
+- **`/webhook/agentmail`** — new endpoint with Svix signature verification, body-size
+  guard, inbox_id validation, auto-reply/bounce/loopback detection, durable persist
+  before returning 200, persistent `svix-id` + `(provider, message_id)` deduplication.
+- **Telegram confirmation flow** — `email_confirm:`/`email_cancel:` callback prefixes,
+  new `send_email_intake_prompt()` on the `Channel` base class, dedicated handlers in
+  `TelegramChannel`; on confirmation calls `agent_run(trigger="email_confirmed")` and
+  routes the response back via the user's Telegram `ChannelMapping`.
+- **`check_email_now` agent tool** — force-checks AgentMail inbox for missed messages;
+  respects same deduplication and processing pipeline as webhooks.
+- **Burst digest** — when a user has ≥3 pending confirmations, collapses the next
+  prompt into a single summary Telegram message instead of another inline button.
+- **Retry/dead-letter** — exponential backoff (60 s base, doubles per attempt),
+  dead-lettered after 3 failures; stale processing locks released after 10 minutes.
+- **Admin events** emitted for all key state transitions via existing event bus.
+- `FEATURE_EMAIL_CHANNEL` feature flag; `AGENTMAIL_*` and `EMAIL_CHANNEL_*` settings.
+- Alembic migration `0004_cache` adds `emailmessage`, `emailattachment`,
+  `emailintakeconfirmation` tables to `cache.db`.
+- `agentmail` + `svix` dependencies added.
 
 #### User Identity and Memory Link
 
