@@ -325,6 +325,17 @@ async def _ingest_agentmail_event(
         saved.subject[:60],
     )
 
+    try:
+        from app.control.admin_events import emit_admin_event
+        emit_admin_event("email.received", {
+            "email_message_id": saved.id,
+            "from_email": from_email,
+            "subject": saved.subject[:80],
+            "auth_status": auth_status,
+        })
+    except Exception:
+        pass
+
     # Trigger background processing pipeline
     from app.email.service import process_email_message
 

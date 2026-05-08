@@ -64,6 +64,7 @@ header { background: var(--surface); border-bottom: 1px solid var(--border); pad
 .b-sched  { background: #2b1f00; color: var(--yellow); }
 .b-mem    { background: #0d2424; color: #2dd4bf; }
 .b-cmd    { background: #1f1430; color: #c084fc; }
+.b-email  { background: #0d1e2d; color: #38bdf8; }
 .ev-body { flex: 1; color: var(--text); overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
 .ev-body .d { color: var(--dim); }
 .ev-body .err { color: var(--red); }
@@ -180,6 +181,7 @@ header { background: var(--surface); border-bottom: 1px solid var(--border); pad
   <button class="tab" data-tab="world">World Model</button>
   <button class="tab" data-tab="tasks">Tasks</button>
   <button class="tab" data-tab="control">Control Loop</button>
+  <button class="tab" data-tab="email">Email</button>
 </div>
 
 <div id="tab-live" class="tab-panel active">
@@ -560,6 +562,41 @@ header { background: var(--surface); border-bottom: 1px solid var(--border); pad
   </div>
 </div>
 
+<div id="tab-email" class="tab-panel">
+  <div class="details-body">
+    <div class="details-toolbar">
+      <button class="details-btn" id="refresh-email">&#8635; Refresh</button>
+      <select id="email-status-filter" style="font-size:11px;background:var(--bg2);color:var(--text);border:1px solid var(--border);border-radius:3px;padding:2px 6px">
+        <option value="">All statuses</option>
+        <option value="RECEIVED">RECEIVED</option>
+        <option value="CLASSIFYING">CLASSIFYING</option>
+        <option value="NEEDS_CONFIRMATION">NEEDS_CONFIRMATION</option>
+        <option value="PROCESSED">PROCESSED</option>
+        <option value="IGNORED">IGNORED</option>
+        <option value="FAILED_RETRYABLE">FAILED_RETRYABLE</option>
+        <option value="DEAD_LETTER">DEAD_LETTER</option>
+        <option value="RATE_LIMITED">RATE_LIMITED</option>
+      </select>
+      <span id="email-updated" style="font-size:11px;color:var(--dim)"></span>
+    </div>
+    <section class="details-section">
+      <h3>Email Queue <span id="email-count" style="font-size:10px;color:var(--dim)"></span></h3>
+      <table class="mem-table">
+        <thead><tr>
+          <th style="width:140px">From</th>
+          <th>Subject</th>
+          <th style="width:110px">Status</th>
+          <th style="width:70px">Auth</th>
+          <th style="width:200px">Instruction</th>
+          <th style="width:130px">Signals</th>
+          <th style="width:130px">Received</th>
+        </tr></thead>
+        <tbody id="email-table-body"><tr><td colspan="7" style="color:var(--dim);padding:12px 10px">Loading…</td></tr></tbody>
+      </table>
+    </section>
+  </div>
+</div>
+
 <script>
 // Token management: strip ?token= from the address bar on first load so it
 // never enters browser history or bookmarks. Store in sessionStorage and use
@@ -653,6 +690,14 @@ function addEvent(type, data) {
     'proactive.skip':    ['b-mem','PROACTIVE'],
     'proactive.fail':    ['b-error','PROACTIVE'],
     'cmd.dispatch': ['b-cmd','CMD'],
+    'email.received':                  ['b-email','EMAIL'],
+    'email.sender_unmapped':           ['b-mem','EMAIL'],
+    'email.preprocessed':              ['b-email','EMAIL'],
+    'email.confirmation_requested':    ['b-email','EMAIL'],
+    'email.confirmation_digest_requested': ['b-email','EMAIL'],
+    'email.full_fetch_failed':         ['b-error','EMAIL'],
+    'email.retry_scheduled':           ['b-sched','EMAIL'],
+    'email.dead_lettered':             ['b-error','EMAIL'],
   };
   const [cls, label] = badges[type] || ['b-start', type];
 
@@ -778,6 +823,32 @@ function addEvent(type, data) {
     const who = data.user_id ? ' <span class="d">by ' + data.user_id.slice(0, 8) + '</span>' : '';
     const status = data.success === false ? ' <span class="err">failed</span>' : '';
     body = '<strong>/' + (data.command || '?') + '</strong>' + who + dur + status;
+  } else if (type === 'email.received') {
+    const subj = data.subject ? esc(data.subject.slice(0, 60)) : '';
+    const from = data.from_email ? ' <span class="d">from ' + esc(data.from_email) + '</span>' : '';
+    body = '<strong>' + (subj || 'email') + '</strong>' + from;
+    if (document.getElementById('tab-email').classList.contains('active')) loadEmailMessages();
+  } else if (type === 'email.confirmation_requested') {
+    body = '<strong>confirmation sent</strong>';
+    if (document.getElementById('tab-email').classList.contains('active')) loadEmailMessages();
+  } else if (type === 'email.confirmation_digest_requested') {
+    const pending = data.pending_count !== undefined ? ' <span class="d">(' + (data.pending_count + 1) + ' pending)</span>' : '';
+    body = '<strong>digest sent</strong>' + pending;
+  } else if (type === 'email.sender_unmapped') {
+    body = '<strong>unmapped sender</strong> <span class="d">' + esc(data.from_email || '') + '</span>';
+  } else if (type === 'email.preprocessed') {
+    body = '<strong>preprocessed</strong>';
+  } else if (type === 'email.full_fetch_failed') {
+    body = '<strong>fetch failed</strong> <span class="err">' + esc(data.error || '') + '</span>';
+    if (document.getElementById('tab-email').classList.contains('active')) loadEmailMessages();
+  } else if (type === 'email.retry_scheduled') {
+    body = '<strong>retry</strong> <span class="d">attempt ' + (data.attempt || '?') + '</span>';
+    if (document.getElementById('tab-email').classList.contains('active')) loadEmailMessages();
+  } else if (type === 'email.dead_lettered') {
+    body = '<strong>dead letter</strong> <span class="err">' + esc(data.reason || '') + '</span>';
+    if (document.getElementById('tab-email').classList.contains('active')) loadEmailMessages();
+  } else if (type.startsWith('email.')) {
+    body = '<strong>' + esc(type.slice(6)) + '</strong>';
   }
 
   const runTag = data.run_id ? '<span class="run-tag">' + data.run_id.slice(0,8) + '</span>' : '';
@@ -879,6 +950,7 @@ document.querySelectorAll('.tab').forEach(btn => {
     if (btn.dataset.tab === 'world') { loadWorldModel(); loadProposals(); }
     if (btn.dataset.tab === 'tasks') loadTasks();
     if (btn.dataset.tab === 'control') loadControlLoop();
+    if (btn.dataset.tab === 'email') loadEmailMessages();
   });
 });
 
@@ -1375,6 +1447,60 @@ async function taskAction(taskId, action) {
   } catch(e) {}
 }
 document.getElementById('refresh-tasks').addEventListener('click', loadTasks);
+
+// Email tab
+async function loadEmailMessages() {
+  var status = document.getElementById('email-status-filter').value;
+  var url = '/admin/email/messages?limit=100' + (status ? '&status=' + encodeURIComponent(status) : '');
+  var tbody = document.getElementById('email-table-body');
+  try {
+    var r = await fetch(url, {headers: _authHeaders});
+    if (!r.ok) { tbody.innerHTML = '<tr><td colspan="7" class="err">Error ' + r.status + '</td></tr>'; return; }
+    var d = await r.json();
+    if (!d.enabled) {
+      tbody.innerHTML = '<tr><td colspan="7" style="color:var(--dim);padding:12px 10px">Email channel not enabled (FEATURE_EMAIL_CHANNEL=false)</td></tr>';
+      return;
+    }
+    var msgs = d.messages || [];
+    document.getElementById('email-count').textContent = msgs.length ? '(' + msgs.length + ')' : '';
+    document.getElementById('email-updated').textContent = 'updated ' + new Date().toLocaleTimeString();
+    if (!msgs.length) {
+      tbody.innerHTML = '<tr><td colspan="7" style="color:var(--dim);padding:12px 10px">No messages</td></tr>';
+      return;
+    }
+    var statusColors = {
+      'PROCESSED': 'color:var(--green)',
+      'DEAD_LETTER': 'color:var(--red)',
+      'FAILED_RETRYABLE': 'color:var(--red)',
+      'RATE_LIMITED': 'color:var(--yellow)',
+      'NEEDS_CONFIRMATION': 'color:#38bdf8',
+      'IGNORED': 'color:var(--dim)',
+    };
+    tbody.innerHTML = msgs.map(function(m) {
+      var statusStyle = statusColors[m.status] || '';
+      var authBadge = m.auth_status === 'pass'
+        ? '<span style="color:var(--green)">✓</span>'
+        : m.auth_status === 'fail' ? '<span class="err">✗</span>' : '<span style="color:var(--dim)">?</span>';
+      var signals = m.proposed_action && m.proposed_action.flights && m.proposed_action.flights.length
+        ? m.proposed_action.flights.map(function(f) { return f.flight_number; }).join(', ')
+        : (m.proposed_action && m.proposed_action.booking_refs && m.proposed_action.booking_refs.length
+          ? 'ref: ' + m.proposed_action.booking_refs[0] : '');
+      return '<tr>'
+        + '<td style="font-size:11px">' + esc(m.from_email || '') + '</td>'
+        + '<td style="font-size:11px">' + esc(m.subject || '') + '</td>'
+        + '<td style="font-size:11px;' + statusStyle + '">' + esc(m.status) + (m.status_reason ? ' <span style="color:var(--dim)">(' + esc(m.status_reason) + ')</span>' : '') + '</td>'
+        + '<td style="text-align:center">' + authBadge + '</td>'
+        + '<td style="font-size:11px;color:var(--dim)">' + esc(m.instruction_text || '') + '</td>'
+        + '<td style="font-size:11px;color:#38bdf8">' + esc(signals) + '</td>'
+        + '<td style="font-size:11px;color:var(--dim)">' + (m.created_at ? new Date(m.created_at).toLocaleString() : '') + '</td>'
+        + '</tr>';
+    }).join('');
+  } catch(e) {
+    tbody.innerHTML = '<tr><td colspan="7" class="err">' + esc(String(e)) + '</td></tr>';
+  }
+}
+document.getElementById('refresh-email').addEventListener('click', loadEmailMessages);
+document.getElementById('email-status-filter').addEventListener('change', loadEmailMessages);
 
 // Stream via fetch + ReadableStream (replaces EventSource which breaks in Safari)
 async function connectSSE() {
