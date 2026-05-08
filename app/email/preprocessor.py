@@ -54,19 +54,33 @@ def _split_instruction_and_body(text: str) -> tuple[str, str]:
     return instruction, body
 
 
-def build_intake_summary(msg: AgentMailMessage, max_chars: int = 8_000) -> tuple[str, str]:
+def build_intake_summary(
+    msg: AgentMailMessage, max_chars: int = 8_000
+) -> tuple[str, str, str]:
     """
     Build a compact intake summary from a full AgentMail message.
 
-    Returns (instruction_text, intake_summary_text).
+    Returns (instruction_text, intake_summary_text, proposed_action_json).
     instruction_text is the user's top instruction (before any forwarded content).
     intake_summary_text is the full structured prompt section.
+    proposed_action_json is a JSON-encoded EmailSignals dict (may be "{}").
     """
+    from app.email.extractor import (
+        EmailSignals,
+        extract_signals,
+        format_signals_for_summary,
+        signals_to_json,
+    )
+
     raw_text = (msg.text or "").strip()
 
     instruction, body = _split_instruction_and_body(raw_text)
     instruction = _clean(instruction)[:_MAX_INSTRUCTION_CHARS]
     body = _clean(body)[:_MAX_BODY_CHARS]
+
+    # Extract structured signals from the full text before truncation
+    signals: EmailSignals = extract_signals(raw_text)
+    proposed_action_json = signals_to_json(signals)
 
     received = msg.timestamp.isoformat() if msg.timestamp else "unknown"
 
@@ -79,6 +93,10 @@ def build_intake_summary(msg: AgentMailMessage, max_chars: int = 8_000) -> tuple
 
     if instruction:
         lines += ["", "## User Instruction", instruction]
+
+    signals_block = format_signals_for_summary(signals)
+    if signals_block:
+        lines += ["", signals_block]
 
     if body:
         lines += ["", "## Email Body", body]
@@ -101,7 +119,7 @@ def build_intake_summary(msg: AgentMailMessage, max_chars: int = 8_000) -> tuple
     if len(summary) > max_chars:
         summary = summary[:max_chars] + "\n[truncated]"
 
-    return instruction, summary
+    return instruction, summary, proposed_action_json
 
 
 def build_telegram_prompt(msg: AgentMailMessage, instruction: str) -> str:

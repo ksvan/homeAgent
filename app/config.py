@@ -257,6 +257,7 @@ class Settings(BaseSettings):
     agentmail_webhook_public_url: str = "" # public URL AgentMail posts to
 
     email_channel_require_mapped_sender: bool = True
+    email_channel_allow_reply_to: bool = False   # send ack reply after Telegram confirm
     email_channel_save_history: bool = False
     email_channel_max_agent_chars: int = 12_000
     email_channel_max_raw_body_bytes: int = 1_048_576

@@ -1232,6 +1232,56 @@ async def list_skills() -> list[dict[str, Any]]:
 
 
 # ---------------------------------------------------------------------------
+# Email channel
+# ---------------------------------------------------------------------------
+
+
+@router.get("/email/messages", dependencies=_auth)
+async def admin_email_messages(
+    status: str | None = None,
+    limit: int = 50,
+) -> dict[str, Any]:
+    """List recent EmailMessage rows for admin visibility."""
+    from app.config import get_settings
+
+    settings = get_settings()
+    if not settings.feature_email_channel:
+        return {"enabled": False, "messages": []}
+
+    from sqlmodel import select
+
+    from app.db import cache_session
+    from app.email.models import EmailMessage
+
+    with cache_session() as session:
+        q = select(EmailMessage).order_by(EmailMessage.created_at.desc()).limit(limit)  # type: ignore[attr-defined]
+        if status:
+            q = q.where(EmailMessage.status == status)
+        rows = session.exec(q).all()
+
+    return {
+        "enabled": True,
+        "messages": [
+            {
+                "id": r.id,
+                "from_email": r.from_email,
+                "subject": r.subject[:100],
+                "status": r.status,
+                "status_reason": r.status_reason,
+                "auth_status": r.auth_status,
+                "attempt_count": r.attempt_count,
+                "instruction_text": r.instruction_text[:200] if r.instruction_text else "",
+                "proposed_action": json.loads(r.proposed_action_json)
+                    if r.proposed_action_json else None,
+                "created_at": r.created_at.isoformat() if r.created_at else None,
+                "updated_at": r.updated_at.isoformat() if r.updated_at else None,
+            }
+            for r in rows
+        ],
+    }
+
+
+# ---------------------------------------------------------------------------
 # Embedded admin UI
 # ---------------------------------------------------------------------------
 

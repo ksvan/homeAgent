@@ -160,8 +160,8 @@ async def process_email_message(row: EmailMessage) -> None:
 
     _emit("email.preprocessed", {"email_message_id": row.id})
 
-    # --- Preprocess ---
-    instruction, intake_summary = build_intake_summary(
+    # --- Preprocess + signal extraction ---
+    instruction, intake_summary, proposed_action_json = build_intake_summary(
         full_msg, max_chars=settings.email_channel_max_agent_chars
     )
 
@@ -203,6 +203,7 @@ async def process_email_message(row: EmailMessage) -> None:
             confirmation_id=token,
             instruction_text=instruction,
             intake_summary_text=intake_summary,
+            proposed_action_json=proposed_action_json,
             updated_at=datetime.now(timezone.utc),
         )
         return
@@ -221,6 +222,7 @@ async def process_email_message(row: EmailMessage) -> None:
         confirmation_id=token,
         instruction_text=instruction,
         intake_summary_text=intake_summary,
+        proposed_action_json=proposed_action_json,
         updated_at=datetime.now(timezone.utc),
     )
 

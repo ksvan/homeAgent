@@ -313,6 +313,7 @@ class TelegramChannel(Channel):
 
         from app.db import cache_session
         from app.email.models import EmailMessage
+        from app.email.reply import send_ack_reply
         from app.email.repository import update_status
 
         with cache_session() as session:
@@ -321,6 +322,9 @@ class TelegramChannel(Channel):
             ).first()
             if msg:
                 update_status(msg.id, "PROCESSED")
+                asyncio.ensure_future(
+                    send_ack_reply(msg.provider_inbox_id, msg.provider_message_id, msg.from_email)
+                )
 
     async def _cancel_email_intake(
         self, query: CallbackQuery, token: str, telegram_id: int
