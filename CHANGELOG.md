@@ -10,6 +10,12 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 
 ### Added
 
+#### MET.no Address Geocoding
+
+- **`app/skills/metno-norway-weather/`** — helper now supports free Norwegian
+  address geocoding through Kartverket/Geonorge (`--address` and `geocode`)
+  before calling MET point forecasts; includes focused unit coverage.
+
 #### Wine Cellar Inventory Tool
 
 Read-only wine inventory backed by a Microsoft 365 Excel workbook. The agent can

@@ -9,7 +9,7 @@ description: Fetch and interpret Norwegian weather data from MET Norway's open A
 
 Use this skill to choose the correct `met.no` product, build compliant requests, and interpret the results for Norway-focused weather tasks.
 
-Prefer coordinates over place names. If the user only gives a named place, resolve it to `lat` and `lon` first using local context or another approved geocoder, then call the MET API.
+Prefer coordinates when they are already known. If the user gives a Norwegian street address, use the bundled helper's Kartverket geocoder via `--address`; it resolves official Matrikkelen addresses through the free Geonorge Adresse API before calling MET. For non-address place names, resolve to `lat` and `lon` first using local context or another approved geocoder, then call the MET API.
 
 ## Choose The Product
 
@@ -34,7 +34,7 @@ Prefer coordinates over place names. If the user only gives a named place, resol
 ## Workflow
 
 1. Normalize the request.
-Determine whether the user wants a general forecast, a short-term precipitation answer, a 21-day outlook, a harbor water-level forecast, an alert lookup, or solar or lunar timing. Capture `lat`, `lon`, optional ground `altitude`, harbor name, language, and any date or archive period.
+Determine whether the user wants a general forecast, a short-term precipitation answer, a 21-day outlook, a harbor water-level forecast, an alert lookup, or solar or lunar timing. Capture `lat`, `lon`, `address`, optional ground `altitude`, harbor name, language, and any date or archive period.
 
 2. Choose the smallest useful product.
 Favor `/compact` for Locationforecast, `/complete` for Subseasonal, plain text for Tidalwater, and `.json` for MetAlerts unless the task explicitly needs XML or CAP details.
@@ -67,13 +67,15 @@ To inspect the URL without fetching (useful for debugging), add `"--print-url"` 
 Common invocations (replace coordinates and flags as needed):
 
 - Locationforecast compact: `["locationforecast", "--lat", LAT, "--lon", LON, "--mode", "compact"]`
+- Locationforecast for a Norwegian address: `["locationforecast", "--address", ADDRESS, "--mode", "compact"]`
 - Nowcast: `["nowcast", "--lat", LAT, "--lon", LON]`
 - Subseasonal: `["subseasonal", "--lat", LAT, "--lon", LON]`
+- Geocode only: `["geocode", "--address", ADDRESS, "--limit", "3"]`
 - Tidalwater: `["tidalwater", "--harbor", HARBOR]`
 - Sunrise: `["sunrise", "--lat", LAT, "--lon", LON, "--date", DATE, "--offset", TZ_OFFSET]`
-- MetAlerts: `["metalerts", "--method", "current", "--format", "json", "--county", COUNTY_CODE]`
+- MetAlerts: `["metalerts", "--method", "current", "--format", "json", "--county", COUNTY_CODE]` or `["metalerts", "--method", "current", "--format", "json", "--address", ADDRESS]`
 
-The script rounds coordinates to 4 decimals. Always pass `--user-agent` for live requests.
+The script rounds coordinates to 4 decimals. Address lookups use Kartverket's `https://ws.geonorge.no/adresser/v1/sok` and return the first API-ranked match, so include postcode or municipality when an address may be ambiguous. Always pass `--user-agent` for live MET requests.
 
 ## Interpret Common Responses
 

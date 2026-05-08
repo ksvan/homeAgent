@@ -15,6 +15,7 @@ import urllib.request
 
 
 BASE_URL = "https://api.met.no/weatherapi"
+KARTVERKET_ADDRESS_URL = "https://ws.geonorge.no/adresser/v1/sok"
 
 
 def round_coord(value: float) -> str:
@@ -30,8 +31,12 @@ def encode_url(path: str, params: dict[str, str]) -> str:
 
 
 def add_point_args(parser: argparse.ArgumentParser, include_altitude: bool = True) -> None:
-    parser.add_argument("--lat", type=float, required=True, help="Latitude in decimal degrees")
-    parser.add_argument("--lon", type=float, required=True, help="Longitude in decimal degrees")
+    parser.add_argument("--lat", type=float, help="Latitude in decimal degrees")
+    parser.add_argument("--lon", type=float, help="Longitude in decimal degrees")
+    parser.add_argument(
+        "--address",
+        help="Norwegian address to geocode with Kartverket, such as 'Kvernfaret 28, 0383 Oslo'",
+    )
     if include_altitude:
         parser.add_argument(
             "--altitude",
@@ -63,6 +68,7 @@ def add_fetch_args(parser: argparse.ArgumentParser) -> None:
 
 
 def base_point_params(args: argparse.Namespace, include_altitude: bool = True) -> dict[str, str]:
+    resolve_point_args(args)
     params = {
         "lat": round_coord(args.lat),
         "lon": round_coord(args.lon),
@@ -124,7 +130,9 @@ def build_metalerts(args: argparse.Namespace) -> str:
         }.get(key, key)
         params[api_key] = value
 
-    if (args.lat is None) != (args.lon is None):
+    if args.address:
+        resolve_point_args(args)
+    elif (args.lat is None) != (args.lon is None):
         raise SystemExit("MetAlerts coordinate lookup requires both --lat and --lon.")
 
     if args.lat is not None and args.lon is not None:
@@ -132,6 +140,10 @@ def build_metalerts(args: argparse.Namespace) -> str:
         params["lon"] = round_coord(args.lon)
 
     return encode_url(path, params)
+
+
+def build_geocode_url(args: argparse.Namespace) -> str:
+    return encode_geocode_url(args.address, args.limit)
 
 
 def require_user_agent(args: argparse.Namespace) -> str:
@@ -142,6 +154,80 @@ def require_user_agent(args: argparse.Namespace) -> str:
         "Live requests require an identifying User-Agent. Pass --user-agent "
         '"example.com team@example.com" or set METNO_USER_AGENT.'
     )
+
+
+def user_agent_or_default(args: argparse.Namespace) -> str:
+    return args.user_agent or os.environ.get("METNO_USER_AGENT") or "homeAgent metno-norway-weather"
+
+
+def encode_geocode_url(address: str, limit: int = 1) -> str:
+    params = {
+        "sok": address,
+        "treffPerSide": str(limit),
+        "side": "0",
+        "filtrer": ",".join(
+            (
+                "adresser.adressetekst",
+                "adresser.postnummer",
+                "adresser.poststed",
+                "adresser.kommunenavn",
+                "adresser.representasjonspunkt",
+            )
+        ),
+    }
+    return f"{KARTVERKET_ADDRESS_URL}?{urllib.parse.urlencode(params)}"
+
+
+def fetch_json(url: str, user_agent: str, timeout: float) -> object:
+    request = urllib.request.Request(url, headers={"User-Agent": user_agent})
+    with urllib.request.urlopen(request, timeout=timeout) as response:
+        return json.loads(response.read().decode("utf-8"))
+
+
+def extract_geocode_candidate(payload: object) -> dict[str, object]:
+    if not isinstance(payload, dict):
+        raise SystemExit("Kartverket geocode response was not a JSON object.")
+    addresses = payload.get("adresser")
+    if not isinstance(addresses, list) or not addresses:
+        raise SystemExit("No Norwegian address match found in Kartverket Adresse API.")
+    candidate = addresses[0]
+    if not isinstance(candidate, dict):
+        raise SystemExit("Kartverket geocode result had an unexpected shape.")
+    point = candidate.get("representasjonspunkt")
+    if not isinstance(point, dict):
+        raise SystemExit("Kartverket geocode result did not include coordinates.")
+    lat = point.get("lat")
+    lon = point.get("lon")
+    if not isinstance(lat, (int, float)) or not isinstance(lon, (int, float)):
+        raise SystemExit("Kartverket geocode coordinates were missing or invalid.")
+    return candidate
+
+
+def resolve_address(address: str, timeout: float, user_agent: str) -> dict[str, object]:
+    url = encode_geocode_url(address)
+    try:
+        return extract_geocode_candidate(fetch_json(url, user_agent, timeout))
+    except urllib.error.HTTPError as exc:
+        raise SystemExit(f"Kartverket geocode HTTP {exc.code}: {exc.reason}") from exc
+    except urllib.error.URLError as exc:
+        raise SystemExit(f"Kartverket geocode URL error: {exc.reason}") from exc
+
+
+def resolve_point_args(args: argparse.Namespace) -> None:
+    has_lat = args.lat is not None
+    has_lon = args.lon is not None
+    if args.address and (has_lat or has_lon):
+        raise SystemExit("Use either --address or both --lat and --lon, not both.")
+    if args.address:
+        candidate = resolve_address(args.address, args.timeout, user_agent_or_default(args))
+        point = candidate["representasjonspunkt"]
+        args.lat = point["lat"]
+        args.lon = point["lon"]
+        return
+    if has_lat != has_lon:
+        raise SystemExit("Coordinate lookup requires both --lat and --lon.")
+    if not has_lat:
+        raise SystemExit("Provide either --address or both --lat and --lon.")
 
 
 def fetch(url: str, args: argparse.Namespace) -> int:
@@ -176,9 +262,40 @@ def fetch(url: str, args: argparse.Namespace) -> int:
         return 1
 
 
+def fetch_geocode(args: argparse.Namespace) -> int:
+    url = build_geocode_url(args)
+    if args.print_url:
+        print(url)
+        return 0
+
+    try:
+        payload = fetch_json(url, user_agent_or_default(args), args.timeout)
+    except urllib.error.HTTPError as exc:
+        sys.stderr.write(f"HTTP {exc.code}: {exc.reason}\n")
+        return 1
+    except urllib.error.URLError as exc:
+        sys.stderr.write(f"URL error: {exc.reason}\n")
+        return 1
+
+    json.dump(payload, sys.stdout, indent=2, ensure_ascii=True)
+    sys.stdout.write("\n")
+    return 0
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description=__doc__)
     subparsers = parser.add_subparsers(dest="command", required=True)
+
+    geocode = subparsers.add_parser("geocode", help="Geocode a Norwegian address with Kartverket")
+    add_fetch_args(geocode)
+    geocode.add_argument("--address", required=True, help="Norwegian address query")
+    geocode.add_argument(
+        "--limit",
+        type=int,
+        default=5,
+        help="Maximum Kartverket address matches to return",
+    )
+    geocode.set_defaults(builder=build_geocode_url)
 
     locationforecast = subparsers.add_parser("locationforecast", help="Build or fetch Locationforecast 2.0")
     add_point_args(locationforecast)
@@ -265,6 +382,10 @@ def build_parser() -> argparse.ArgumentParser:
     metalerts.add_argument("--cap", help="Fetch a specific CAP message by id")
     metalerts.add_argument("--lat", type=float, help="Coordinate lookup latitude")
     metalerts.add_argument("--lon", type=float, help="Coordinate lookup longitude")
+    metalerts.add_argument(
+        "--address",
+        help="Norwegian address to geocode with Kartverket before filtering alerts",
+    )
     metalerts.set_defaults(builder=build_metalerts)
 
     return parser
@@ -273,6 +394,8 @@ def build_parser() -> argparse.ArgumentParser:
 def main() -> int:
     parser = build_parser()
     args = parser.parse_args()
+    if args.command == "geocode":
+        return fetch_geocode(args)
     url = args.builder(args)
     if args.print_url:
         print(url)

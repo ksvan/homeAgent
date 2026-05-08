@@ -18,6 +18,26 @@
 - Avoid frequent polling and synchronized bursts.
 - Prefer a caching backend proxy for production browser or mobile usage.
 
+## Norwegian Address Geocoding
+
+Use Kartverket's free Adresse REST API through Geonorge for Norwegian street addresses before calling MET point products.
+
+- Endpoint: `https://ws.geonorge.no/adresser/v1/sok`
+- Registration: not required.
+- Best query: include street name, house number, and postcode or municipality.
+- Useful parameters:
+  - `sok` free-text address query
+  - `treffPerSide` number of matches to return
+  - `side` result page, normally `0`
+  - `filtrer` to limit response fields
+- Coordinate field: `adresser[].representasjonspunkt.lat` and `.lon`.
+
+Example:
+
+```text
+https://ws.geonorge.no/adresser/v1/sok?sok=Kvernfaret+28%2C+0383+Oslo&treffPerSide=1&side=0&filtrer=adresser.adressetekst%2Cadresser.postnummer%2Cadresser.poststed%2Cadresser.kommunenavn%2Cadresser.representasjonspunkt
+```
+
 ## Locationforecast 2.0
 
 Best for general forecasts for any point on earth. For Norway use this as the default forecast product unless the user specifically asks about the next 2 hours of rain or snow.
