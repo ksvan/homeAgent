@@ -27,6 +27,7 @@ class AgentDeps:
     user_profile_text: str = ""
     household_profile_text: str = ""
     world_model_text: str = ""
+    current_user_text: str = ""
     active_task_text: str = ""
     conversation_summary: str | None = None
     relevant_memories: list[str] = field(default_factory=list)
@@ -95,6 +96,8 @@ def _make_conversation_agent() -> Agent[AgentDeps, str]:
             extra_sections.append(d.user_profile_text)
         if d.household_profile_text:
             extra_sections.append(d.household_profile_text)
+        if d.current_user_text:
+            extra_sections.append(d.current_user_text)
         if d.world_model_text:
             extra_sections.append(d.world_model_text)
         if d.active_task_text:
@@ -181,6 +184,7 @@ async def run_conversation(
     user_profile_text: str = "",
     household_profile_text: str = "",
     world_model_text: str = "",
+    current_user_text: str = "",
     active_task_text: str = "",
     conversation_summary: str | None = None,
     relevant_memories: list[str] | None = None,
@@ -224,6 +228,7 @@ async def run_conversation(
         user_profile_text=user_profile_text,
         household_profile_text=household_profile_text,
         world_model_text=world_model_text,
+        current_user_text=current_user_text,
         active_task_text=active_task_text,
         conversation_summary=conversation_summary,
         relevant_memories=relevant_memories or [],

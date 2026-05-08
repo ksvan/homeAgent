@@ -301,6 +301,16 @@ class WorldModelRepository:
     # ------------------------------------------------------------------
 
     @staticmethod
+    def get_member_for_user(household_id: str, user_id: str) -> HouseholdMember | None:
+        """Return the HouseholdMember linked to user_id, or None."""
+        with users_session() as session:
+            return session.exec(
+                select(HouseholdMember)
+                .where(HouseholdMember.household_id == household_id,
+                       HouseholdMember.user_id == user_id)
+            ).first()
+
+    @staticmethod
     def upsert_member(
         household_id: str,
         *,
@@ -308,8 +318,15 @@ class WorldModelRepository:
         name: str,
         role: str = "member",
         source: str = "migration_seed",
+        assert_name: bool = False,
     ) -> HouseholdMember:
-        """Upsert a HouseholdMember by user_id (if set) or name."""
+        """Upsert a HouseholdMember by user_id (if set) or name.
+
+        When assert_name=True the name is written unconditionally and
+        name_user_asserted is set to True (used by /me name).
+        When assert_name=False and name_user_asserted is already True on
+        the existing member, the name field is not overwritten (sync guard).
+        """
         now = datetime.now(timezone.utc)
         with users_session() as session:
             existing = None
@@ -327,7 +344,10 @@ class WorldModelRepository:
                 ).first()
 
             if existing:
-                existing.name = name
+                if assert_name or not existing.name_user_asserted:
+                    existing.name = name
+                if assert_name:
+                    existing.name_user_asserted = True
                 existing.role = role
                 if user_id:
                     existing.user_id = user_id
@@ -343,6 +363,7 @@ class WorldModelRepository:
                 name=name,
                 role=role,
                 source=source,
+                name_user_asserted=assert_name,
             )
             session.add(member)
             session.commit()

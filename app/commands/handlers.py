@@ -351,9 +351,189 @@ class _Users(SlashCommand):
         return f"{len(users)} user(s):\n\n" + "\n".join(lines)
 
 
+class _Me(SlashCommand):
+    name = "me"
+    help = "View or update your identity (/me show | /me name <name> | /me email <address>)"
+
+    async def run(self, ctx: SlashCommandContext) -> str:
+
+
+        sub = ctx.args[0].lower() if ctx.args else ""
+
+        if sub == "show":
+            return await self._show(ctx)
+        if sub == "name":
+            name = " ".join(ctx.args[1:]).strip()
+            if not name:
+                return "Usage: /me name Your Name"
+            return await self._set_name(ctx, name)
+        if sub == "email":
+            if len(ctx.args) >= 3 and ctx.args[1].lower() == "remove":
+                return await self._remove_email(ctx, ctx.args[2].strip())
+            address = ctx.args[1].strip() if len(ctx.args) >= 2 else ""
+            if not address:
+                return "Usage: /me email address@example.com"
+            return await self._set_email(ctx, address)
+
+        return (
+            "Identity commands:\n"
+            "/me show — show your linked identity\n"
+            "/me name Your Name — set your display name\n"
+            "/me email address@example.com — link an email address\n"
+            "/me email remove address@example.com — remove an email mapping"
+        )
+
+    async def _show(self, ctx: SlashCommandContext) -> str:
+        from sqlmodel import select
+
+        from app.db import users_session
+        from app.models.users import ChannelMapping, User
+        from app.world.repository import WorldModelRepository
+
+        with users_session() as session:
+            user = session.exec(
+                select(User).where(User.id == ctx.user_id)
+            ).first()
+            emails = session.exec(
+                select(ChannelMapping).where(
+                    ChannelMapping.user_id == ctx.user_id,
+                    ChannelMapping.channel == "email",
+                )
+            ).all()
+
+        if not user:
+            return "User not found."
+
+        member = WorldModelRepository.get_member_for_user(ctx.household_id, ctx.user_id)
+        member_name = member.name if member else "(not linked)"
+        email_lines = "\n".join(f"Email: {e.channel_user_id}" for e in emails) or "Email: (none)"
+        role_tag = "admin" if user.is_admin else "member"
+        onboarding = "yes" if user.onboarding_complete else "no"
+
+        return (
+            f"You are {user.name}.\n"
+            f"Telegram id: {user.telegram_id}\n"
+            f"{email_lines}\n"
+            f"Role: {role_tag}\n"
+            f"World model member: {member_name}\n"
+            f"Onboarding complete: {onboarding}"
+        )
+
+    async def _set_name(self, ctx: SlashCommandContext, name: str) -> str:
+        import json
+        from datetime import datetime, timezone
+
+        from sqlmodel import select
+
+        from app.db import memory_session, users_session
+        from app.models.memory import UserProfile
+        from app.models.users import User
+        from app.world.repository import WorldModelRepository
+
+        now = datetime.now(timezone.utc)
+        with users_session() as session:
+            user = session.exec(
+                select(User).where(User.id == ctx.user_id)
+            ).first()
+            if not user:
+                return "User not found."
+            user.name = name
+            user.onboarding_complete = True
+            user.updated_at = now
+            session.add(user)
+            session.commit()
+
+        WorldModelRepository.upsert_member(
+            ctx.household_id,
+            user_id=ctx.user_id,
+            name=name,
+            role="admin" if ctx.is_admin else "member",
+            source="user_asserted",
+            assert_name=True,
+        )
+
+        with memory_session() as session:
+            profile = session.exec(
+                select(UserProfile).where(UserProfile.user_id == ctx.user_id)
+            ).first()
+            if profile:
+                try:
+                    summary = json.loads(profile.summary or "{}")
+                except Exception:
+                    summary = {}
+                summary["name"] = name
+                profile.summary = json.dumps(summary)
+                profile.updated_at = now
+                session.add(profile)
+                session.commit()
+
+        return f"Updated your profile: {name}."
+
+    async def _set_email(self, ctx: SlashCommandContext, address: str) -> str:
+        import re
+
+        from sqlmodel import select
+
+        from app.db import users_session
+        from app.models.users import ChannelMapping
+
+        normalized = address.strip().lower()
+        if not re.match(r"^[^@\s]+@[^@\s]+\.[^@\s]+$", normalized):
+            return f"Invalid email address: {address}"
+
+        with users_session() as session:
+            conflict = session.exec(
+                select(ChannelMapping).where(
+                    ChannelMapping.channel == "email",
+                    ChannelMapping.channel_user_id == normalized,
+                )
+            ).first()
+            if conflict and conflict.user_id != ctx.user_id:
+                return "That email address is already linked to another account. Ask an admin."
+
+            existing = session.exec(
+                select(ChannelMapping).where(
+                    ChannelMapping.user_id == ctx.user_id,
+                    ChannelMapping.channel == "email",
+                    ChannelMapping.channel_user_id == normalized,
+                )
+            ).first()
+            if not existing:
+                session.add(ChannelMapping(
+                    user_id=ctx.user_id,
+                    channel="email",
+                    channel_user_id=normalized,
+                ))
+                session.commit()
+
+        return f"Email {normalized} linked to your account."
+
+    async def _remove_email(self, ctx: SlashCommandContext, address: str) -> str:
+        from sqlmodel import select
+
+        from app.db import users_session
+        from app.models.users import ChannelMapping
+
+        normalized = address.strip().lower()
+        with users_session() as session:
+            mapping = session.exec(
+                select(ChannelMapping).where(
+                    ChannelMapping.user_id == ctx.user_id,
+                    ChannelMapping.channel == "email",
+                    ChannelMapping.channel_user_id == normalized,
+                )
+            ).first()
+            if not mapping:
+                return f"No email mapping found for {normalized}."
+            session.delete(mapping)
+            session.commit()
+
+        return f"Email {normalized} removed."
+
+
 # Register all commands in display order
 for _cmd in [
     _Help(), _ContextStats(), _History(), _Schedule(),
-    _ScheduledPrompts(), _Status(), _Users(),
+    _ScheduledPrompts(), _Status(), _Users(), _Me(),
 ]:
     registry.register(_cmd)

@@ -165,6 +165,7 @@ async def agent_run(
                 user_profile_text=ctx.user_profile_text,
                 household_profile_text=ctx.household_profile_text,
                 world_model_text=ctx.world_model_text,
+                current_user_text=ctx.current_user_text,
                 active_task_text=ctx.active_task_text,
                 conversation_summary=ctx.conversation_summary,
                 relevant_memories=ctx.relevant_memories,
@@ -336,6 +337,7 @@ def _estimate_context_chars(ctx: object) -> int:
     total += len(ctx.user_profile_text)
     total += len(ctx.household_profile_text)
     total += len(ctx.world_model_text or "")
+    total += len(ctx.current_user_text or "")
     total += len(ctx.active_task_text or "")
     total += len(ctx.conversation_summary or "")
     total += sum(len(m) for m in ctx.relevant_memories)

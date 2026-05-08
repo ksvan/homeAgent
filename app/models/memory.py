@@ -37,6 +37,7 @@ class EpisodicMemory(SQLModel, table=True):
     id: str = Field(default_factory=_uuid, primary_key=True)
     household_id: str = Field(index=True)
     user_id: Optional[str] = Field(default=None, index=True)
+    member_id: Optional[str] = Field(default=None, index=True)
     content: str
     # Rowid in the sqlite-vec virtual table (None if embedding failed)
     embedding_id: Optional[str] = None

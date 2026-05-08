@@ -30,6 +30,7 @@ class HouseholdMember(SQLModel, table=True):
     role: str = "member"  # "admin" | "member" | "child" | "guest"
     is_active: bool = True
     source: str = "migration_seed"
+    name_user_asserted: bool = Field(default=False)
     created_at: datetime = Field(default_factory=_now)
     updated_at: datetime = Field(default_factory=_now)
 

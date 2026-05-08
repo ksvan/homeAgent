@@ -18,6 +18,7 @@ class AgentContext:
     user_profile_text: str = ""
     household_profile_text: str = ""
     world_model_text: str = ""
+    current_user_text: str = ""
     active_task_text: str = ""
     conversation_summary: str | None = None
     relevant_memories: list[str] = field(default_factory=list)
@@ -40,6 +41,7 @@ def assemble_context(
     user_profile = get_user_profile(user_id)
     household_profile = get_household_profile(household_id)
     world_model_text = format_world_model(household_id, current_user_id=user_id)
+    current_user_text = _build_current_user_section(household_id, user_id)
     active_task_text = get_active_task_context(user_id)
     recent_messages = load_recent_messages(user_id)
     conversation_summary = get_conversation_summary(user_id)
@@ -50,7 +52,37 @@ def assemble_context(
         user_profile_text=format_profile(user_profile, "User Profile"),
         household_profile_text=format_profile(household_profile, "Household Profile"),
         world_model_text=world_model_text,
+        current_user_text=current_user_text,
         active_task_text=active_task_text,
         conversation_summary=conversation_summary,
         relevant_memories=relevant_memories,
     )
+
+
+def _build_current_user_section(household_id: str, user_id: str) -> str:
+    """Return a compact Current User block for grounding the model."""
+    from sqlmodel import select
+
+    from app.db import users_session
+    from app.models.users import User
+    from app.world.repository import WorldModelRepository
+
+    with users_session() as session:
+        user = session.exec(select(User).where(User.id == user_id)).first()
+    if not user:
+        return ""
+
+    member = WorldModelRepository.get_member_for_user(household_id, user_id)
+    role = "admin" if user.is_admin else "member"
+    member_name = member.name if member else user.name
+    member_id = member.id if member else "(not linked)"
+
+    lines = [
+        "## Current User",
+        f"- user_id: {user_id}",
+        f"- name: {user.name}",
+        f"- household_member_id: {member_id}",
+        f"- household_member_name: {member_name}",
+        f"- role: {role}",
+    ]
+    return "\n".join(lines)

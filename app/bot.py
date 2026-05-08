@@ -19,12 +19,36 @@ from sqlmodel import select
 
 from app.config import get_settings
 from app.db import users_session
-from app.models.users import Household, User
+from app.models.users import ChannelMapping, Household, User
 
 logger = logging.getLogger(__name__)
 
 # Per-user sliding-window rate limiter (in-memory; resets on restart)
 _user_call_times: dict[int, list[float]] = defaultdict(list)
+
+_ONBOARDING_NUDGE = (
+    "\n\n_Tip: send /me name Your Name to identify yourself"
+    " so I can personalise responses._"
+)
+
+
+def _ensure_telegram_channel_mapping(session: object, user: "User") -> None:
+    """Create a telegram ChannelMapping for the user if one does not exist."""
+    from sqlmodel import select as _select
+    existing = session.exec(  # type: ignore[union-attr]
+        _select(ChannelMapping).where(
+            ChannelMapping.user_id == user.id,
+            ChannelMapping.channel == "telegram",
+        )
+    ).first()
+    if not existing:
+        session.add(  # type: ignore[union-attr]
+            ChannelMapping(
+                user_id=user.id,
+                channel="telegram",
+                channel_user_id=str(user.telegram_id),
+            )
+        )
 
 
 def _is_rate_limited(telegram_id: int, limit_per_minute: int) -> bool:
@@ -47,6 +71,7 @@ class _UserInfo:
     household_id: str
     household_name: str
     is_admin: bool
+    onboarding_complete: bool = False
 
 
 def _get_or_create_user(telegram_id: int) -> _UserInfo:
@@ -61,12 +86,14 @@ def _get_or_create_user(telegram_id: int) -> _UserInfo:
                 select(Household).where(Household.id == user.household_id)
             ).first()
             household_name = household.name if household else "the household"
+            _ensure_telegram_channel_mapping(session, user)
             return _UserInfo(
                 id=user.id,
                 name=user.name,
                 household_id=user.household_id,
                 household_name=household_name,
                 is_admin=user.is_admin,
+                onboarding_complete=user.onboarding_complete,
             )
 
         # First visit — create a household if none exists yet
@@ -83,6 +110,8 @@ def _get_or_create_user(telegram_id: int) -> _UserInfo:
             is_admin=telegram_id in settings.admin_telegram_ids,
         )
         session.add(new_user)
+        session.flush()
+        _ensure_telegram_channel_mapping(session, new_user)
         session.commit()
         session.refresh(new_user)
         logger.info("New user created (telegram_id=%d)", telegram_id)
@@ -105,6 +134,7 @@ def _get_or_create_user(telegram_id: int) -> _UserInfo:
             household_id=household.id,
             household_name=household.name,
             is_admin=new_user.is_admin,
+            onboarding_complete=new_user.onboarding_complete,
         )
 
 
@@ -193,6 +223,10 @@ async def handle_incoming_message(
         # Update Homey device state cache from tool calls made during this run.
         update_snapshots_from_tool_calls(user.household_id, outcome.new_messages)
 
-        return outcome.response
+        response = outcome.response
+        if not user.onboarding_complete and response:
+            response = response + _ONBOARDING_NUDGE
+
+        return response
 
 

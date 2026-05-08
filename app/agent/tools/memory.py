@@ -51,15 +51,22 @@ def register_memory_tools(agent: Agent[AgentDeps, str]) -> None:
                 - "ephemeral" — retained for ~1 month (short-lived context, one-off details)
         """
         from app.memory.episodic import async_store_memory
+        from app.world.repository import WorldModelRepository
 
         user_id = ctx.deps.user_id if scope == "personal" else None
         household_id = ctx.deps.household_id
+
+        member_id: str | None = None
+        if user_id:
+            member = WorldModelRepository.get_member_for_user(household_id, user_id)
+            member_id = member.id if member else None
 
         try:
             await async_store_memory(
                 household_id=household_id,
                 content=content,
                 user_id=user_id,
+                member_id=member_id,
                 importance=importance,
             )
             scope_label = "personal memory" if scope == "personal" else "household memory"

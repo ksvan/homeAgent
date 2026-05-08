@@ -153,6 +153,7 @@ def store_memory(
     household_id: str,
     content: str,
     user_id: str | None = None,
+    member_id: str | None = None,
     source_run_id: str | None = None,
     importance: str = "normal",
 ) -> str:
@@ -196,6 +197,7 @@ def store_memory(
         record = EpisodicMemory(
             household_id=household_id,
             user_id=user_id,
+            member_id=member_id,
             content=content,
             source_run_id=source_run_id,
             importance=importance,
@@ -215,6 +217,7 @@ async def async_store_memory(
     household_id: str,
     content: str,
     user_id: str | None = None,
+    member_id: str | None = None,
     source_run_id: str | None = None,
     importance: str = "normal",
 ) -> str:
@@ -253,6 +256,7 @@ async def async_store_memory(
         record = EpisodicMemory(
             household_id=household_id,
             user_id=user_id,
+            member_id=member_id,
             content=content,
             source_run_id=source_run_id,
             importance=importance,

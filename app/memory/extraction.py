@@ -112,6 +112,10 @@ async def extract_and_store_memories(
 
     from app.control.events import emit
     from app.memory.episodic import async_store_memory
+    from app.world.repository import WorldModelRepository
+
+    member = WorldModelRepository.get_member_for_user(household_id, user_id) if user_id else None
+    member_id = member.id if member else None
 
     stored_facts: list[str] = []
     for fact in facts:
@@ -128,6 +132,7 @@ async def extract_and_store_memories(
                 source_run_id=run_id,
                 importance=importance,
                 user_id=user_id,
+                member_id=member_id,
             )
             stored_facts.append(content)
         except Exception:

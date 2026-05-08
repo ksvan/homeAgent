@@ -3,7 +3,7 @@ from __future__ import annotations
 import uuid
 from datetime import datetime, timezone
 
-from sqlmodel import Field, SQLModel
+from sqlmodel import Field, SQLModel, UniqueConstraint
 
 
 def _now() -> datetime:
@@ -28,6 +28,7 @@ class User(SQLModel, table=True):
     name: str
     is_admin: bool = False
     preferred_channel: str = "telegram"
+    onboarding_complete: bool = Field(default=False)
     created_at: datetime = Field(default_factory=_now)
     updated_at: datetime = Field(default_factory=_now)
 
@@ -51,6 +52,8 @@ class ActionPolicy(SQLModel, table=True):
 
 
 class ChannelMapping(SQLModel, table=True):
+    __table_args__ = (UniqueConstraint("channel", "channel_user_id"),)
+
     id: str = Field(default_factory=_uuid, primary_key=True)
     user_id: str = Field(foreign_key="user.id", index=True)
     channel: str

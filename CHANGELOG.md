@@ -10,6 +10,40 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 
 ### Added
 
+#### User Identity and Memory Link
+
+Tightens the link between Telegram users, household members, and episodic memory
+so personal memories are named and scoped correctly as more household members join.
+
+- **`/me` slash command** — `/me show`, `/me name <name>`, `/me email <address>`,
+  `/me email remove <address>`. Setting a name marks `User.onboarding_complete=True`
+  and `HouseholdMember.name_user_asserted=True`.
+- **Soft onboarding nudge** — first message from a user with `onboarding_complete=False`
+  appends a one-time tip to run `/me name`; the agent response is never blocked.
+- **`ChannelMapping` for Telegram** — a `telegram` entry is created automatically for
+  every user on first message; `/me email` creates `email` entries for future
+  forwarding-based workflows.
+- **Current User context section** — `assemble_context()` now includes a compact
+  `## Current User` block (user_id, name, member_id, role) in the agent system
+  prompt so the model names memories correctly and distinguishes the speaker from
+  other household members.
+- **`EpisodicMemory.member_id`** — new nullable indexed field links personal memories
+  to the household member. Set automatically on all new personal memories. Existing
+  memories backfilled via `python -m app.memory.backfill_member_id`.
+- **World model sync guard** — `upsert_member()` now respects `name_user_asserted`;
+  Homey and startup sync cannot overwrite a user-asserted name.
+- **`WorldModelRepository.get_member_for_user()`** — new resolver helper used by
+  context assembly and memory storage.
+
+### Changed (Identity)
+
+- `store_memory` / `async_store_memory` accept an optional `member_id` argument;
+  both the agent memory tool and background extractor now resolve and pass it.
+- `upsert_member` gains `assert_name` parameter; when `True` the name is written
+  unconditionally and `name_user_asserted` is set.
+
+### Added (Geocoding)
+
 #### MET.no Address Geocoding
 
 - **`app/skills/metno-norway-weather/`** — helper now supports free Norwegian
