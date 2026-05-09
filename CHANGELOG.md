@@ -6,6 +6,34 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 
 ---
 
+## [0.14.2] - 2026-05-09
+
+### Added
+
+- **Mac mini production deployment runbook** — new `docs/mac-mini-production.md`
+  covering SSH/rsync deployment, first-time data migration, webhook ownership,
+  OrbStack Docker context setup, and production cutover notes.
+- **Production deploy helper** — new `scripts/prod.sh` with `bootstrap`,
+  `install-key`, `migrate`, `deploy`, `status`, `logs`, `backup`, and lifecycle
+  commands. Deploys sync code only, preserve remote `.env` and `data/`, then run
+  `docker compose build` and `docker compose up -d` on the Mac mini.
+- **SSH key deployment support** — `prod.sh install-key` installs the local
+  `~/.ssh/id_ed25519_homeagent.pub` key on the Mac mini and both `ssh` and `rsync`
+  use `HOMEAGENT_SSH_KEY` when configured.
+- **Architecture diagram updates** — refreshed architecture docs and SVG exports
+  for AgentMail intake, flight/Homey webhook paths, email worker jobs, and the
+  Mac mini deployment flow. Added `email-intake-flow.svg` and
+  `mac-mini-deployment.svg`.
+
+### Changed
+
+- Updated the tech stack docs to describe `sqlite-vec` as the semantic memory
+  vector layer instead of Chroma.
+- Added targeted `.gitignore` rules for local scratch scripts while keeping
+  repo-level operational scripts trackable.
+
+---
+
 ## [0.14.1] - 2026-05-08
 
 ### Added

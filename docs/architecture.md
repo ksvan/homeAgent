@@ -2,7 +2,7 @@
 
 ## Overview
 
-HomeAgent is a locally orchestrated household AI service. It runs continuously on one machine, serves multiple household members through messaging channels, and integrates with Homey, Prometheus, and internal MCP-backed tools.
+HomeAgent is a locally orchestrated household AI service. It runs continuously on one production machine, serves multiple household members through messaging and intake channels, and integrates with Homey, Prometheus, AgentMail, flight providers, and internal MCP-backed tools.
 
 The core design principle is still:
 
@@ -19,12 +19,13 @@ Visual diagrams: [architecture-diagrams.md](architecture-diagrams.md)
 ```text
 ┌──────────────────────────────────────────────────────────────┐
 │                        Channels                              │
-│   [Telegram]   [WhatsApp*]   [Web UI*]   [Voice*]           │
+│   [Telegram]   [AgentMail Email]   [WhatsApp*]   [Voice*]   │
 └─────────────────────────┬────────────────────────────────────┘
-                          │ messages / callbacks
+                          │ messages / callbacks / intake webhooks
 ┌─────────────────────────▼────────────────────────────────────┐
 │                   FastAPI Server                             │
-│   /webhook/telegram    /health    /admin/*                  │
+│   /webhook/telegram    /webhook/agentmail                   │
+│   /webhook/homey/event /webhook/flights/* /health /admin/*  │
 └─────────────────────────┬────────────────────────────────────┘
                           │
 ┌─────────────────────────▼────────────────────────────────────┐
@@ -51,8 +52,9 @@ Visual diagrams: [architecture-diagrams.md](architecture-diagrams.md)
 │ Claude      │  │ Homey MCP      │  │ users.db                  │
 │ (primary)   │  │ Prometheus MCP │  │ - households, users       │
 │             │  │ Tools MCP      │  │ - calendars, tasks        │
-│ GPT-4o      │  │ reminders      │  │ - scheduled prompts       │
-│ (fallback)  │  │ sched. actions │  │ - action policies         │
+│ GPT-4o      │  │ AgentMail API  │  │ - channel mappings        │
+│ (fallback)  │  │ reminders      │  │ - scheduled prompts       │
+│             │  │ sched. actions │  │ - action policies         │
 │             │  │ memory tools   │  │ - world model entities    │
 │ Haiku/Mini  │  │ world-model    │  │                           │
 │ (background)│  │ tools          │  │ memory.db                 │
@@ -67,6 +69,7 @@ Visual diagrams: [architecture-diagrams.md](architecture-diagrams.md)
                                      │ - event log               │
                                      │ - agent run log           │
                                      │ - pending confirmations   │
+                                     │ - email intake queue      │
                                      └──────────┬────────────────┘
                                                 │
                                       ┌─────────▼─────────┐
@@ -77,6 +80,7 @@ Visual diagrams: [architecture-diagrams.md](architecture-diagrams.md)
                                       │   Homey actions   │
                                       │ - scheduled       │
                                       │   prompts         │
+                                      │ - email retries   │
                                       │ - cleanup jobs    │
                                       └───────────────────┘
 
@@ -142,21 +146,24 @@ The current schema also includes:
 
 The agent sees a compact formatted snapshot of this model on every run, and also has explicit tools to read and update it conservatively. The `update_world_model` tool supports all entity types including `place` (rooms, floors, zones) with optional `external_zone_id` for deduplication against Homey zone UUIDs.
 
-### Channel abstraction
+### Channel and intake boundaries
 
-All user-facing transport is behind a channel interface. The agent core does not know whether it is replying via Telegram or another future channel.
+Interactive user-facing transport is behind a channel interface. The agent core does not know whether it is replying via Telegram or another future interactive channel.
 
 ```text
 Channel (abstract)
 ├── send_message(user_id: str, text: str) -> None
 ├── send_confirmation_prompt(user_id, action_description, token) -> None
-├── get_user_from_event(event) -> User
-└── parse_incoming(raw) -> Message
+└── send_email_intake_prompt(user_id, prompt_text, token) -> None
 
 TelegramChannel(Channel)     <- implemented
 WhatsAppChannel(Channel)     <- future
 WebChannel(Channel)          <- future
 ```
+
+Email is deliberately different. AgentMail is an **untrusted intake channel**, not an interactive control channel. Inbound email is persisted, mapped to a known user by `ChannelMapping(channel="email")`, compacted into an intake summary, and then confirmed through Telegram before it can trigger the normal agent path.
+
+This split keeps email useful for forwarding travel bookings and long-form source material without letting forwarded email text become direct instructions.
 
 ### Slash commands stay outside the LLM path
 
@@ -171,6 +178,32 @@ Current built-ins include:
 - `/prompts`
 - `/status`
 - `/users`
+- `/me show | /me name <name> | /me email <address>`
+
+### Email intake via AgentMail
+
+When `FEATURE_EMAIL_CHANNEL=true`, HomeAgent exposes `POST /webhook/agentmail` for Svix-signed AgentMail events and registers email-specific tools and worker jobs.
+
+The email path is:
+
+1. AgentMail sends a `message.received` webhook.
+2. FastAPI verifies body size, optional Svix signature, inbox id, and event type.
+3. The webhook handler deduplicates by Svix delivery id and AgentMail message id.
+4. Auto-replies, delivery reports, bulk/list mail, and loopbacks from the agent address are ignored.
+5. A minimized `EmailMessage` row is persisted in `cache.db`; raw bodies are not stored by default.
+6. The background email service fetches the full message from AgentMail, resolves the sender email to a mapped user, preprocesses the body, and extracts structured signals such as flights, routes, booking references, and dates.
+7. Telegram receives an inline email intake confirmation.
+8. On confirmation, the Telegram callback runs the normal `run_agent_turn()` path with `trigger="email_confirmed"`.
+
+Operational state lives in `cache.db`:
+
+- `EmailMessage`
+- `EmailAttachment`
+- `EmailIntakeConfirmation`
+
+APScheduler also runs email retry, stale-lock, and retention jobs. The admin dashboard has an Email tab backed by `/admin/email/messages`.
+
+The agent can call `check_email_now()` to pull recent AgentMail inbox messages when the user says they forwarded something and the webhook may have missed it.
 
 ### LLM Router with per-slot provider binding
 
@@ -274,7 +307,7 @@ pending_action
 
 ---
 
-## Data Flow: Incoming Message
+## Data Flow: Incoming Telegram Message
 
 ```text
 1. Telegram sends POST to /webhook/telegram
@@ -303,6 +336,23 @@ pending_action
       - conversation summarization when thresholds are exceeded
 ```
 
+## Data Flow: Incoming Email
+
+```text
+1. AgentMail sends POST to /webhook/agentmail
+2. FastAPI validates feature flag, body size, inbox id, and optional Svix signature
+3. Delivery/message ids are deduplicated
+4. Auto-generated, bulk/list, and loopback messages are ignored
+5. EmailMessage is persisted in cache.db with minimized provider metadata
+6. Background processing fetches full message from AgentMail
+7. Sender email is resolved via ChannelMapping(channel="email")
+8. Email is preprocessed into bounded untrusted source text
+9. Structured signals are extracted for likely travel/booking content
+10. Telegram confirmation is sent to the mapped user's Telegram channel
+11. If confirmed, the normal agent runner executes with trigger=email_confirmed
+12. Email status transitions to CONFIRMED/PROCESSED or retry/dead-letter states
+```
+
 ## Data Flow: Scheduled Prompt
 
 ```text
@@ -323,13 +373,13 @@ Detailed evolution proposal: [proactive-scheduled-behaviour-design.md](proactive
 3. Start Homey, Prometheus, and Tools MCP connections
 4. Reload the agent singleton so connected MCP toolsets are attached
 5. Start APScheduler
-6. Restore pending reminders, actions, and scheduled prompts
-7. Register cleanup jobs
+6. Restore pending reminders, actions, scheduled prompts, and task follow-ups
+7. Register cleanup jobs and email worker jobs when enabled
 8. Load SkillRegistry from `app/skills/`
 9. Fire-and-forget startup syncs:
      - refresh_home_profile()
      - bootstrap_world_model()
-9. Initialize Telegram channel
+10. Initialize Telegram channel
 ```
 
 ---
@@ -343,7 +393,8 @@ data/
     │                 # action policies, world model entities
     ├── memory.db     # profiles, episodic memories, conversation turns/messages,
     │                 # conversation summaries, sqlite-vec virtual table
-    └── cache.db      # device snapshots, event log, agent run log, pending_action
+    └── cache.db      # device snapshots, event log, agent run log, pending_action,
+                      # email intake queue and email confirmations
 ```
 
 All structured storage is SQLite in WAL mode. Semantic retrieval uses `sqlite-vec` inside `memory.db`; there is no separate vector database service.
@@ -393,6 +444,9 @@ devicesnapshot
 eventlog
 agentrunlog
 pendingaction
+emailmessage
+emailattachment
+emailintakeconfirmation
 ```
 
 ---
@@ -429,6 +483,7 @@ Current capabilities include:
 - a dedicated **World Model** view backed by `GET /admin/world-model`
 - authenticated write endpoints for world facts, routines, aliases, member details, and entity deletion
 - a **Control Loop** tab showing dispatcher state, event bus queue depth, active control tasks, event rules management (create/edit/toggle/delete/test), in-flight runs, and recent activity
+- an **Email** tab showing recent email intake rows and processing status
 - a **Skills** panel listing loaded skills with name, invoke token, and description (`GET /admin/skills`)
 
 The admin endpoints are served from the same FastAPI app; there is no separate admin service.
@@ -471,6 +526,10 @@ The `async_store_memory()` path in `app/memory/episodic.py` offloads blocking Op
 
 Fire-and-forget tasks (memory extraction, summarization, world model sync) emit `run.background_error` events on failure, visible in the admin dashboard SSE stream. Previously these failures were only logged.
 
+### Email intake durability
+
+AgentMail webhook processing persists the intake row before expensive downstream work. Retryable failures move to `FAILED_RETRYABLE` with a future `next_attempt_at`; APScheduler requeues eligible rows and releases stale processing locks. Exhausted rows move to `DEAD_LETTER`.
+
 ### Docker resource limits
 
 All containers have explicit `mem_limit`, `cpus`, and `stop_grace_period` in `docker-compose.yml` to prevent unbounded resource consumption and ensure clean shutdown.
@@ -490,6 +549,9 @@ Lint (`ruff check app/`) and unit tests (`pytest tests/unit/`) run on every push
 ## Security Considerations
 
 - Telegram webhooks are validated with a secret token header.
+- AgentMail webhooks can be validated with Svix signatures.
+- Email-originated instructions are treated as untrusted source data and require Telegram confirmation before meaningful action.
+- Email senders must be explicitly mapped to users; the system does not auto-create users from email.
 - Only allowlisted Telegram IDs are accepted.
 - High-impact tool calls can be gated behind explicit confirmation.
 - Pending confirmations are scoped to the requesting user and expire automatically.
@@ -509,5 +571,11 @@ Typical runtime services are:
 - `prometheus-mcp`
 - `cloudflared`
 
+Production is expected to run on a single active host. For the Mac mini setup, deployment from the development Mac uses `scripts/prod.sh` over SSH/rsync:
+
+- `migrate` performs a one-time consistent copy of code, `.env`, prompts, and `data/` after stopping the local stack.
+- `deploy` syncs code only and intentionally excludes `.env` and `data/`.
+
 See [README.md](../README.md) for build and run instructions.
+See [mac-mini-production.md](mac-mini-production.md) for the production migration/deploy runbook.
 See [frameworks-and-services.md](frameworks-and-services.md) for the technology inventory.

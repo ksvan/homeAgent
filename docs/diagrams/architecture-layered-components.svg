@@ -45,26 +45,26 @@
   <text class="box-title" x="982" y="134" text-anchor="middle">LLM Providers</text>
   <text class="small" x="982" y="154" text-anchor="middle">Anthropic + OpenAI</text>
   <rect class="component external" x="1135" y="110" width="200" height="58"/>
-  <text class="box-title" x="1235" y="134" text-anchor="middle">Admin Browser</text>
-  <text class="small" x="1235" y="154" text-anchor="middle">dashboard + SSE</text>
+  <text class="box-title" x="1235" y="134" text-anchor="middle">AgentMail + Flight APIs</text>
+  <text class="small" x="1235" y="154" text-anchor="middle">email + flight webhooks</text>
 
   <rect class="layer" x="35" y="215" width="1335" height="135"/>
   <text class="layer-title" x="55" y="242">Interface Adapters</text>
   <rect class="component adapter" x="70" y="265" width="235" height="58"/>
   <text class="box-title" x="187" y="289" text-anchor="middle">FastAPI Main App</text>
-  <text class="small" x="187" y="309" text-anchor="middle">/webhook/telegram /health</text>
+  <text class="small" x="187" y="309" text-anchor="middle">webhooks, health, admin</text>
   <rect class="component adapter" x="330" y="265" width="235" height="58"/>
   <text class="box-title" x="447" y="289" text-anchor="middle">FastAPI Admin App</text>
   <text class="small" x="447" y="309" text-anchor="middle">/admin/* /stream</text>
   <rect class="component adapter" x="590" y="265" width="245" height="58"/>
   <text class="box-title" x="712" y="289" text-anchor="middle">Webhook Handlers</text>
-  <text class="small" x="712" y="309" text-anchor="middle">Telegram + Homey events</text>
+  <text class="small" x="712" y="309" text-anchor="middle">Telegram, AgentMail, Homey, flights</text>
   <rect class="component adapter" x="860" y="265" width="205" height="58"/>
   <text class="box-title" x="962" y="289" text-anchor="middle">Channel Registry</text>
   <text class="small" x="962" y="309" text-anchor="middle">active delivery backend</text>
   <rect class="component adapter" x="1090" y="265" width="245" height="58"/>
   <text class="box-title" x="1212" y="289" text-anchor="middle">TelegramChannel</text>
-  <text class="small" x="1212" y="309" text-anchor="middle">messages + callbacks</text>
+  <text class="small" x="1212" y="309" text-anchor="middle">messages + callbacks + email prompts</text>
 
   <rect class="layer" x="35" y="375" width="1335" height="155"/>
   <text class="layer-title" x="55" y="402">Application / Business Logic</text>
@@ -88,6 +88,8 @@
   <rect class="component business" x="1190" y="425" width="145" height="70"/>
   <text class="box-title" x="1262" y="450" text-anchor="middle">Memory</text>
   <text class="small" x="1262" y="470" text-anchor="middle">summaries, retrieval</text>
+  <rect class="component business" x="1190" y="495" width="145" height="26"/>
+  <text class="small" x="1262" y="513" text-anchor="middle">email intake queue</text>
 
   <rect class="layer" x="35" y="555" width="1335" height="155"/>
   <text class="layer-title" x="55" y="582">Agent Runtime + Capability Adapters</text>
@@ -104,13 +106,14 @@
   <text class="box-title" x="837" y="615" text-anchor="middle">Built-in Agent Tools</text>
   <text class="small" x="837" y="637" text-anchor="middle">memory, reminders, actions</text>
   <text class="small" x="837" y="655" text-anchor="middle">tasks, pursuit, prompts</text>
-  <text class="small" x="837" y="673" text-anchor="middle">world model, event rules, skills</text>
+  <text class="small" x="837" y="673" text-anchor="middle">world model, event rules, skills, email, flights</text>
   <rect class="component capability" x="990" y="605" width="150" height="70"/>
   <text class="box-title" x="1065" y="630" text-anchor="middle">Homey MCP</text>
   <text class="small" x="1065" y="650" text-anchor="middle">device tools</text>
   <rect class="component capability" x="1160" y="605" width="175" height="70"/>
   <text class="box-title" x="1247" y="630" text-anchor="middle">Prometheus MCP</text>
   <text class="small" x="1247" y="650" text-anchor="middle">metrics tools</text>
+  <text class="small" x="1247" y="668" text-anchor="middle">AgentMail client</text>
 
   <rect class="layer" x="35" y="735" width="1335" height="135"/>
   <text class="layer-title" x="55" y="762">Scheduler + Background Core</text>
@@ -124,8 +127,8 @@
   <text class="box-title" x="625" y="809" text-anchor="middle">Jobs</text>
   <text class="small" x="625" y="829" text-anchor="middle">reminders, prompts, task resumes</text>
   <rect class="component core" x="780" y="785" width="210" height="58"/>
-  <text class="box-title" x="885" y="809" text-anchor="middle">Cleanup Jobs</text>
-  <text class="small" x="885" y="829" text-anchor="middle">retention + stale tasks</text>
+  <text class="box-title" x="885" y="809" text-anchor="middle">Cleanup + Email Jobs</text>
+  <text class="small" x="885" y="829" text-anchor="middle">retention, retries, stale locks</text>
   <rect class="component core" x="1015" y="785" width="320" height="58"/>
   <text class="box-title" x="1175" y="809" text-anchor="middle">Async Background Work</text>
   <text class="small" x="1175" y="829" text-anchor="middle">memory extraction, summaries, verification</text>
@@ -151,7 +154,7 @@
     <ellipse class="db-top" cx="130" cy="18" rx="130" ry="18"/>
     <text class="box-title" x="130" y="45" text-anchor="middle">cache.db</text>
     <text class="small" x="130" y="65" text-anchor="middle">pending actions, run logs</text>
-    <text class="small" x="130" y="83" text-anchor="middle">events, snapshots</text>
+    <text class="small" x="130" y="83" text-anchor="middle">events, snapshots, email intake</text>
   </g>
   <g transform="translate(1005 950)">
     <path class="db-body" d="M0,18 C0,0 260,0 260,18 L260,82 C260,100 0,100 0,82 Z"/>
@@ -166,10 +169,10 @@
   <text class="layer-title" x="1430" y="95">Support / Control Plane</text>
   <rect class="component admin" x="1440" y="125" width="285" height="58"/>
   <text class="box-title" x="1582" y="149" text-anchor="middle">Admin Dashboard</text>
-  <text class="small" x="1582" y="169" text-anchor="middle">tasks, events, scheduler, world model</text>
+  <text class="small" x="1582" y="169" text-anchor="middle">tasks, events, scheduler, world, email</text>
   <rect class="component support" x="1440" y="205" width="285" height="58"/>
   <text class="box-title" x="1582" y="229" text-anchor="middle">Admin SSE Event Stream</text>
-  <text class="small" x="1582" y="249" text-anchor="middle">run, task, job, control events</text>
+  <text class="small" x="1582" y="249" text-anchor="middle">run, task, job, control, email events</text>
   <rect class="component support" x="1440" y="285" width="285" height="58"/>
   <text class="box-title" x="1582" y="309" text-anchor="middle">Inbound Event Bus</text>
   <text class="small" x="1582" y="329" text-anchor="middle">Homey and internal events</text>

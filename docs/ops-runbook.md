@@ -1,5 +1,9 @@
 # Operations Runbook
 
+## Production on Mac Mini
+
+Use [Mac Mini Production Deployment](mac-mini-production.md) for the SSH/rsync deployment flow, first-time migration, and webhook cutover.
+
 ## Backups
 
 ### Automated Backup Script

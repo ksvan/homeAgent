@@ -88,6 +88,7 @@ Feature flags are a `FeatureFlags` settings object loaded from `.env` at startup
 | Choice | Library | Status |
 | --- | --- | --- |
 | Telegram | `python-telegram-bot` | Implemented |
+| AgentMail email intake | `agentmail`, `svix` | Implemented as untrusted intake with Telegram confirmation |
 | WhatsApp | Twilio or Meta API | Planned |
 
 All channels implement the common `Channel` abstract interface in `app/channels/base.py`.
@@ -101,15 +102,15 @@ All channels implement the common `Channel` abstract interface in `app/channels/
 | **SQLite** (WAL mode) | (built-in) | All structured data: users, messages, profiles, reminders, state cache, task state |
 | **SQLModel** | latest | ORM layer over SQLite (Pydantic + SQLAlchemy) |
 | **Alembic** | latest | Database schema migrations — versioned, auto-generated from SQLModel models |
-| **Chroma** | latest | Embedded vector store for semantic memory search |
+| **sqlite-vec** | `>=0.1.7a10` | Embedded vector search inside `memory.db` for semantic memory retrieval |
 
-SQLite runs in WAL (Write-Ahead Logging) mode to reduce write contention from concurrent webhook requests. Schema changes are managed by Alembic — never modify the DB manually. Chroma runs embedded (in-process), requiring no separate service.
+SQLite runs in WAL (Write-Ahead Logging) mode to reduce write contention from concurrent webhook requests. Schema changes are managed by Alembic — never modify the DB manually. Semantic memory search uses a `sqlite-vec` virtual table inside `memory.db`, requiring no separate vector database service.
 
 Alternatives considered:
 
 - PostgreSQL + pgvector — more powerful but adds ops complexity; unnecessary at this scale
 - Redis — not needed; APScheduler handles scheduling in-process
-- Pinecone / Weaviate — managed vector DBs; unnecessary complexity and cloud dependency
+- Chroma / Pinecone / Weaviate — separate vector stores add unnecessary complexity at this scale
 
 ---
 
@@ -143,6 +144,7 @@ Future integrations (same MCP pattern):
 | **Docker** | Consistent runtime across Mac and Linux |
 | **Docker Compose** | Single-file service definition, volume management |
 | **docker buildx** | Multi-platform builds (ARM64 + AMD64) |
+| **SSH + rsync** | Lightweight Mac-to-Mac production deploy and one-time data migration |
 
 ### Dockerfile Strategy
 
@@ -194,7 +196,7 @@ dependencies = [
     "python-telegram-bot",      # Telegram channel
     "sqlmodel",                 # ORM
     "alembic",                  # DB schema migrations
-    "chromadb",                 # Embedded vector store
+    "sqlite-vec>=0.1.7a10",     # Embedded vector search for semantic memory
     "apscheduler",              # Job scheduling
     "anthropic",                # Claude API client
     "openai",                   # OpenAI API client (fallback + embeddings)
@@ -203,6 +205,8 @@ dependencies = [
     "pydantic-settings",        # Settings management from .env
     "python-dotenv",            # .env loading
     "pyyaml",                   # YAML parsing for skill agent.yaml files
+    "agentmail",                # AgentMail inbox API for email intake
+    "svix",                     # AgentMail webhook signature verification
 ]
 
 [tool.uv]
