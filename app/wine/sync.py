@@ -58,7 +58,9 @@ async def _sync(force: bool) -> WineSyncResult:
         if meta is not None:
             # Within TTL?
             last_sync = meta.last_sync_at  # type: ignore[union-attr]
-            if last_sync and (now - last_sync).total_seconds() < settings.wine_cache_ttl_seconds:
+            last_sync_aware = last_sync.replace(tzinfo=timezone.utc) if last_sync else None
+            ttl = settings.wine_cache_ttl_seconds
+            if last_sync_aware and (now - last_sync_aware).total_seconds() < ttl:
                 # Quick eTag check to see if the file has changed
                 try:
                     current_etag = await graph_client.get_item_etag(
