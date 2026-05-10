@@ -322,6 +322,7 @@ docker buildx build \
 - [Household World Model](docs/household-world-model-design.md)
 - [Agent Skills](docs/agent-skills-design.md)
 - [Multi-Step Tasks](docs/multi-step-task-design.md)
+- [Household Messaging and Coordination](docs/household-messaging-coordination-design.md)
 - [Observability](docs/observability.md)
 - [Slash Commands](docs/slash-commands-design.md)
 - [Tech Stack](docs/tech-stack.md)

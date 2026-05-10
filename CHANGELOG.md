@@ -6,6 +6,23 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 
 ---
 
+## [Unreleased]
+
+### Added
+
+- **Household messaging and coordination design** — new
+  `docs/household-messaging-coordination-design.md` outlining audited
+  household-member messaging, coordination tasks, participant prompt routing,
+  reply collection, reminders, and outcome reporting.
+
+### Changed
+
+- Hardened the Mac mini production deploy helper docs and script around long
+  rsync transfers, SSH keepalive timeouts, `.env` preservation, remote log
+  tailing, and first-time data migration retries.
+
+---
+
 ## [0.14.2] - 2026-05-09
 
 ### Added

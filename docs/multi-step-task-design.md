@@ -590,6 +590,11 @@ Use each layer for what it is good at:
 When a task completes, you may derive memories from the conversation or outcome,
 but do not retain the whole finished task as prompt baggage forever.
 
+Household coordination tasks are a concrete future use of this same substrate:
+the task owns the durable workflow, participant prompts route replies, and the
+final outcome is reported back to the initiating user. See
+[household-messaging-coordination-design.md](household-messaging-coordination-design.md).
+
 ---
 
 ## Admin / UX Implications

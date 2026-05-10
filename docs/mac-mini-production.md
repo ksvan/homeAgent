@@ -110,11 +110,32 @@ What it does:
 1. Creates a local backup in `data/backups/pre-migration`.
 2. Stops the local Docker Compose stack with `./start.sh stop`.
 3. Creates/verifies the remote app directory.
-4. Syncs the code, `.env`, prompts, and `data/`.
+4. Syncs the code, `.env`, prompts, and `data/`, excluding `data/backups/`.
 5. Builds and starts the remote Docker Compose stack.
 6. Checks `http://127.0.0.1:8080/health` on the Mac mini.
 
 The local stack remains stopped after migration. Keep it stopped while the Mac mini is production, otherwise two instances may process Telegram webhooks, Homey events, schedules, and reminders.
+
+For a visible rsync progress meter during first migration:
+
+```bash
+HOMEAGENT_RSYNC_OPTS="--info=progress2" HOMEAGENT_DEPLOY_HOST=macmini.local ./scripts/prod.sh migrate
+```
+
+If the first data sync drops with `Timeout, server ... not responding`, rerun the
+same command. The migration is idempotent and rsync keeps partial files for
+resume. You can also make SSH keepalives more forgiving for a noisy Wi-Fi link:
+
+```bash
+HOMEAGENT_SSH_ALIVE_INTERVAL=120 \
+HOMEAGENT_SSH_ALIVE_COUNT=20 \
+HOMEAGENT_RSYNC_OPTS="--info=progress2" \
+HOMEAGENT_DEPLOY_HOST=macmini.local \
+./scripts/prod.sh migrate
+```
+
+For production migration, prefer both Macs on wired Ethernet or stable Wi-Fi and
+make sure the Mac mini is not sleeping during the transfer.
 
 ## Normal Deploys
 
@@ -128,13 +149,22 @@ HOMEAGENT_DEPLOY_HOST=macmini.local ./scripts/prod.sh deploy
 
 Do not use `migrate` for regular deploys. It overwrites production `data/` from the source Mac.
 
+If production `.env` needs to be restored or intentionally updated from this Mac:
+
+```bash
+HOMEAGENT_DEPLOY_HOST=macmini.local ./scripts/prod.sh sync-env
+```
+
 ## Common Operations
 
 ```bash
 # Show remote service state and health endpoint
 HOMEAGENT_DEPLOY_HOST=macmini.local ./scripts/prod.sh status
 
-# Tail remote logs
+# Print recent remote logs and exit
+HOMEAGENT_DEPLOY_HOST=macmini.local ./scripts/prod.sh logs-tail
+
+# Follow remote logs until Ctrl-C
 HOMEAGENT_DEPLOY_HOST=macmini.local ./scripts/prod.sh logs
 
 # Restart production after changing .env directly on the Mac mini
@@ -146,6 +176,8 @@ HOMEAGENT_DEPLOY_HOST=macmini.local ./scripts/prod.sh down
 # Run production backup script on the Mac mini
 HOMEAGENT_DEPLOY_HOST=macmini.local ./scripts/prod.sh backup
 ```
+
+`logs` intentionally does not finish on its own because it runs `docker compose logs -f`. Use `logs-tail` when you want a finite log snapshot.
 
 ## Webhooks and Tunnel Cutover
 

@@ -165,6 +165,13 @@ Email is deliberately different. AgentMail is an **untrusted intake channel**, n
 
 This split keeps email useful for forwarding travel bookings and long-form source material without letting forwarded email text become direct instructions.
 
+Planned household-to-household messaging should also stay behind this channel
+boundary. The agent should ask for household members, not Telegram IDs, and the
+runtime should resolve recipients through `User` and
+`ChannelMapping(channel="telegram")`, apply policy, audit delivery, and then send
+through the channel implementation. See
+[household-messaging-coordination-design.md](household-messaging-coordination-design.md).
+
 ### Slash commands stay outside the LLM path
 
 Slash commands are intercepted in `app/bot.py` before context assembly and before the model is called. This keeps low-cost operational tasks deterministic and cheap.
@@ -253,6 +260,7 @@ Current design docs:
 - [multi-step-task-design.md](multi-step-task-design.md)
 - [autonomous-task-pursuit-design.md](autonomous-task-pursuit-design.md)
 - [autonomous-goal-reflection-design.md](autonomous-goal-reflection-design.md)
+- [household-messaging-coordination-design.md](household-messaging-coordination-design.md)
 
 ### Skills
 
