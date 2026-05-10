@@ -171,7 +171,8 @@ class Settings(BaseSettings):
     @field_validator("allowed_telegram_ids", "admin_telegram_ids", mode="before")
     @classmethod
     def parse_int_list(cls, v: object) -> object:
-        """Accept comma-separated string or a bare int from env, as well as a real list."""
+        """Accept a JSON array '[1,2]', a bare int, or a real list. Comma-separated strings
+        are NOT supported — pydantic-settings JSON-decodes list fields before this runs."""
         if isinstance(v, str):
             return [int(x.strip()) for x in v.split(",") if x.strip()]
         if isinstance(v, int):
