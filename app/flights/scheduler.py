@@ -99,8 +99,10 @@ def _poll_interval_for_delta(delta: timedelta) -> timedelta | None:
     """Return the polling interval for a given time-to-departure, or None to skip."""
     hours = delta.total_seconds() / 3600
 
+    if hours > 72:
+        return None  # webhooks only beyond 3 days out
     if hours > 48:
-        return None  # no polling this far out — webhooks only
+        return timedelta(hours=12)  # light fallback poll in 48–72h window
     if hours > 12:
         return timedelta(hours=6)
     if hours > 4:
@@ -230,7 +232,7 @@ async def register_flight_scheduler_jobs() -> None:
 
     jobs = [
         (flight_watchdog_job, IntervalTrigger(minutes=15), _WATCHDOG_JOB_ID),
-        (alert_subscription_retry_job, IntervalTrigger(hours=24), _ALERT_RETRY_JOB_ID),
+        (alert_subscription_retry_job, IntervalTrigger(hours=2), _ALERT_RETRY_JOB_ID),
         (alert_credit_check_job, IntervalTrigger(hours=24), _CREDIT_CHECK_JOB_ID),
         (flight_retention_job, IntervalTrigger(hours=24), _RETENTION_JOB_ID),
     ]
@@ -241,6 +243,13 @@ async def register_flight_scheduler_jobs() -> None:
             logger.debug("Flight scheduler job registered: %s", job_id)
         except Exception:
             logger.debug("Flight scheduler job already registered: %s", job_id, exc_info=True)
+
+    # Run subscription retry immediately on startup so any deferred or failed
+    # subscriptions are picked up without waiting for the first 2h interval.
+    try:
+        await alert_subscription_retry_job()
+    except Exception:
+        logger.warning("Startup alert subscription retry failed", exc_info=True)
 
 
 def remove_watch_jobs(watch_id: str) -> None:

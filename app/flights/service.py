@@ -228,6 +228,7 @@ async def get_flight_status(
         FlightProvider,
         FlightQuery,
         ProviderError,
+        ProviderFlightNotFoundError,
         ProviderQuotaError,
     )
     from app.flights.repository import (
@@ -332,6 +333,35 @@ async def get_flight_status(
         result = snapshot_obj.to_summary_dict()
         result["stale"] = True
         result["stale_note"] = stale_note
+        return {"ok": True, "watch_id": watch.id, "flight": watch.flight_label, "status": result}
+    except ProviderFlightNotFoundError:
+        # 404 from provider. If departure date is in the past the flight has
+        # likely completed and dropped out of the live feed — returning the
+        # stale pre-departure "SCHEDULED" snapshot would be misleading.
+        today = datetime.now(timezone.utc).date()
+        if watch.scheduled_departure_date < today:
+            return {
+                "ok": True,
+                "watch_id": watch.id,
+                "flight": watch.flight_label,
+                "status": {
+                    "state": "UNKNOWN",
+                    "stale": True,
+                    "stale_note": (
+                        "Flight date has passed and the provider no longer has live data "
+                        "for this flight. The flight likely completed normally."
+                    ),
+                },
+            }
+        # Departure date is today or future — treat as a transient API blip.
+        snapshot_obj = get_latest_snapshot(watch.id)
+        if snapshot_obj is None:
+            return {"ok": False, "error": "Flight not found by provider."}
+        from app.flights.models import FlightStatusSnapshot
+        assert isinstance(snapshot_obj, FlightStatusSnapshot)
+        result = snapshot_obj.to_summary_dict()
+        result["stale"] = True
+        result["stale_note"] = "Provider returned no data. Showing last known status."
         return {"ok": True, "watch_id": watch.id, "flight": watch.flight_label, "status": result}
     except ProviderError as exc:
         watch.consecutive_provider_errors += 1

@@ -28,7 +28,7 @@ _STATE_MAP: dict[str, str] = {
     "Unknown": "UNKNOWN",
     "Expected": "SCHEDULED",
     "Scheduled": "SCHEDULED",
-    "Delayed": "SCHEDULED",
+    "Delayed": "DELAYED",
     "Departed": "OUT_GATE",
     "InFlight": "IN_AIR",
     "Landed": "LANDED",

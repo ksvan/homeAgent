@@ -31,13 +31,21 @@ async def send_reminder(
 
     # Send the message
     channel = get_channel()
+    reminder_text = f"⏰ Reminder: {text}"
     if channel and channel_user_id:
         try:
-            await channel.send_message(channel_user_id, f"⏰ Reminder: {text}")
+            await channel.send_message(channel_user_id, reminder_text)
         except Exception:
             logger.warning(
                 "Could not send reminder to channel_user_id=%s", channel_user_id, exc_info=True
             )
+
+    # Save to conversation history so the agent has context when the user replies
+    try:
+        from app.memory.conversation import save_message_pair
+        save_message_pair(user_id, "", reminder_text)
+    except Exception:
+        logger.warning("Could not save reminder to conversation history", exc_info=True)
 
     # Mark the task completed
     with users_session() as session:
@@ -141,6 +149,13 @@ async def execute_homey_action(
             await channel.send_message(channel_user_id, msg)
         except Exception:
             logger.warning("Could not notify user of scheduled action result", exc_info=True)
+
+    # Save to conversation history so the agent has context when the user replies
+    try:
+        from app.memory.conversation import save_message_pair
+        save_message_pair(user_id, "", msg)
+    except Exception:
+        logger.warning("Could not save scheduled action to conversation history", exc_info=True)
 
     # Mark the task completed regardless of outcome
     with users_session() as session:
@@ -476,6 +491,8 @@ async def _fire_scheduled_prompt_inner(
         if channel and channel_user_id:
             try:
                 await channel.send_message(channel_user_id, response)
+                from app.memory.conversation import save_message_pair
+                save_message_pair(user_id, "", response)
             except Exception:
                 logger.error(
                     "Could not deliver scheduled prompt error: prompt_id=%s",
@@ -509,6 +526,8 @@ async def _fire_scheduled_prompt_inner(
             if channel and channel_user_id:
                 try:
                     await channel.send_message(channel_user_id, response)
+                    from app.memory.conversation import save_message_pair
+                    save_message_pair(user_id, "", response)
                 except Exception:
                     logger.error(
                         "Could not deliver scheduled prompt response:"

@@ -11,6 +11,7 @@ from typing import Any
 
 FLIGHT_STATES = {
     "SCHEDULED",
+    "DELAYED",
     "CHECK_IN_OPEN",
     "BOARDING",
     "OUT_GATE",
