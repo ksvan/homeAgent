@@ -90,6 +90,7 @@ class FlightStatusSnapshotRow(SQLModel, table=True):
     diverted: bool = False
     diversion_airport: Optional[str] = None
     raw_json: str = "{}"
+    fetch_source: str = "poll"  # "poll" | "webhook"
 
 
 class FlightEventRow(SQLModel, table=True):

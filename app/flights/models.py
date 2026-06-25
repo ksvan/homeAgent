@@ -123,6 +123,7 @@ class FlightStatusSnapshot:
 
     provider_updated_at: datetime | None = None
     raw_json: str = "{}"
+    fetch_source: str = "poll"  # "poll" | "webhook"
 
     def effective_departure(self) -> datetime | None:
         return self.actual_off or self.estimated_off or self.scheduled_off
@@ -147,6 +148,7 @@ class FlightStatusSnapshot:
             "estimated_arrival": self.estimated_in.isoformat() if self.estimated_in else None,
             "actual_arrival": self.actual_in.isoformat() if self.actual_in else None,
             "fetched_at": self.fetched_at.isoformat(),
+            "fetch_source": self.fetch_source,
         }
 
 

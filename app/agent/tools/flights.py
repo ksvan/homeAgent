@@ -169,6 +169,129 @@ def register_flight_tools(agent: Agent[AgentDeps, str]) -> None:
         return json.dumps(result, default=str)
 
     @agent.tool
+    async def get_flight_activity_log(
+        ctx: RunContext[AgentDeps],
+        flight_watch_id: Optional[str] = None,
+    ) -> str:
+        """Return a chronological activity log for a tracked flight.
+
+        Use when you want to understand how data has arrived — when polls ran,
+        when webhook events came in, what changed between fetches, and whether
+        data is current.
+
+        The log shows: snapshot fetches (with source "poll" or "webhook"), the
+        flight state and key fields at each fetch, what changed since the
+        previous fetch, and incoming webhook events.
+
+        Args:
+            flight_watch_id: Watch ID. If omitted and only one active watch
+                exists for the user, it is used automatically.
+        """
+        from app.flights.diff import compute_changes
+        from app.flights.models import FlightStatusSnapshot, FlightWatch
+        from app.flights.repository import (
+            list_events_for_watch,
+            list_snapshots_for_watch,
+            list_watches_for_user,
+        )
+        from app.models.flights import FlightEventRow
+
+        watch_id = flight_watch_id
+        if not watch_id:
+            watches = list_watches_for_user(ctx.deps.user_id, include_terminal=False)
+            if not watches:
+                return "No active flight watches found."
+            if len(watches) > 1:
+                ids = ", ".join(
+                    f"{w.flight_label} (ID: {w.id})"
+                    for w in watches
+                    if isinstance(w, FlightWatch)
+                )
+                return f"Multiple active watches — specify flight_watch_id. Watches: {ids}"
+            w = watches[0]
+            if not isinstance(w, FlightWatch):
+                return "Could not resolve watch."
+            watch_id = w.id
+
+        watches = list_watches_for_user(ctx.deps.user_id, include_terminal=True)
+        watch = next((w for w in watches if isinstance(w, FlightWatch) and w.id == watch_id), None)
+        if watch is None:
+            return f"Watch {watch_id} not found."
+
+        snapshots = [s for s in list_snapshots_for_watch(watch_id, limit=25)
+                     if isinstance(s, FlightStatusSnapshot)]
+        events = [e for e in list_events_for_watch(watch_id, limit=40)
+                  if isinstance(e, FlightEventRow)]
+
+        # Build a merged timeline of entries
+        timeline: list[dict[str, object]] = []
+
+        for i, snap in enumerate(snapshots):
+            prev = snapshots[i - 1] if i > 0 else None
+            notify_policy = watch.notify_policy
+            changes = compute_changes(watch, prev, snap, notify_policy) if prev else []
+
+            entry: dict[str, object] = {
+                "type": "fetch",
+                "source": snap.fetch_source,
+                "at": snap.fetched_at.isoformat(),
+                "state": snap.state,
+            }
+            if snap.departure_gate:
+                entry["gate"] = snap.departure_gate
+            if snap.departure_terminal:
+                entry["terminal"] = snap.departure_terminal
+            if snap.delay_minutes:
+                entry["delay_minutes"] = snap.delay_minutes
+            if snap.cancelled:
+                entry["cancelled"] = True
+            if snap.diverted:
+                entry["diverted"] = True
+            if snap.estimated_off:
+                entry["est_departure"] = snap.estimated_off.isoformat()
+            if snap.actual_off:
+                entry["actual_departure"] = snap.actual_off.isoformat()
+            if snap.estimated_in:
+                entry["est_arrival"] = snap.estimated_in.isoformat()
+            if snap.actual_in:
+                entry["actual_arrival"] = snap.actual_in.isoformat()
+            if changes:
+                entry["changes_detected"] = [
+                    {"type": c.change_type, "severity": c.severity, "summary": c.summary}
+                    for c in changes
+                ]
+            timeline.append(entry)
+
+        for ev in events:
+            timeline.append({
+                "type": "webhook_event",
+                "at": ev.received_at.isoformat(),
+                "event_type": ev.event_type,
+                "severity": ev.severity,
+            })
+
+        timeline.sort(key=lambda e: str(e["at"]))
+
+        if not timeline:
+            return f"No activity recorded yet for watch {watch_id}."
+
+        summary: dict[str, object] = {
+            "watch_id": watch_id,
+            "flight": watch.flight_label,
+            "watch_status": watch.status,
+            "total_fetches": sum(1 for e in timeline if e["type"] == "fetch"),
+            "webhook_events_received": sum(1 for e in timeline if e["type"] == "webhook_event"),
+            "latest_fetch_at": next(
+                (e["at"] for e in reversed(timeline) if e["type"] == "fetch"), None
+            ),
+            "latest_source": next(
+                (e.get("source") for e in reversed(timeline) if e["type"] == "fetch"), None
+            ),
+            "timeline": timeline,
+        }
+        return json.dumps(summary, default=str)
+
+    @agent.tool
     async def cancel_flight_watch(
         ctx: RunContext[AgentDeps],
         flight_watch_id: str,

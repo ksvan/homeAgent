@@ -218,6 +218,7 @@ def save_snapshot(snapshot: object) -> None:
         row.diverted = snapshot.diverted
         row.diversion_airport = snapshot.diversion_airport
         row.raw_json = snapshot.raw_json
+        row.fetch_source = snapshot.fetch_source
         session.add(row)
         session.commit()
 
@@ -282,6 +283,7 @@ def _row_to_snapshot(row: object) -> object:
         diverted=row.diverted,
         diversion_airport=row.diversion_airport,
         raw_json=row.raw_json,
+        fetch_source=row.fetch_source if hasattr(row, "fetch_source") else "poll",
     )
 
 
@@ -313,6 +315,38 @@ def save_event(event: object) -> None:
         row.processed = event.processed
         session.add(row)
         session.commit()
+
+
+def list_snapshots_for_watch(watch_id: str, limit: int = 20) -> list[object]:
+    from sqlmodel import select
+
+    from app.db import cache_session
+    from app.models.flights import FlightStatusSnapshotRow
+
+    with cache_session() as session:
+        rows = session.exec(
+            select(FlightStatusSnapshotRow)
+            .where(FlightStatusSnapshotRow.watch_id == watch_id)
+            .order_by(FlightStatusSnapshotRow.fetched_at.asc())  # type: ignore[union-attr]
+            .limit(limit)
+        ).all()
+        return [_row_to_snapshot(r) for r in rows]
+
+
+def list_events_for_watch(watch_id: str, limit: int = 30) -> list[object]:
+    from sqlmodel import select
+
+    from app.db import cache_session
+    from app.models.flights import FlightEventRow
+
+    with cache_session() as session:
+        rows = session.exec(
+            select(FlightEventRow)
+            .where(FlightEventRow.watch_id == watch_id)
+            .order_by(FlightEventRow.received_at.asc())  # type: ignore[union-attr]
+            .limit(limit)
+        ).all()
+        return list(rows)
 
 
 def event_hash_exists(event_hash: str) -> bool:

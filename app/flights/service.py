@@ -520,11 +520,12 @@ async def ingest_webhook(
         # Schedule an immediate poll so the next watchdog cycle doesn't wait
         # for the full suppress window before picking up this event.
         import asyncio
-        asyncio.create_task(poll_watch(watch.id))
+        asyncio.create_task(poll_watch(watch.id, force=True))
         return {"ok": True, "note": "status_fetch_failed"}
 
     # Diff
     previous = get_latest_snapshot(watch.id)
+    snapshot.fetch_source = "webhook"
     save_snapshot(snapshot)
     _emit_admin_event("flight.status_refreshed", {"watch_id": watch.id, "source": "webhook"})
 
@@ -573,7 +574,7 @@ async def ingest_webhook(
 # Poll a single watch — called from scheduler
 # ---------------------------------------------------------------------------
 
-async def poll_watch(watch_id: str) -> None:
+async def poll_watch(watch_id: str, *, force: bool = False) -> None:
     from app.config import get_settings
     from app.flights.diff import compute_changes, should_notify
     from app.flights.models import WATCH_FAILED, FlightWatch
@@ -598,9 +599,9 @@ async def poll_watch(watch_id: str) -> None:
     if watch.is_terminal:
         return
 
-    # Skip if webhook refreshed recently
+    # Skip if webhook refreshed recently (bypass when force=True, e.g. webhook fetch failed)
     last_snapshot = get_latest_snapshot(watch.id)
-    if last_snapshot:
+    if last_snapshot and not force:
         suppress_window = timedelta(minutes=settings.flight_poll_recent_webhook_suppress_minutes)
         if datetime.now(timezone.utc) - last_snapshot.fetched_at < suppress_window:
             _emit_admin_event("flight.poll_skipped", {
@@ -655,6 +656,7 @@ async def poll_watch(watch_id: str) -> None:
         return
 
     previous = get_latest_snapshot(watch.id)
+    snapshot.fetch_source = "poll"
     save_snapshot(snapshot)
     save_watch(watch)
     _emit_admin_event("flight.status_refreshed", {"watch_id": watch.id, "source": "poll"})
