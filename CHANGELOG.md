@@ -6,6 +6,50 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 
 ---
 
+## [0.14.3] - 2026-06-25
+
+### Fixed
+
+- **Flight boarding and gate notifications never fired** — `boarding_started` and
+  `gate_assigned` had `severity="info"` which the default `quiet_hours_mode="urgent_only"`
+  filter silently dropped, despite `notify_boarding=True` and `notify_gate_changes=True`
+  being set. Both now `severity="warning"` so they pass the filter.
+- **Webhook status-fetch failure lost the event** — when a follow-up fresh status fetch
+  after a webhook failed, the diff/notify path was skipped entirely. Now triggers an
+  immediate `poll_watch()` task so time-critical events (gate, boarding) are picked up
+  in the next cycle rather than dropped.
+- **Stale "Scheduled" status after flight lands** — `get_flight_status()` now catches
+  `ProviderFlightNotFoundError` separately; when departure date is in the past returns
+  `UNKNOWN` with a clear note instead of the stale pre-departure snapshot.
+- **AeroDataBox "Delayed" state mapped to "SCHEDULED"** — now correctly mapped to
+  `"DELAYED"` (new normalized state) so delayed flights are distinguishable.
+- **Polling gap before 48h window** — extended to 72h with a 12h interval for the
+  new 48–72h band as a webhook safety net. Alert subscription retry reduced from 24h
+  to 2h; retry runs immediately on startup.
+- **Proactive messages missing from conversation context** — reminders, scheduled
+  actions, and scheduled prompt responses are now saved to conversation history after
+  delivery so the agent has full context when the user replies.
+- **ALLOWED_TELEGRAM_IDS parse error with multiple IDs** — pydantic-settings
+  JSON-decodes list fields before validators run; updated format to JSON array
+  `[111,222]` in `.env.example`.
+- **Admin dashboard port not following `.env`** — `docker-compose.yml` port mapping
+  now uses `${ADMIN_HOST:-127.0.0.1}:${ADMIN_PORT:-9090}` variables.
+- **Wine sync timezone error** — `last_sync_at` read from SQLite as naive datetime;
+  now made timezone-aware before comparison with `datetime.now(timezone.utc)`.
+- **Initial snapshot failure** — `track_flight()` now returns a readable note when
+  the initial status fetch fails rather than empty status.
+
+### Added
+
+- **Email admin tab** — queue table with sender, subject, colour-coded status, auth
+  badge, instruction excerpt, extracted signals, and status filter. Auto-refreshes
+  on SSE events.
+- **Email live feed events** — all `email.*` events appear in the Live tab with a
+  sky-blue EMAIL badge. `email.received` emitted at webhook intake for real-time
+  updates.
+
+---
+
 ## [Unreleased]
 
 ### Added
