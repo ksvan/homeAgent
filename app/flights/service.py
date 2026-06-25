@@ -195,7 +195,7 @@ async def track_flight(
         initial_status = snapshot.to_summary_dict()
     except ProviderError as exc:
         logger.warning("Initial status fetch failed for watch %s: %s", watch.id, exc)
-        initial_status = {}
+        initial_status = {"note": "Initial status fetch failed — will retry on next poll cycle."}
 
     return {
         "ok": True,
@@ -516,6 +516,11 @@ async def ingest_webhook(
         ).hexdigest()[:24]
     except ProviderError as exc:
         logger.warning("Failed to fetch status after webhook for watch %s: %s", watch.id, exc)
+        _emit_admin_event("flight.provider_error", {"watch_id": watch.id, "source": "webhook"})
+        # Schedule an immediate poll so the next watchdog cycle doesn't wait
+        # for the full suppress window before picking up this event.
+        import asyncio
+        asyncio.create_task(poll_watch(watch.id))
         return {"ok": True, "note": "status_fetch_failed"}
 
     # Diff
