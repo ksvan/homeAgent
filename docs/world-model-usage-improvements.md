@@ -1,5 +1,11 @@
 # World Model Usage Improvements
 
+Status: proposal/partial refinement; world model exists, but this document
+focuses on improving how the agent prioritizes it during ambiguous requests
+Last code check: 2026-06-26
+Runtime entry points: `app/world/formatter.py`, `app/agent/context.py`,
+`prompts/instructions.md`
+
 ## Purpose
 
 This note proposes a small but important improvement to how HomeAgent uses the

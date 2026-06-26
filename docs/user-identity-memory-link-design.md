@@ -1,5 +1,11 @@
 # User Identity And Memory Link Design
 
+Status: implemented core identity/memory link, with future channel extensions
+still relevant
+Last code check: 2026-06-26
+Runtime entry points: `app/models/users.py`, `app/memory/`,
+`app/agent/context.py`, `app/commands/handlers.py`
+
 ## Purpose
 
 Tighten the link between Telegram users, future purpose-specific email

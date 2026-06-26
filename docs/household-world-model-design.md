@@ -1,5 +1,10 @@
 # Household World Model Design
 
+Status: partially implemented design; core world-model runtime exists
+Last code check: 2026-06-26
+Runtime entry points: `app/models/world.py`, `app/world/`,
+`app/agent/tools/world_model.py`
+
 ## Purpose
 
 This document proposes the next major architectural improvement for HomeAgent:

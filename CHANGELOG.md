@@ -58,12 +58,26 @@ Versioning follows [Semantic Versioning](https://semver.org/).
   `docs/household-messaging-coordination-design.md` outlining audited
   household-member messaging, coordination tasks, participant prompt routing,
   reply collection, reminders, and outcome reporting.
+- **Shared coding-agent guidance** — new `AGENTS.md` gives Codex, Claude, and
+  human-directed agents one compact source for architecture rules, data
+  placement, verification, and multi-agent working practices while keeping the
+  local `CLAUDE.md` file in place.
+- **Developer command shortcuts** — new `justfile` standardizes CI-equivalent,
+  fast check, type-check, unit-test, migration, formatting, and dev-run commands.
+- **Subsystem briefs** — new `docs/briefs/` folder with a `briefs.md` inventory
+  and short briefs for agent runtime, world model, email intake, scheduler,
+  control admin, and flights.
 
 ### Changed
 
 - Hardened the Mac mini production deploy helper docs and script around long
   rsync transfers, SSH keepalive timeouts, `.env` preservation, remote log
   tailing, and first-time data migration retries.
+- Added compact status metadata to key design docs so agents can quickly tell
+  whether a document reflects implemented behavior, partial implementation, or a
+  proposal before loading the full document.
+- Updated `README.md` so the shared agent guide, subsystem briefs, and `justfile`
+  workflow commands are discoverable from the main project overview.
 
 ---
 

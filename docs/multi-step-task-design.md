@@ -1,5 +1,10 @@
 # Multi-Step Task Handling Design
 
+Status: partially implemented; task context, task kinds, resumes, and pursuit
+state exist, with this doc still useful for design intent
+Last code check: 2026-06-26
+Runtime entry points: `app/models/tasks.py`, `app/tasks/`, `app/scheduler/`
+
 ## Purpose
 
 This document proposes a concrete approach for turning HomeAgent's current `Task`

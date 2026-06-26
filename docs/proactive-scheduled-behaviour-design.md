@@ -1,5 +1,11 @@
 # Proactive Scheduled Behaviour Design
 
+Status: partially implemented; scheduled prompts exist and broader proactive
+behavior remains an active design area
+Last code check: 2026-06-26
+Runtime entry points: `app/models/scheduled_prompts.py`, `app/scheduler/`,
+`app/agent/runner.py`
+
 ## Purpose
 
 This document proposes how HomeAgent should evolve its current scheduled-prompt

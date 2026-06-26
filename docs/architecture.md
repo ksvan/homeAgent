@@ -1,5 +1,10 @@
 # Architecture
 
+Status: current architecture reference
+Last code check: 2026-06-26
+Runtime entry points: `app/__main__.py`, `app/api/server.py`, `app/bot.py`,
+`app/agent/runner.py`
+
 ## Overview
 
 HomeAgent is a locally orchestrated household AI service. It runs continuously on one production machine, serves multiple household members through messaging and intake channels, and integrates with Homey, Prometheus, AgentMail, flight providers, and internal MCP-backed tools.

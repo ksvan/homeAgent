@@ -1,5 +1,10 @@
 # Agent Skills Design
 
+Status: implemented runtime
+Last code check: 2026-06-26
+Runtime entry points: `app/agent/skills.py`, `app/agent/tools/skills.py`,
+`app/skills/`
+
 ## Purpose
 
 Skills extend the agent with domain-specific knowledge, API workflows, and

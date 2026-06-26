@@ -1,5 +1,9 @@
 # Memory Design
 
+Status: implemented layered memory reference
+Last code check: 2026-06-26
+Runtime entry points: `app/memory/`, `app/world/`, `app/agent/context.py`
+
 HomeAgent now uses a layered memory model that combines always-present profiles, a structured household world model, semantic episodic recall, and conversation continuity.
 
 The important architectural change since the earlier design is that **world structure is no longer only implied by prose**. Durable household entities now live in a first-class world model in `users.db`.

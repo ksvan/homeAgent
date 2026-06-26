@@ -1,5 +1,11 @@
 # Flight Monitor Agent Tool Design
 
+Status: partially implemented; original design predates current `app/flights/`
+runtime and should be read with current code as source of truth
+Last code check: 2026-06-26
+Runtime entry points: `app/flights/`, `app/models/flights.py`,
+`app/agent/tools/flights.py`
+
 ## Purpose
 
 Build a flight monitoring capability for HomeAgent so frequent travellers can stay on top of:

@@ -267,10 +267,20 @@ uv sync
 APP_ENV=development uv run python -m app
 ```
 
+### Agent and developer workflow
+
+- [AGENTS.md](AGENTS.md) is the shared working guide for Codex, Claude, and
+  human-directed coding agents.
+- `justfile` contains the standard local commands. Use `just check-ci` for the
+  CI-equivalent gate, or run the commands directly if `just` is not installed.
+- [docs/briefs/briefs.md](docs/briefs/briefs.md) is the subsystem brief
+  inventory for faster orientation before loading longer design docs.
+
 ### Project structure
 
 ```
 homeAgent/
+├── AGENTS.md               # Shared coding-agent working guide
 ├── app/                    # Application source
 │   ├── agent/              # Pydantic AI agent, tools, context assembly
 │   ├── channels/           # Channel adapters (Telegram, future WhatsApp)
@@ -287,6 +297,7 @@ homeAgent/
 │   ├── tools-mcp/          # Sandboxed bash/python/scrape/search
 │   └── prometheus-mcp/     # Prometheus metrics MCP server
 ├── docs/                   # Design documentation
+│   └── briefs/             # Short subsystem orientation docs
 ├── prompts/                # Agent persona, instructions, home context
 ├── data/                   # Runtime data (git-ignored)
 │   ├── db/                 # SQLite databases
@@ -294,6 +305,7 @@ homeAgent/
 ├── docker/                 # Dockerfile and build assets
 ├── .env.example
 ├── docker-compose.yml
+├── justfile                # Local workflow command shortcuts
 └── pyproject.toml
 ```
 
@@ -315,6 +327,8 @@ docker buildx build \
 
 ## Docs
 
+- [Agent Working Guide](AGENTS.md)
+- [Briefs Inventory](docs/briefs/briefs.md)
 - [Architecture](docs/architecture.md)
 - [Architecture Diagrams](docs/architecture-diagrams.md)
 - [Agent Design](docs/agent-design.md)

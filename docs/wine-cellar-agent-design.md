@@ -1,5 +1,10 @@
 # Wine Cellar Agent Tool Design
 
+Status: implemented, feature-flagged runtime
+Last code check: 2026-06-26
+Runtime entry points: `app/wine/`, `app/models/wine.py`,
+`app/agent/tools/wine.py`
+
 ## Purpose
 
 Make HomeAgent aware of the wine currently available in the household cellar so it can answer questions like:

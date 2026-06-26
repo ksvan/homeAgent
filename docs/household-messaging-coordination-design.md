@@ -1,5 +1,11 @@
 # Household Messaging And Coordination Design
 
+Status: proposal/design; household-to-household messaging is not yet a runtime
+feature
+Last code check: 2026-06-26
+Runtime entry points: planned around `app/channels/`, `app/tasks/`,
+`app/policy/`
+
 ## Purpose
 
 Add a safe household communication layer so HomeAgent can:

@@ -1,5 +1,10 @@
 # Agent Design
 
+Status: implemented, active runtime reference
+Last code check: 2026-06-26
+Runtime entry points: `app/agent/agent.py`, `app/agent/context.py`,
+`app/agent/runner.py`
+
 This document describes the current HomeAgent runtime behavior: how prompts are assembled, what durable context is injected, and what tools the conversation agent can use.
 
 ---

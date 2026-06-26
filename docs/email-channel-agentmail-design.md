@@ -1,5 +1,10 @@
 # Email Channel Design — AgentMail
 
+Status: implemented, feature-flagged runtime
+Last code check: 2026-06-26
+Runtime entry points: `app/email/`, `app/api/webhooks.py`,
+`app/agent/tools/email.py`
+
 ## Purpose
 
 Add email intake for HomeAgent using AgentMail.

@@ -1,5 +1,10 @@
 # Autonomy Control Loop Design
 
+Status: partially implemented; Phase 1 unified execution path is implemented,
+later phases remain design/reference material
+Last code check: 2026-06-26
+Runtime entry points: `app/agent/runner.py`, `app/control/`, `app/scheduler/`
+
 This document covers the design of HomeAgent's native autonomy control loop —
 how the agent moves from a purely reactive system (answers questions) toward a
 proactive one (observes, decides, acts, verifies, waits).

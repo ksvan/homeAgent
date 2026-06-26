@@ -1,5 +1,11 @@
 # Control Loop Admin Tab Design
 
+Status: partially implemented; admin/control dashboard and event stream exist,
+with this doc retained for ongoing refinements
+Last code check: 2026-06-26
+Runtime entry points: `app/control/api.py`, `app/control/dashboard.html`,
+`app/control/events.py`
+
 ## Purpose
 
 This document proposes a new **Control Loop** tab in the admin UI.
