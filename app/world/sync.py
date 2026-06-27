@@ -81,7 +81,8 @@ def _sync_calendars(household_id: str) -> None:
         members = list(
             session.exec(
                 select(HouseholdMember).where(
-                    HouseholdMember.household_id == household_id, HouseholdMember.is_active == True  # noqa: E712
+                    HouseholdMember.household_id == household_id,
+                    HouseholdMember.is_active == True,  # noqa: E712
                 )
             ).all()
         )

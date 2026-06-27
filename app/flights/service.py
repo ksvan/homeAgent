@@ -18,6 +18,7 @@ logger = logging.getLogger(__name__)
 # Provider factory
 # ---------------------------------------------------------------------------
 
+
 def get_provider() -> object:
     from app.config import get_settings
     from app.flights.providers.aerodatabox import AeroDataBoxProvider
@@ -37,6 +38,7 @@ def get_provider() -> object:
 # ---------------------------------------------------------------------------
 # track_flight — called by the agent tool
 # ---------------------------------------------------------------------------
+
 
 async def track_flight(
     user_id: str,
@@ -87,6 +89,7 @@ async def track_flight(
 
     try:
         from app.flights.providers.base import FlightProvider
+
         assert isinstance(provider, FlightProvider)
         candidates = await provider.resolve_flight(query)
     except ProviderFlightNotFoundError as exc:
@@ -166,15 +169,19 @@ async def track_flight(
     if settings.flight_aerodatabox_alerts_enabled and public_base:
         try:
             from app.flights.providers.base import FlightProvider
+
             assert isinstance(provider, FlightProvider)
             alert = await provider.create_alert(watch, webhook_url)
             watch.provider_alert_id = alert.alert_id
             watch.provider_subscription_kind = alert.subscription_kind
             save_watch(watch)
-            _emit_admin_event("flight.provider_alert_created", {
-                "watch_id": watch.id,
-                "alert_id": alert.alert_id,
-            })
+            _emit_admin_event(
+                "flight.provider_alert_created",
+                {
+                    "watch_id": watch.id,
+                    "alert_id": alert.alert_id,
+                },
+            )
             alert_status = "active"
         except ProviderAlertDeferredError:
             alert_status = "deferred"
@@ -186,10 +193,12 @@ async def track_flight(
     # Fetch initial status snapshot
     try:
         from app.flights.providers.base import FlightProvider
+
         assert isinstance(provider, FlightProvider)
         snapshot = await provider.get_status(resolved.provider_flight_id, query)
         snapshot.watch_id = watch.id
         from app.flights.repository import save_snapshot
+
         save_snapshot(snapshot)
         _emit_admin_event("flight.status_refreshed", {"watch_id": watch.id})
         initial_status = snapshot.to_summary_dict()
@@ -207,7 +216,8 @@ async def track_flight(
             f"Alert subscription will be activated closer to departure "
             f"(within {settings.flight_subscription_retry_lead_days} days). "
             "Polling is active in the meantime."
-            if alert_status == "deferred" else None
+            if alert_status == "deferred"
+            else None
         ),
         "initial_status": initial_status,
     }
@@ -216,6 +226,7 @@ async def track_flight(
 # ---------------------------------------------------------------------------
 # get_flight_status — called by the agent tool
 # ---------------------------------------------------------------------------
+
 
 async def get_flight_status(
     user_id: str,
@@ -252,6 +263,7 @@ async def get_flight_status(
             watch = active[0]
         elif len(active) > 1:
             from app.flights.models import FlightWatch
+
             return {
                 "ok": False,
                 "error": "Multiple active watches found. Please specify a flight.",
@@ -321,6 +333,7 @@ async def get_flight_status(
         save_snapshot(snapshot)
         watch.consecutive_provider_errors = 0
         from app.flights.repository import save_watch
+
         save_watch(watch)
         _emit_admin_event("flight.status_refreshed", {"watch_id": watch.id})
     except ProviderQuotaError:
@@ -329,6 +342,7 @@ async def get_flight_status(
         if snapshot_obj is None:
             return {"ok": False, "error": stale_note}
         from app.flights.models import FlightStatusSnapshot
+
         assert isinstance(snapshot_obj, FlightStatusSnapshot)
         result = snapshot_obj.to_summary_dict()
         result["stale"] = True
@@ -358,6 +372,7 @@ async def get_flight_status(
         if snapshot_obj is None:
             return {"ok": False, "error": "Flight not found by provider."}
         from app.flights.models import FlightStatusSnapshot
+
         assert isinstance(snapshot_obj, FlightStatusSnapshot)
         result = snapshot_obj.to_summary_dict()
         result["stale"] = True
@@ -366,16 +381,21 @@ async def get_flight_status(
     except ProviderError as exc:
         watch.consecutive_provider_errors += 1
         from app.flights.repository import save_watch
+
         save_watch(watch)
-        _emit_admin_event("flight.provider_error", {
-            "watch_id": watch.id,
-            "error": str(exc),
-            "consecutive": watch.consecutive_provider_errors,
-        })
+        _emit_admin_event(
+            "flight.provider_error",
+            {
+                "watch_id": watch.id,
+                "error": str(exc),
+                "consecutive": watch.consecutive_provider_errors,
+            },
+        )
         snapshot_obj = get_latest_snapshot(watch.id)
         if snapshot_obj is None:
             return {"ok": False, "error": f"Provider error: {exc}"}
         from app.flights.models import FlightStatusSnapshot
+
         assert isinstance(snapshot_obj, FlightStatusSnapshot)
         result = snapshot_obj.to_summary_dict()
         result["stale"] = True
@@ -392,6 +412,7 @@ async def get_flight_status(
 # ---------------------------------------------------------------------------
 # cancel_flight_watch — called by the agent tool
 # ---------------------------------------------------------------------------
+
 
 async def cancel_flight_watch(user_id: str, watch_id: str) -> dict[str, Any]:
     from app.flights.models import WATCH_CANCELLED, FlightWatch
@@ -422,6 +443,7 @@ async def cancel_flight_watch(user_id: str, watch_id: str) -> dict[str, Any]:
 # ---------------------------------------------------------------------------
 # Webhook ingestion — called from the webhook handler
 # ---------------------------------------------------------------------------
+
 
 async def ingest_webhook(
     vendor: str,
@@ -484,6 +506,7 @@ async def ingest_webhook(
     now = datetime.now(timezone.utc)
 
     from app.flights.models import FlightEvent
+
     event = FlightEvent(
         id=str(uuid.uuid4()),
         watch_id=watch.id,
@@ -501,6 +524,7 @@ async def ingest_webhook(
 
     # Fetch fresh status after webhook (event payload may be incomplete)
     from app.flights.providers.base import FlightQuery
+
     query = FlightQuery(
         carrier_code=watch.carrier_code,
         flight_number=watch.flight_number,
@@ -520,11 +544,13 @@ async def ingest_webhook(
         # Schedule an immediate poll so the next watchdog cycle doesn't wait
         # for the full suppress window before picking up this event.
         import asyncio
+
         asyncio.create_task(poll_watch(watch.id, force=True))
         return {"ok": True, "note": "status_fetch_failed"}
 
     # Diff
     from app.flights.models import FlightStatusSnapshot as _FSS
+
     _prev_raw = get_latest_snapshot(watch.id)
     previous = _prev_raw if isinstance(_prev_raw, _FSS) else None
     snapshot.fetch_source = "webhook"
@@ -549,6 +575,7 @@ async def ingest_webhook(
         import asyncio
 
         from app.flights.notifications import notify_watch_cancelled
+
         asyncio.create_task(notify_watch_cancelled(watch, reason="airline"))
         _emit_admin_event(
             "flight.watch_cancelled", {"watch_id": watch.id, "reason": "airline_cancelled"}
@@ -559,15 +586,14 @@ async def ingest_webhook(
     notifiable = [c for c in changes if should_notify(c, watch.notify_policy)]
     if notifiable:
         import asyncio
+
         asyncio.create_task(dispatch_flight_update(watch, notifiable))
         _emit_admin_event(
             "flight.agent_triggered",
             {"watch_id": watch.id, "changes": len(notifiable)},
         )
     else:
-        _emit_admin_event(
-            "flight.notify_suppressed", {"watch_id": watch.id, "reason": "policy"}
-        )
+        _emit_admin_event("flight.notify_suppressed", {"watch_id": watch.id, "reason": "policy"})
 
     return {"ok": True}
 
@@ -575,6 +601,7 @@ async def ingest_webhook(
 # ---------------------------------------------------------------------------
 # Poll a single watch — called from scheduler
 # ---------------------------------------------------------------------------
+
 
 async def poll_watch(watch_id: str, *, force: bool = False) -> None:
     from app.config import get_settings
@@ -603,15 +630,19 @@ async def poll_watch(watch_id: str, *, force: bool = False) -> None:
 
     # Skip if webhook refreshed recently (bypass when force=True, e.g. webhook fetch failed)
     from app.flights.models import FlightStatusSnapshot as _FSS2
+
     _last_raw = get_latest_snapshot(watch.id)
     last_snapshot = _last_raw if isinstance(_last_raw, _FSS2) else None
     if last_snapshot and not force:
         suppress_window = timedelta(minutes=settings.flight_poll_recent_webhook_suppress_minutes)
         if datetime.now(timezone.utc) - last_snapshot.fetched_at < suppress_window:
-            _emit_admin_event("flight.poll_skipped", {
-                "watch_id": watch.id,
-                "reason": "recent_webhook",
-            })
+            _emit_admin_event(
+                "flight.poll_skipped",
+                {
+                    "watch_id": watch.id,
+                    "reason": "recent_webhook",
+                },
+            )
             return
 
     query = FlightQuery(
@@ -639,12 +670,16 @@ async def poll_watch(watch_id: str, *, force: bool = False) -> None:
     except ProviderError:
         watch.consecutive_provider_errors += 1
         save_watch(watch)
-        _emit_admin_event("flight.provider_error", {
-            "watch_id": watch.id,
-            "consecutive": watch.consecutive_provider_errors,
-        })
+        _emit_admin_event(
+            "flight.provider_error",
+            {
+                "watch_id": watch.id,
+                "consecutive": watch.consecutive_provider_errors,
+            },
+        )
         if watch.consecutive_provider_errors >= settings.flight_watch_fail_consecutive_errors:
             from app.flights.models import FlightStatusSnapshot
+
             _last_raw2 = get_latest_snapshot(watch.id)
             last = _last_raw2 if isinstance(_last_raw2, FlightStatusSnapshot) else None
             last_state = last.state if last else None
@@ -654,11 +689,13 @@ async def poll_watch(watch_id: str, *, force: bool = False) -> None:
             save_watch(watch)
             await _cleanup_terminal_watch(watch)
             import asyncio
+
             asyncio.create_task(notify_watch_failed(watch, last_state))
             _emit_admin_event("flight.watch_failed", {"watch_id": watch.id})
         return
 
     from app.flights.models import FlightStatusSnapshot as _FSS3
+
     _prev_raw2 = get_latest_snapshot(watch.id)
     previous = _prev_raw2 if isinstance(_prev_raw2, _FSS3) else None
     snapshot.fetch_source = "poll"
@@ -671,12 +708,14 @@ async def poll_watch(watch_id: str, *, force: bool = False) -> None:
         notifiable = [c for c in changes if should_notify(c, watch.notify_policy)]
         if notifiable:
             import asyncio
+
             asyncio.create_task(dispatch_flight_update(watch, notifiable))
             _emit_admin_event("flight.agent_triggered", {"watch_id": watch.id})
 
     # Check monitoring_ends_at — complete the watch if window has passed
     if watch.monitoring_ends_at and datetime.now(timezone.utc) >= watch.monitoring_ends_at:
         from app.flights.models import WATCH_COMPLETED
+
         watch.status = WATCH_COMPLETED
         watch.status_reason = "monitoring_window_elapsed"
         watch.completed_at = datetime.now(timezone.utc)
@@ -688,6 +727,7 @@ async def poll_watch(watch_id: str, *, force: bool = False) -> None:
 # ---------------------------------------------------------------------------
 # Check alert credit balance
 # ---------------------------------------------------------------------------
+
 
 async def check_alert_credit_balance() -> None:
     from app.config import get_settings
@@ -716,6 +756,7 @@ async def check_alert_credit_balance() -> None:
 # Retention cleanup
 # ---------------------------------------------------------------------------
 
+
 async def run_retention_cleanup() -> None:
     from app.config import get_settings
     from app.flights.repository import delete_old_events, delete_old_terminal_watches
@@ -723,15 +764,19 @@ async def run_retention_cleanup() -> None:
     settings = get_settings()
     events_deleted = delete_old_events(settings.flight_raw_event_retention_days)
     watches_deleted = delete_old_terminal_watches(settings.flight_completed_watch_retention_days)
-    _emit_admin_event("flight.retention_cleanup_completed", {
-        "events_deleted": events_deleted,
-        "watches_deleted": watches_deleted,
-    })
+    _emit_admin_event(
+        "flight.retention_cleanup_completed",
+        {
+            "events_deleted": events_deleted,
+            "watches_deleted": watches_deleted,
+        },
+    )
 
 
 # ---------------------------------------------------------------------------
 # Internal helpers
 # ---------------------------------------------------------------------------
+
 
 async def _cleanup_terminal_watch(watch: "FlightWatch") -> None:
     """Remove polling jobs and delete provider alert subscription on terminal transition."""
@@ -740,6 +785,7 @@ async def _cleanup_terminal_watch(watch: "FlightWatch") -> None:
     # Remove scheduler polling jobs
     try:
         from app.flights.scheduler import remove_watch_jobs
+
         remove_watch_jobs(watch.id)
     except Exception as exc:
         logger.warning("Could not remove scheduler jobs for watch %s: %s", watch.id, exc)
@@ -750,20 +796,26 @@ async def _cleanup_terminal_watch(watch: "FlightWatch") -> None:
             provider = get_provider()
             assert isinstance(provider, FlightProvider)
             await provider.delete_alert(watch.provider_alert_id)
-            _emit_admin_event("flight.provider_alert_deleted", {
-                "watch_id": watch.id,
-                "alert_id": watch.provider_alert_id,
-            })
+            _emit_admin_event(
+                "flight.provider_alert_deleted",
+                {
+                    "watch_id": watch.id,
+                    "alert_id": watch.provider_alert_id,
+                },
+            )
         except ProviderError as exc:
             logger.warning(
                 "Failed to delete provider alert %s for watch %s: %s",
-                watch.provider_alert_id, watch.id, exc,
+                watch.provider_alert_id,
+                watch.id,
+                exc,
             )
 
 
 def _emit_admin_event(event_type: str, payload: dict[str, Any]) -> None:
     try:
         from app.control.admin_events import emit_admin_event
+
         emit_admin_event(event_type, payload)
     except Exception:
         pass

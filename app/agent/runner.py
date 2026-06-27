@@ -375,6 +375,7 @@ def _strip_binary_from_messages(messages: list[object]) -> list[object]:
                 ImageUrl,
                 VideoUrl,
             )
+
             new_content: list[
                 str | ImageUrl | AudioUrl | DocumentUrl | VideoUrl | BinaryContent | CachePoint
             ] = []

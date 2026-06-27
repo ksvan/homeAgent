@@ -73,6 +73,7 @@ async def _sync(force: bool) -> WineSyncResult:
                     if current_etag and current_etag == meta.etag:
                         bottles = repository.get_all_bottles()
                         import json
+
                         warnings = json.loads(meta.parse_warnings or "[]")
                         result = WineSyncResult(
                             success=True,
@@ -106,6 +107,7 @@ async def _sync(force: bool) -> WineSyncResult:
         meta = repository.get_sync_meta()
         if bottles and meta is not None:
             import json
+
             warnings = json.loads(meta.parse_warnings or "[]")
             emit("wine.cache_used_stale", {"error": err})
             return WineSyncResult(
@@ -140,7 +142,10 @@ async def _sync(force: bool) -> WineSyncResult:
     elapsed = time.monotonic() - t0
     logger.info(
         "Wine sync complete: %d bottles parsed in %.1fs (etag=%s warnings=%d)",
-        len(bottles), elapsed, etag[:8] if etag else "?", len(warnings),
+        len(bottles),
+        elapsed,
+        etag[:8] if etag else "?",
+        len(warnings),
     )
     emit("wine.sync_complete", {"row_count": len(bottles), "elapsed_s": round(elapsed, 2)})
 

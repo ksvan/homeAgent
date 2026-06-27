@@ -173,6 +173,7 @@ def register_event_rule_tools(agent: Agent[AgentDeps, str]) -> None:
 
         with users_session() as session:
             from sqlmodel import col as _col
+
             rules = session.exec(
                 select(EventRule)
                 .where(EventRule.household_id == household_id)

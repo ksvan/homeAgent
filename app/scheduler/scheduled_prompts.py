@@ -37,16 +37,14 @@ def _build_trigger(recurrence: str, time_of_day: str, run_at: object = None) -> 
         return CronTrigger(hour=hour, minute=minute)
 
     if recurrence.startswith("weekly:"):
-        day = recurrence[len("weekly:"):]
+        day = recurrence[len("weekly:") :]
         if day not in _VALID_DAYS:
-            raise ValueError(
-                f"Unknown day {day!r}. Use one of: {', '.join(sorted(_VALID_DAYS))}"
-            )
+            raise ValueError(f"Unknown day {day!r}. Use one of: {', '.join(sorted(_VALID_DAYS))}")
         return CronTrigger(day_of_week=day, hour=hour, minute=minute)
 
     if recurrence.startswith("monthly:"):
         try:
-            day_num = int(recurrence[len("monthly:"):])
+            day_num = int(recurrence[len("monthly:") :])
         except ValueError:
             raise ValueError(f"Invalid monthly recurrence {recurrence!r}; expected 'monthly:N'")
         if not 1 <= day_num <= 28:
@@ -64,6 +62,7 @@ def recurrence_label(recurrence: str, time_of_day: str, run_at: object = None) -
     if recurrence == "once":
         if run_at is not None:
             from datetime import datetime
+
             if isinstance(run_at, datetime):
                 return f"Once on {run_at.strftime('%d %b %Y at %H:%M')}"
             return f"Once on {run_at}"
@@ -71,10 +70,10 @@ def recurrence_label(recurrence: str, time_of_day: str, run_at: object = None) -
     if recurrence == "daily":
         return f"Every day at {time_of_day}"
     if recurrence.startswith("weekly:"):
-        day = recurrence[len("weekly:"):]
+        day = recurrence[len("weekly:") :]
         return f"Every {day.capitalize()} at {time_of_day}"
     if recurrence.startswith("monthly:"):
-        day_num = recurrence[len("monthly:"):]
+        day_num = recurrence[len("monthly:") :]
         return f"Monthly on the {day_num} at {time_of_day}"
     return f"{recurrence} at {time_of_day}"
 
@@ -139,12 +138,14 @@ async def create_scheduled_prompt(
 
         if links:
             for link_dict in links:
-                session.add(ScheduledPromptLink(
-                    prompt_id=sp.id,
-                    entity_type=link_dict["entity_type"],
-                    entity_id=link_dict["entity_id"],
-                    role=link_dict.get("role", "subject"),
-                ))
+                session.add(
+                    ScheduledPromptLink(
+                        prompt_id=sp.id,
+                        entity_type=link_dict["entity_type"],
+                        entity_id=link_dict["entity_id"],
+                        role=link_dict.get("role", "subject"),
+                    )
+                )
 
         session.commit()
         session.refresh(sp)
@@ -245,15 +246,14 @@ async def restore_scheduled_prompts() -> None:
         if sp.recurrence == "once":
             from datetime import datetime
             from datetime import timezone as _tz
+
             if sp.run_at is None or sp.run_at <= datetime.now(_tz.utc):
                 with users_session() as s:
                     stale = s.get(ScheduledPrompt, sp.id)
                     if stale:
                         s.delete(stale)
                         s.commit()
-                logger.info(
-                    "Deleted stale one-shot prompt_id=%s (run_at=%s)", sp.id, sp.run_at
-                )
+                logger.info("Deleted stale one-shot prompt_id=%s (run_at=%s)", sp.id, sp.run_at)
                 continue
 
         is_one_shot = sp.recurrence == "once"

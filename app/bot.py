@@ -8,6 +8,7 @@ Called by channel handlers when a new user message arrives. Responsible for:
   4. Persisting the text-only message pair for summarization
   5. Updating the device state cache from any Homey tool calls made during the run
 """
+
 from __future__ import annotations
 
 import logging
@@ -28,14 +29,14 @@ logger = logging.getLogger(__name__)
 _user_call_times: dict[int, list[float]] = defaultdict(list)
 
 _ONBOARDING_NUDGE = (
-    "\n\n_Tip: send /me name Your Name to identify yourself"
-    " so I can personalise responses._"
+    "\n\n_Tip: send /me name Your Name to identify yourself so I can personalise responses._"
 )
 
 
 def _ensure_telegram_channel_mapping(session: "Session", user: "User") -> None:
     """Create a telegram ChannelMapping for the user if one does not exist."""
     from sqlmodel import select as _select
+
     existing = session.exec(
         _select(ChannelMapping).where(
             ChannelMapping.user_id == user.id,
@@ -78,9 +79,7 @@ class _UserInfo:
 def _get_or_create_user(telegram_id: int) -> _UserInfo:
     settings = get_settings()
     with users_session() as session:
-        user = session.exec(
-            select(User).where(User.telegram_id == telegram_id)
-        ).first()
+        user = session.exec(select(User).where(User.telegram_id == telegram_id)).first()
 
         if user:
             household = session.exec(
@@ -121,6 +120,7 @@ def _get_or_create_user(telegram_id: int) -> _UserInfo:
         # model can mark them as the current speaker without waiting for
         # the next startup bootstrap.
         from app.world.repository import WorldModelRepository
+
         WorldModelRepository.upsert_member(
             household.id,
             user_id=new_user.id,
@@ -140,7 +140,9 @@ def _get_or_create_user(telegram_id: int) -> _UserInfo:
 
 
 async def handle_incoming_message(
-    telegram_id: int, text: str, attachments: list[MediaAttachment],
+    telegram_id: int,
+    text: str,
+    attachments: list[MediaAttachment],
 ) -> str | None:
     """
     Entry point for all incoming messages (text and/or media).
@@ -161,6 +163,7 @@ async def handle_incoming_message(
 
     if text.startswith("/"):
         from app.commands.dispatcher import try_dispatch
+
         cmd_response = await try_dispatch(
             text,
             user_id=user.id,
@@ -190,9 +193,7 @@ async def handle_incoming_message(
                 ch = get_channel()
                 if ch:
                     try:
-                        await ch.send_message(
-                            channel_user_id, "One moment — retrying shortly."
-                        )
+                        await ch.send_message(channel_user_id, "One moment — retrying shortly.")
                     except Exception:
                         pass
 
@@ -229,5 +230,3 @@ async def handle_incoming_message(
             response = response + _ONBOARDING_NUDGE
 
         return response
-
-

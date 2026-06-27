@@ -52,6 +52,7 @@ async def admin_stats() -> dict[str, Any]:
 
     with cache_session() as session:
         from sqlmodel import col
+
         runs = session.exec(
             select(AgentRunLog).order_by(col(AgentRunLog.created_at).desc()).limit(500)
         ).all()
@@ -109,6 +110,7 @@ async def admin_stats() -> dict[str, Any]:
         ).all()
         # Active tasks that carry a control-loop context block
         from sqlalchemy import text as _sql_text
+
         ctrl_active_row = usession.exec(  # type: ignore[call-overload]
             _sql_text(
                 "SELECT count(*) FROM task"
@@ -234,9 +236,7 @@ async def admin_memory() -> dict[str, Any]:
             {
                 "id": m.id,
                 "content": m.content,
-                "scope": (
-                    user_names.get(m.user_id, m.user_id[:8]) if m.user_id else "household"
-                ),
+                "scope": (user_names.get(m.user_id, m.user_id[:8]) if m.user_id else "household"),
                 "importance": m.importance,
                 "created_at": m.created_at.isoformat() if m.created_at else None,
                 "last_used_at": m.last_used_at.isoformat() if m.last_used_at else None,
@@ -307,37 +307,45 @@ async def admin_scheduler() -> dict[str, Any]:
     for t in tasks:
         ctx = _json.loads(t.context)
         if "reminder_text" in ctx:
-            reminders.append({
-                "id": t.id,
-                "user_id": t.user_id,
-                "text": ctx.get("reminder_text", ""),
-                "scheduled_at": ctx.get("scheduled_at", ""),
-            })
+            reminders.append(
+                {
+                    "id": t.id,
+                    "user_id": t.user_id,
+                    "text": ctx.get("reminder_text", ""),
+                    "scheduled_at": ctx.get("scheduled_at", ""),
+                }
+            )
         elif "action_tool" in ctx:
-            actions.append({
-                "id": t.id,
-                "user_id": t.user_id,
-                "description": ctx.get("action_description", t.title),
-                "tool": ctx.get("action_tool", ""),
-                "scheduled_at": ctx.get("scheduled_at", ""),
-            })
+            actions.append(
+                {
+                    "id": t.id,
+                    "user_id": t.user_id,
+                    "description": ctx.get("action_description", t.title),
+                    "tool": ctx.get("action_tool", ""),
+                    "scheduled_at": ctx.get("scheduled_at", ""),
+                }
+            )
 
     scheduled_prompts = []
     for sp in sps:
-        scheduled_prompts.append({
-            "id": sp.id,
-            "user_id": sp.user_id,
-            "name": sp.name,
-            "recurrence": recurrence_label(sp.recurrence, sp.time_of_day),
-            "prompt": sp.prompt[:120] + ("…" if len(sp.prompt) > 120 else ""),
-            "behavior_kind": sp.behavior_kind or "generic_prompt",
-            "goal": sp.goal or "",
-            "last_status": sp.last_status,
-            "last_fired_at": sp.last_fired_at.isoformat() if sp.last_fired_at else None,
-            "last_delivered_at": sp.last_delivered_at.isoformat() if sp.last_delivered_at else None,
-            "last_result_preview": sp.last_result_preview or "",
-            "linked_entities": links_by_prompt.get(sp.id, []),
-        })
+        scheduled_prompts.append(
+            {
+                "id": sp.id,
+                "user_id": sp.user_id,
+                "name": sp.name,
+                "recurrence": recurrence_label(sp.recurrence, sp.time_of_day),
+                "prompt": sp.prompt[:120] + ("…" if len(sp.prompt) > 120 else ""),
+                "behavior_kind": sp.behavior_kind or "generic_prompt",
+                "goal": sp.goal or "",
+                "last_status": sp.last_status,
+                "last_fired_at": sp.last_fired_at.isoformat() if sp.last_fired_at else None,
+                "last_delivered_at": sp.last_delivered_at.isoformat()
+                if sp.last_delivered_at
+                else None,
+                "last_result_preview": sp.last_result_preview or "",
+                "linked_entities": links_by_prompt.get(sp.id, []),
+            }
+        )
 
     return {"reminders": reminders, "actions": actions, "scheduled_prompts": scheduled_prompts}
 
@@ -396,15 +404,17 @@ async def admin_run_prompt_now(prompt_id: str) -> dict[str, str]:
         _prompt_text = sp.prompt
         _name = sp.name
 
-    asyncio.ensure_future(fire_scheduled_prompt(
-        prompt_id=_prompt_id,
-        user_id=_user_id,
-        household_id=_household_id,
-        channel_user_id=_channel_user_id,
-        prompt_text=_prompt_text,
-        name=_name,
-        is_one_shot=False,
-    ))
+    asyncio.ensure_future(
+        fire_scheduled_prompt(
+            prompt_id=_prompt_id,
+            user_id=_user_id,
+            household_id=_household_id,
+            channel_user_id=_channel_user_id,
+            prompt_text=_prompt_text,
+            name=_name,
+            is_one_shot=False,
+        )
+    )
     return {"status": "ok", "message": f"Fired '{_name}'"}
 
 
@@ -426,10 +436,7 @@ async def admin_world_model() -> dict[str, Any]:
     snap = WorldModelRepository.get_full_snapshot(household.id)
 
     def _serialize(items: list[Any]) -> list[dict[str, Any]]:
-        return [
-            {k: v for k, v in row.__dict__.items() if not k.startswith("_")}
-            for row in items
-        ]
+        return [{k: v for k, v in row.__dict__.items() if not k.startswith("_")} for row in items]
 
     return {
         "household_id": household.id,
@@ -450,27 +457,32 @@ async def admin_world_model() -> dict[str, Any]:
 # World-model write endpoints
 # ---------------------------------------------------------------------------
 
+
 class _FactBody(BaseModel):
     scope: str
     key: str
     value: str
 
+
 class _AliasBody(BaseModel):
-    entity_type: str   # "place" | "deviceentity" | "householdmember"
+    entity_type: str  # "place" | "deviceentity" | "householdmember"
     entity_id: str
     alias: str
+
 
 class _RoutineBody(BaseModel):
     name: str
     description: str = ""
     kind: str = ""
 
+
 class _MemberBody(BaseModel):
     name: str
     role: str = "member"  # "admin" | "member" | "child" | "guest"
 
+
 class _MemberDetailBody(BaseModel):
-    detail_type: str   # "interest" | "activity" | "goal"
+    detail_type: str  # "interest" | "activity" | "goal"
     member_id: str
     name: str
     schedule_hint: str = ""
@@ -482,6 +494,7 @@ def _get_household_id() -> str:
 
     from app.db import users_session
     from app.models.users import Household
+
     with users_session() as session:
         household = session.exec(select(Household)).first()
     return household.id if household else ""
@@ -491,11 +504,14 @@ def _get_household_id() -> str:
 async def admin_upsert_member(body: _MemberBody) -> dict[str, Any]:
     from app.control.events import emit
     from app.world.repository import WorldModelRepository as repo
+
     hid = _get_household_id()
     if not hid:
         return {"error": "No household found"}
     member = repo.upsert_member(
-        hid, name=body.name, role=body.role,
+        hid,
+        name=body.name,
+        role=body.role,
         source="admin_authored",
     )
     emit("world.update", {"entity_type": "member", "action": "upsert", "name": member.name})
@@ -506,12 +522,17 @@ async def admin_upsert_member(body: _MemberBody) -> dict[str, Any]:
 async def admin_upsert_fact(body: _FactBody) -> dict[str, Any]:
     from app.control.events import emit
     from app.world.repository import WorldModelRepository as repo
+
     hid = _get_household_id()
     if not hid:
         return {"error": "No household found"}
     repo.upsert_world_fact(
-        hid, scope=body.scope, key=body.key, value=body.value,
-        source="admin_authored", overwrite=True,
+        hid,
+        scope=body.scope,
+        key=body.key,
+        value=body.value,
+        source="admin_authored",
+        overwrite=True,
     )
     emit("world.update", {"entity_type": "fact", "action": "upsert", "key": body.key})
     return {"ok": True, "scope": body.scope, "key": body.key}
@@ -521,6 +542,7 @@ async def admin_upsert_fact(body: _FactBody) -> dict[str, Any]:
 async def admin_delete_fact(fact_id: str) -> dict[str, Any]:
     from app.control.events import emit
     from app.world.repository import WorldModelRepository as repo
+
     ok = repo.delete_entity("worldfact", fact_id)
     if ok:
         emit("world.update", {"entity_type": "fact", "action": "delete", "id": fact_id})
@@ -531,12 +553,16 @@ async def admin_delete_fact(fact_id: str) -> dict[str, Any]:
 async def admin_upsert_routine(body: _RoutineBody) -> dict[str, Any]:
     from app.control.events import emit
     from app.world.repository import WorldModelRepository as repo
+
     hid = _get_household_id()
     if not hid:
         return {"error": "No household found"}
     repo.upsert_routine(
-        hid, name=body.name, description=body.description,
-        kind=body.kind, source="admin_authored",
+        hid,
+        name=body.name,
+        description=body.description,
+        kind=body.kind,
+        source="admin_authored",
     )
     emit("world.update", {"entity_type": "routine", "action": "upsert", "name": body.name})
     return {"ok": True, "name": body.name}
@@ -546,6 +572,7 @@ async def admin_upsert_routine(body: _RoutineBody) -> dict[str, Any]:
 async def admin_add_alias(body: _AliasBody) -> dict[str, Any]:
     from app.control.events import emit
     from app.world.repository import WorldModelRepository as repo
+
     hid = _get_household_id()
     if not hid:
         return {"error": "No household found"}
@@ -562,20 +589,28 @@ async def admin_add_alias(body: _AliasBody) -> dict[str, Any]:
 async def admin_upsert_member_detail(body: _MemberDetailBody) -> dict[str, Any]:
     from app.control.events import emit
     from app.world.repository import WorldModelRepository as repo
+
     hid = _get_household_id()
     if not hid:
         return {"error": "No household found"}
 
     if body.detail_type == "interest":
-        repo.upsert_interest(hid, member_id=body.member_id, name=body.name,
-                             notes=body.notes, source="admin_authored")
+        repo.upsert_interest(
+            hid, member_id=body.member_id, name=body.name, notes=body.notes, source="admin_authored"
+        )
     elif body.detail_type == "activity":
-        repo.upsert_activity(hid, member_id=body.member_id, name=body.name,
-                             schedule_hint=body.schedule_hint, notes=body.notes,
-                             source="admin_authored")
+        repo.upsert_activity(
+            hid,
+            member_id=body.member_id,
+            name=body.name,
+            schedule_hint=body.schedule_hint,
+            notes=body.notes,
+            source="admin_authored",
+        )
     elif body.detail_type == "goal":
-        repo.upsert_goal(hid, member_id=body.member_id, name=body.name,
-                         notes=body.notes, source="admin_authored")
+        repo.upsert_goal(
+            hid, member_id=body.member_id, name=body.name, notes=body.notes, source="admin_authored"
+        )
     else:
         return {"error": f"Unknown detail_type: {body.detail_type}"}
 
@@ -587,6 +622,7 @@ async def admin_upsert_member_detail(body: _MemberDetailBody) -> dict[str, Any]:
 async def admin_delete_entity(entity_type: str, entity_id: str) -> dict[str, Any]:
     from app.control.events import emit
     from app.world.repository import WorldModelRepository as repo
+
     ok = repo.delete_entity(entity_type, entity_id)
     if ok:
         emit("world.update", {"entity_type": entity_type, "action": "delete", "id": entity_id})
@@ -601,6 +637,7 @@ async def admin_delete_entity(entity_type: str, entity_id: str) -> dict[str, Any
 @router.get("/world-model/proposals", dependencies=_auth)
 async def admin_list_proposals() -> dict[str, Any]:
     from app.world.repository import WorldModelRepository as repo
+
     hid = _get_household_id()
     if not hid:
         return {"proposals": []}
@@ -718,19 +755,34 @@ def _apply_accepted_proposal(p: object) -> None:
         elif ptype == "interest":
             member = repo.find_member_by_name(hid, payload.get("member_name", ""))
             if member:
-                repo.upsert_interest(hid, member_id=member.id, name=payload["name"],
-                                     notes=payload.get("notes", ""), source="proposal_accepted")
+                repo.upsert_interest(
+                    hid,
+                    member_id=member.id,
+                    name=payload["name"],
+                    notes=payload.get("notes", ""),
+                    source="proposal_accepted",
+                )
         elif ptype == "activity":
             member = repo.find_member_by_name(hid, payload.get("member_name", ""))
             if member:
-                repo.upsert_activity(hid, member_id=member.id, name=payload["name"],
-                                     schedule_hint=payload.get("schedule_hint", ""),
-                                     notes=payload.get("notes", ""), source="proposal_accepted")
+                repo.upsert_activity(
+                    hid,
+                    member_id=member.id,
+                    name=payload["name"],
+                    schedule_hint=payload.get("schedule_hint", ""),
+                    notes=payload.get("notes", ""),
+                    source="proposal_accepted",
+                )
         elif ptype == "goal":
             member = repo.find_member_by_name(hid, payload.get("member_name", ""))
             if member:
-                repo.upsert_goal(hid, member_id=member.id, name=payload["name"],
-                                 notes=payload.get("notes", ""), source="proposal_accepted")
+                repo.upsert_goal(
+                    hid,
+                    member_id=member.id,
+                    name=payload["name"],
+                    notes=payload.get("notes", ""),
+                    source="proposal_accepted",
+                )
         elif ptype == "routine":
             repo.upsert_routine(
                 household_id=hid,
@@ -746,6 +798,7 @@ def _apply_accepted_proposal(p: object) -> None:
 # ---------------------------------------------------------------------------
 # Task endpoints
 # ---------------------------------------------------------------------------
+
 
 @router.get("/tasks", dependencies=_auth)
 async def admin_tasks() -> dict[str, Any]:
@@ -798,64 +851,75 @@ async def admin_tasks() -> dict[str, Any]:
     result = []
     for t in all_tasks:
         import json as _json
+
         steps = sorted(steps_by_task.get(t.id, []), key=lambda s: s.step_index)
         links = links_by_task.get(t.id, [])
         try:
             ctx_data = _json.loads(t.context or "{}")
             control = ctx_data.get("control") or None
             raw_goal = ctx_data.get("goal") or {}
-            goal = {
-                "intent": raw_goal.get("intent"),
-                "success_criteria": raw_goal.get("success_criteria"),
-                "acceptance_test": raw_goal.get("acceptance_test"),
-                "outcome": raw_goal.get("outcome"),
-                "completion_rejection_count": raw_goal.get("completion_rejection_count", 0),
-            } if raw_goal else None
+            goal = (
+                {
+                    "intent": raw_goal.get("intent"),
+                    "success_criteria": raw_goal.get("success_criteria"),
+                    "acceptance_test": raw_goal.get("acceptance_test"),
+                    "outcome": raw_goal.get("outcome"),
+                    "completion_rejection_count": raw_goal.get("completion_rejection_count", 0),
+                }
+                if raw_goal
+                else None
+            )
             raw_pursuit = ctx_data.get("pursuit") or {}
-            pursuit = {
-                "attempt_count": raw_pursuit.get("attempt_count", 0),
-                "max_attempts": raw_pursuit.get("max_attempts", 5),
-                "current_approach": raw_pursuit.get("current_approach"),
-                "next_action": raw_pursuit.get("next_action"),
-                "last_attempt": raw_pursuit.get("last_attempt"),
-                "recent_attempts": raw_pursuit.get("recent_attempts", []),
-                "resume": raw_pursuit.get("resume"),
-                "replan_reason": raw_pursuit.get("replan_reason"),
-            } if raw_pursuit else None
+            pursuit = (
+                {
+                    "attempt_count": raw_pursuit.get("attempt_count", 0),
+                    "max_attempts": raw_pursuit.get("max_attempts", 5),
+                    "current_approach": raw_pursuit.get("current_approach"),
+                    "next_action": raw_pursuit.get("next_action"),
+                    "last_attempt": raw_pursuit.get("last_attempt"),
+                    "recent_attempts": raw_pursuit.get("recent_attempts", []),
+                    "resume": raw_pursuit.get("resume"),
+                    "replan_reason": raw_pursuit.get("replan_reason"),
+                }
+                if raw_pursuit
+                else None
+            )
         except Exception:
             control = None
             goal = None
             pursuit = None
-        result.append({
-            "id": t.id,
-            "title": t.title,
-            "task_kind": t.task_kind or "legacy",
-            "status": t.status,
-            "summary": t.summary,
-            "awaiting_input_hint": t.awaiting_input_hint,
-            "resume_after": t.resume_after.isoformat() if t.resume_after else None,
-            "current_step": t.current_step,
-            "user": user_names.get(t.user_id, t.user_id[:8]),
-            "created_at": t.created_at.isoformat() if t.created_at else None,
-            "updated_at": t.updated_at.isoformat() if t.updated_at else None,
-            "control": control,
-            "goal": goal,
-            "pursuit": pursuit,
-            "steps": [
-                {
-                    "index": s.step_index,
-                    "title": s.title,
-                    "status": s.status,
-                    "type": s.step_type,
-                    "details": _json.loads(s.details_json) if s.details_json else {},
-                }
-                for s in steps
-            ],
-            "links": [
-                {"entity_type": ln.entity_type, "entity_id": ln.entity_id, "role": ln.role}
-                for ln in links
-            ],
-        })
+        result.append(
+            {
+                "id": t.id,
+                "title": t.title,
+                "task_kind": t.task_kind or "legacy",
+                "status": t.status,
+                "summary": t.summary,
+                "awaiting_input_hint": t.awaiting_input_hint,
+                "resume_after": t.resume_after.isoformat() if t.resume_after else None,
+                "current_step": t.current_step,
+                "user": user_names.get(t.user_id, t.user_id[:8]),
+                "created_at": t.created_at.isoformat() if t.created_at else None,
+                "updated_at": t.updated_at.isoformat() if t.updated_at else None,
+                "control": control,
+                "goal": goal,
+                "pursuit": pursuit,
+                "steps": [
+                    {
+                        "index": s.step_index,
+                        "title": s.title,
+                        "status": s.status,
+                        "type": s.step_type,
+                        "details": _json.loads(s.details_json) if s.details_json else {},
+                    }
+                    for s in steps
+                ],
+                "links": [
+                    {"entity_type": ln.entity_type, "entity_id": ln.entity_id, "role": ln.role}
+                    for ln in links
+                ],
+            }
+        )
 
     return {"tasks": result}
 
@@ -1121,10 +1185,10 @@ async def admin_delete_event_rule(rule_id: str) -> dict[str, str]:
 
 class _EventRuleTestBody(BaseModel):
     entity_name: str = ""
-    capability: str = ""   # overrides rule's capability; falls back to rule value
-    value: object = None   # synthetic payload value
+    capability: str = ""  # overrides rule's capability; falls back to rule value
+    value: object = None  # synthetic payload value
     zone: str = ""
-    force: bool = False    # bypass cooldown for this test fire
+    force: bool = False  # bypass cooldown for this test fire
 
 
 @router.post("/event-rules/{rule_id}/test", dependencies=_auth)
@@ -1170,6 +1234,7 @@ async def admin_test_event_rule(  # noqa: E501
                 session.commit()
 
         from app.control.dispatcher import _rule_last_triggered
+
         _rule_last_triggered.pop(rule_id, None)
 
     from sqlmodel import select
@@ -1189,9 +1254,7 @@ async def admin_test_event_rule(  # noqa: E501
         event_type=str(rule_snapshot["event_type"] or ""),
         household_id=household.id,
         entity_id=(
-            str(rule_snapshot["entity_id"])
-            if rule_snapshot["entity_id"] != "*"
-            else "test-entity"
+            str(rule_snapshot["entity_id"]) if rule_snapshot["entity_id"] != "*" else "test-entity"
         ),
         payload={
             "entity_name": body.entity_name or f"[test] {rule_snapshot['name']}",
@@ -1206,7 +1269,9 @@ async def admin_test_event_rule(  # noqa: E501
 
     logger.info(
         "Test event fired for rule id=%s name=%r force=%s",
-        rule_id, rule_snapshot["name"], body.force,
+        rule_id,
+        rule_snapshot["name"],
+        body.force,
     )
     return {
         "status": "fired",
@@ -1282,7 +1347,8 @@ async def admin_email_messages(
                 "attempt_count": r.attempt_count,
                 "instruction_text": r.instruction_text[:200] if r.instruction_text else "",
                 "proposed_action": json.loads(r.proposed_action_json)
-                    if r.proposed_action_json else None,
+                if r.proposed_action_json
+                else None,
                 "created_at": r.created_at.isoformat() if r.created_at else None,
                 "updated_at": r.updated_at.isoformat() if r.updated_at else None,
             }
@@ -1299,4 +1365,6 @@ try:
     _ADMIN_HTML = (pathlib.Path(__file__).with_name("dashboard.html")).read_text()
 except FileNotFoundError:
     logger.error("dashboard.html not found next to api.py — admin UI will be unavailable")
-    _ADMIN_HTML = "<html><body><pre>Admin UI unavailable: dashboard.html missing.</pre></body></html>"  # noqa: E501
+    _ADMIN_HTML = (
+        "<html><body><pre>Admin UI unavailable: dashboard.html missing.</pre></body></html>"  # noqa: E501
+    )

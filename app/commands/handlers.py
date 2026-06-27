@@ -62,16 +62,21 @@ class _ContextStats(SlashCommand):
         mem_count = len(assembled.relevant_memories)
         mem_chars = sum(len(m) for m in assembled.relevant_memories)
         total_chars = (
-            persona_chars + instructions_chars
-            + msg_chars + summary_chars
-            + user_profile_chars + household_profile_chars
-            + world_model_chars + mem_chars
+            persona_chars
+            + instructions_chars
+            + msg_chars
+            + summary_chars
+            + user_profile_chars
+            + household_profile_chars
+            + world_model_chars
+            + mem_chars
         )
         approx_tokens = total_chars // 4
 
         try:
             import datetime as _dt
             from zoneinfo import ZoneInfo
+
             tz: _dt.tzinfo = ZoneInfo(settings.household_timezone)
         except Exception:
             tz = _utc.utc
@@ -134,9 +139,7 @@ class _History(SlashCommand):
         summary = get_conversation_summary(ctx.user_id)
         header = f"Last {len(messages)} message(s):\n\n"
         body = "\n\n".join(lines)
-        footer = (
-            "\n\n[Older messages are covered by a conversation summary.]" if summary else ""
-        )
+        footer = "\n\n[Older messages are covered by a conversation summary.]" if summary else ""
         return header + body + footer
 
 
@@ -203,9 +206,7 @@ class _ScheduledPrompts(SlashCommand):
 
             with users_session() as session:
                 prompts = session.exec(
-                    select(ScheduledPrompt).where(
-                        ScheduledPrompt.household_id == ctx.household_id
-                    )
+                    select(ScheduledPrompt).where(ScheduledPrompt.household_id == ctx.household_id)
                 ).all()
                 match = next((p for p in prompts if p.id.lower().startswith(id_prefix)), None)
 
@@ -231,9 +232,7 @@ class _ScheduledPrompts(SlashCommand):
         # Default: list all prompts
         with users_session() as session:
             prompts = session.exec(
-                select(ScheduledPrompt).where(
-                    ScheduledPrompt.household_id == ctx.household_id
-                )
+                select(ScheduledPrompt).where(ScheduledPrompt.household_id == ctx.household_id)
             ).all()
 
         if not prompts:
@@ -246,10 +245,7 @@ class _ScheduledPrompts(SlashCommand):
             status = "on" if p.enabled else "off"
             text = p.prompt if len(p.prompt) <= 60 else p.prompt[:60] + "…"
             label = recurrence_label(p.recurrence, p.time_of_day, p.run_at)
-            lines.append(
-                f"[{status}] {p.name}  —  {label}\n"
-                f"       {text}  (id: {p.id[:8]})"
-            )
+            lines.append(f"[{status}] {p.name}  —  {label}\n       {text}  (id: {p.id[:8]})")
 
         return f"{len(prompts)} scheduled prompt(s):\n\n" + "\n\n".join(lines)
 
@@ -294,9 +290,9 @@ class _Status(SlashCommand):
         from app.tools.mcp_client import stop_mcp as stop_tools
 
         services = [
-            ("Homey MCP",      get_homey,  stop_homey,  start_homey),
-            ("Prometheus MCP", get_prom,   stop_prom,   start_prom),
-            ("Tools MCP",      get_tools,  stop_tools,  start_tools),
+            ("Homey MCP", get_homey, stop_homey, start_homey),
+            ("Prometheus MCP", get_prom, stop_prom, start_prom),
+            ("Tools MCP", get_tools, stop_tools, start_tools),
         ]
 
         lines = []
@@ -338,9 +334,7 @@ class _Users(SlashCommand):
         from app.models.users import User
 
         with users_session() as session:
-            users = session.exec(
-                select(User).where(User.household_id == ctx.household_id)
-            ).all()
+            users = session.exec(select(User).where(User.household_id == ctx.household_id)).all()
 
         if not users:
             return "No users found."
@@ -358,7 +352,6 @@ class _Me(SlashCommand):
     help = "View or update your identity (/me show | /me name <name> | /me email <address>)"
 
     async def run(self, ctx: SlashCommandContext) -> str:
-
 
         sub = ctx.args[0].lower() if ctx.args else ""
 
@@ -393,9 +386,7 @@ class _Me(SlashCommand):
         from app.world.repository import WorldModelRepository
 
         with users_session() as session:
-            user = session.exec(
-                select(User).where(User.id == ctx.user_id)
-            ).first()
+            user = session.exec(select(User).where(User.id == ctx.user_id)).first()
             emails = session.exec(
                 select(ChannelMapping).where(
                     ChannelMapping.user_id == ctx.user_id,
@@ -434,9 +425,7 @@ class _Me(SlashCommand):
 
         now = datetime.now(timezone.utc)
         with users_session() as session:
-            user = session.exec(
-                select(User).where(User.id == ctx.user_id)
-            ).first()
+            user = session.exec(select(User).where(User.id == ctx.user_id)).first()
             if not user:
                 return "User not found."
             user.name = name
@@ -501,11 +490,13 @@ class _Me(SlashCommand):
                 )
             ).first()
             if not existing:
-                session.add(ChannelMapping(
-                    user_id=ctx.user_id,
-                    channel="email",
-                    channel_user_id=normalized,
-                ))
+                session.add(
+                    ChannelMapping(
+                        user_id=ctx.user_id,
+                        channel="email",
+                        channel_user_id=normalized,
+                    )
+                )
                 session.commit()
 
         return f"Email {normalized} linked to your account."
@@ -535,7 +526,13 @@ class _Me(SlashCommand):
 
 # Register all commands in display order
 for _cmd in [
-    _Help(), _ContextStats(), _History(), _Schedule(),
-    _ScheduledPrompts(), _Status(), _Users(), _Me(),
+    _Help(),
+    _ContextStats(),
+    _History(),
+    _Schedule(),
+    _ScheduledPrompts(),
+    _Status(),
+    _Users(),
+    _Me(),
 ]:
     registry.register(_cmd)

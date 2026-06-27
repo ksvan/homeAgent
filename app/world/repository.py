@@ -275,7 +275,8 @@ class WorldModelRepository:
         with users_session() as session:
             members = session.exec(
                 select(HouseholdMember).where(
-                    HouseholdMember.household_id == household_id, HouseholdMember.is_active == True  # noqa: E712
+                    HouseholdMember.household_id == household_id,
+                    HouseholdMember.is_active == True,  # noqa: E712
                 )
             ).all()
             needle = name.lower()

@@ -11,6 +11,7 @@ logger = logging.getLogger(__name__)
 # FlightWatch
 # ---------------------------------------------------------------------------
 
+
 def save_watch(watch: object) -> None:
     from app.db import cache_session
     from app.flights.models import FlightWatch
@@ -89,9 +90,7 @@ def list_active_watches() -> list[object]:
     from app.models.flights import FlightWatchRow
 
     with cache_session() as session:
-        rows = session.exec(
-            select(FlightWatchRow).where(FlightWatchRow.status == "ACTIVE")
-        ).all()
+        rows = session.exec(select(FlightWatchRow).where(FlightWatchRow.status == "ACTIVE")).all()
         return [_row_to_watch(r) for r in rows]
 
 
@@ -179,6 +178,7 @@ def _row_to_watch(row: object) -> object:
 # ---------------------------------------------------------------------------
 # FlightStatusSnapshot
 # ---------------------------------------------------------------------------
+
 
 def save_snapshot(snapshot: object) -> None:
     from app.db import cache_session
@@ -293,6 +293,7 @@ def _row_to_snapshot(row: object) -> object:
 # FlightEvent
 # ---------------------------------------------------------------------------
 
+
 def save_event(event: object) -> None:
     from app.db import cache_session
     from app.flights.models import FlightEvent
@@ -368,6 +369,7 @@ def event_hash_exists(event_hash: str) -> bool:
 # Retention cleanup
 # ---------------------------------------------------------------------------
 
+
 def delete_old_events(retention_days: int) -> int:
     from datetime import timedelta
 
@@ -379,6 +381,7 @@ def delete_old_events(retention_days: int) -> int:
     cutoff = datetime.now(timezone.utc) - timedelta(days=retention_days)
     with cache_session() as session:
         from sqlmodel import col as _col
+
         result = session.exec(
             sql_delete(FlightEventRow).where(_col(FlightEventRow.received_at) < cutoff)
         )
@@ -411,8 +414,6 @@ def delete_old_terminal_watches(retention_days: int) -> int:
                 col(FlightStatusSnapshotRow.watch_id).in_(ids)
             )
         )
-        session.exec(
-            sql_delete(FlightWatchRow).where(col(FlightWatchRow.id).in_(ids))
-        )
+        session.exec(sql_delete(FlightWatchRow).where(col(FlightWatchRow.id).in_(ids)))
         session.commit()
         return len(ids)

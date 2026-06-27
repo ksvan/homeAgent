@@ -78,6 +78,7 @@ def parse_xlsx(
     rows_iter = ws.iter_rows(values_only=True)
 
     from typing import Any
+
     # Find header row: first non-empty row
     header_row: tuple[Any, ...] | None = None
     data_rows: list[tuple[Any, ...]] = []

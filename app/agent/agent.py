@@ -59,9 +59,7 @@ def _make_conversation_agent() -> Agent[AgentDeps, str]:
     prom_ts = get_prom_mcp()
     tools_ts = get_tools_mcp()
     toolsets: list[AbstractToolset[AgentDeps]] = [
-        cast(AbstractToolset[AgentDeps], s)
-        for s in (homey_ts, prom_ts, tools_ts)
-        if s is not None
+        cast(AbstractToolset[AgentDeps], s) for s in (homey_ts, prom_ts, tools_ts) if s is not None
     ]
     logger.info(
         "Building agent: homey=%s prom=%s tools=%s total_toolsets=%d",
@@ -217,6 +215,7 @@ async def run_conversation(
     result.new_messages() to inspect tool calls made during the run.
     """
     import datetime as _dt
+
     settings = get_settings()
     try:
         from zoneinfo import ZoneInfo
