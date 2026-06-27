@@ -24,5 +24,8 @@ jobs:
       - name: Lint (ruff)
         run: uv run ruff check app/
 
+      - name: Type check (mypy)
+        run: uv run mypy app/
+
       - name: Unit tests
         run: uv run pytest tests/unit/ -v --tb=short

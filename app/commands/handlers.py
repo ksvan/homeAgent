@@ -70,8 +70,9 @@ class _ContextStats(SlashCommand):
         approx_tokens = total_chars // 4
 
         try:
+            import datetime as _dt
             from zoneinfo import ZoneInfo
-            tz = ZoneInfo(settings.household_timezone)
+            tz: _dt.tzinfo = ZoneInfo(settings.household_timezone)
         except Exception:
             tz = _utc.utc
         now = datetime.now(tz)
@@ -162,7 +163,7 @@ class _Schedule(SlashCommand):
 
         lines = []
         for task in tasks:
-            task_data: dict = {}
+            task_data: dict[str, object] = {}
             try:
                 task_data = json.loads(task.context)
             except Exception:
@@ -176,6 +177,7 @@ class _Schedule(SlashCommand):
                 kind = "Reminder"
                 desc = task_data.get("reminder_text", task.title)
 
+            desc = str(desc)
             if len(desc) > 60:
                 desc = desc[:60] + "…"
             lines.append(f"[{kind}] {scheduled_at}  {desc}  (id: {task.id[:8]})")

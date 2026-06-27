@@ -12,7 +12,7 @@ from __future__ import annotations
 import logging
 from datetime import datetime, timedelta, timezone
 
-from sqlmodel import select
+from sqlmodel import col, select
 
 from app.db import cache_session
 from app.email.models import EmailMessage
@@ -28,7 +28,7 @@ _STALE_LOCK_JOB_ID = "email_stale_lock_sweeper"
 _RETENTION_JOB_ID = "email_retention_cleanup"
 
 
-def _emit(event_type: str, payload: dict) -> None:  # type: ignore[type-arg]
+def _emit(event_type: str, payload: dict[str, object]) -> None:
     try:
         from app.control.admin_events import emit_admin_event
         emit_admin_event(event_type, payload)
@@ -44,7 +44,7 @@ async def retry_job() -> None:
         rows = session.exec(
             select(EmailMessage).where(
                 EmailMessage.status == "FAILED_RETRYABLE",
-                EmailMessage.next_attempt_at <= now,
+                col(EmailMessage.next_attempt_at) <= now,
             )
         ).all()
 
@@ -104,8 +104,8 @@ async def stale_lock_job() -> None:
     with cache_session() as session:
         rows = session.exec(
             select(EmailMessage).where(
-                EmailMessage.status.in_(["CLASSIFYING", "PROCESSING"]),  # type: ignore[attr-defined]
-                EmailMessage.locked_at <= cutoff,
+                col(EmailMessage.status).in_(["CLASSIFYING", "PROCESSING"]),
+                col(EmailMessage.locked_at) <= cutoff,
             )
         ).all()
 

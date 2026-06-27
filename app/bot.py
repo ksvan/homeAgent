@@ -15,8 +15,9 @@ from collections import defaultdict
 from dataclasses import dataclass
 from time import monotonic
 
-from sqlmodel import select
+from sqlmodel import Session, select
 
+from app.channels.base import MediaAttachment
 from app.config import get_settings
 from app.db import users_session
 from app.models.users import ChannelMapping, Household, User
@@ -32,17 +33,17 @@ _ONBOARDING_NUDGE = (
 )
 
 
-def _ensure_telegram_channel_mapping(session: object, user: "User") -> None:
+def _ensure_telegram_channel_mapping(session: "Session", user: "User") -> None:
     """Create a telegram ChannelMapping for the user if one does not exist."""
     from sqlmodel import select as _select
-    existing = session.exec(  # type: ignore[union-attr]
+    existing = session.exec(
         _select(ChannelMapping).where(
             ChannelMapping.user_id == user.id,
             ChannelMapping.channel == "telegram",
         )
     ).first()
     if not existing:
-        session.add(  # type: ignore[union-attr]
+        session.add(
             ChannelMapping(
                 user_id=user.id,
                 channel="telegram",
@@ -139,7 +140,7 @@ def _get_or_create_user(telegram_id: int) -> _UserInfo:
 
 
 async def handle_incoming_message(
-    telegram_id: int, text: str, attachments: list | None = None
+    telegram_id: int, text: str, attachments: list[MediaAttachment],
 ) -> str | None:
     """
     Entry point for all incoming messages (text and/or media).

@@ -6,6 +6,7 @@ from __future__ import annotations
 import json
 import logging
 
+from app.models.world import DeviceEntity, Place
 from app.world.repository import WorldModelRepository, WorldModelSnapshot
 
 logger = logging.getLogger(__name__)
@@ -85,8 +86,8 @@ def _add_places(sections: list[str], snap: WorldModelSnapshot) -> None:
         return
 
     # Build hierarchy: parent_id → children
-    by_parent: dict[str | None, list] = {}
-    place_by_id: dict[str, object] = {}
+    by_parent: dict[str | None, list[Place]] = {}
+    place_by_id: dict[str, Place] = {}
     for p in snap.places:
         by_parent.setdefault(p.parent_place_id, []).append(p)
         place_by_id[p.id] = p
@@ -132,7 +133,7 @@ def _add_devices(sections: list[str], snap: WorldModelSnapshot) -> None:
     for p in snap.places:
         place_by_id[p.id] = p.name
 
-    by_place: dict[str | None, list] = {}
+    by_place: dict[str | None, list[DeviceEntity]] = {}
     for d in snap.devices:
         by_place.setdefault(d.place_id, []).append(d)
 

@@ -110,7 +110,7 @@ def register_flight_tools(agent: Agent[AgentDeps, str]) -> None:
         )
 
         if not result.get("ok"):
-            error = result.get("error", "Unknown error")
+            error = str(result.get("error", "Unknown error"))
             if "watches" in result:
                 watches_str = ", ".join(
                     f"{w['flight']} (ID: {w['watch_id']})"
@@ -310,5 +310,5 @@ def register_flight_tools(agent: Agent[AgentDeps, str]) -> None:
             watch_id=flight_watch_id,
         )
         if not result.get("ok"):
-            return result.get("error", "Could not cancel watch.")
-        return result.get("message", "Watch cancelled.")
+            return str(result.get("error", "Could not cancel watch."))
+        return str(result.get("message", "Watch cancelled."))

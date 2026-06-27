@@ -42,7 +42,7 @@ def get_mcp_server() -> MCPServerStreamableHTTP | None:
     return _mcp_server
 
 
-def get_mcp_toolset(advanced: bool = False):
+def get_mcp_toolset(advanced: bool = False) -> object:
     """Return a Homey toolset for the agent.
 
     By default returns the simple schema (7 tools for everyday actions).

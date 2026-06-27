@@ -3,9 +3,14 @@ from __future__ import annotations
 import logging
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
+from typing import TYPE_CHECKING, cast
 
 from pydantic_ai import Agent, AgentRunResult, RunContext
 from pydantic_ai.messages import ModelMessage
+from pydantic_ai.toolsets import AbstractToolset
+
+if TYPE_CHECKING:
+    from app.channels.base import MediaAttachment
 
 from app.agent.llm_router import LLMRouter, TaskType
 from app.agent.prompts import load_instructions, load_persona
@@ -53,7 +58,11 @@ def _make_conversation_agent() -> Agent[AgentDeps, str]:
     homey_ts = get_mcp_toolset(advanced=False)
     prom_ts = get_prom_mcp()
     tools_ts = get_tools_mcp()
-    toolsets = [s for s in (homey_ts, prom_ts, tools_ts) if s is not None]
+    toolsets: list[AbstractToolset[AgentDeps]] = [
+        cast(AbstractToolset[AgentDeps], s)
+        for s in (homey_ts, prom_ts, tools_ts)
+        if s is not None
+    ]
     logger.info(
         "Building agent: homey=%s prom=%s tools=%s total_toolsets=%d",
         "ok" if homey_ts is not None else "MISSING",
@@ -199,7 +208,7 @@ async def run_conversation(
     channel_user_id: str = "",
     run_id: str = "",
     control_task_id: str = "",
-    media: list | None = None,
+    media: "list[MediaAttachment] | None" = None,
 ) -> AgentRunResult[str]:
     """
     Run the conversation agent and return the full AgentRunResult.
@@ -207,11 +216,12 @@ async def run_conversation(
     Callers should use result.output for the response text, and
     result.new_messages() to inspect tool calls made during the run.
     """
+    import datetime as _dt
     settings = get_settings()
     try:
         from zoneinfo import ZoneInfo
 
-        tz = ZoneInfo(settings.household_timezone)
+        tz: _dt.tzinfo = ZoneInfo(settings.household_timezone)
     except Exception:
         tz = timezone.utc
     now = datetime.now(tz)
@@ -260,9 +270,10 @@ async def run_conversation(
     from pydantic_ai.settings import ModelSettings
 
     if media:
-        user_prompt: str | list = [text] + [
+        media_parts: list[str | BinaryContent] = [text] + [
             BinaryContent(data=m.data, media_type=m.mime_type) for m in media
         ]
+        user_prompt: str | list[str | BinaryContent] = media_parts
         logger.info("run_conversation: media=%d attachment(s)", len(media))
     else:
         user_prompt = text

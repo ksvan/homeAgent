@@ -62,7 +62,8 @@ def register_action_tools(agent: Agent[AgentDeps, str]) -> None:
         # Check policy at schedule time — high-impact tools cannot run unattended.
         inner_name = str(tool_args.get("name", "")).removeprefix("homey_")
         if inner_name:
-            inner_args = dict(tool_args.get("arguments", {}))  # type: ignore[arg-type]
+            _raw_args = tool_args.get("arguments") or {}
+            inner_args: dict[str, object] = dict(_raw_args) if isinstance(_raw_args, dict) else {}
             decision = evaluate_policy(inner_name, inner_args)
             if decision.requires_confirm:
                 return (

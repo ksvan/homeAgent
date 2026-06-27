@@ -39,10 +39,10 @@ def resolve_or_create_control_task(event: InboundEvent, rule: object) -> str:
 
     # No matching task — create one
     task_kind: str = getattr(rule, "task_kind_default", None) or "track"
-    entity_name: str = event.payload.get("entity_name", event.entity_id)
+    entity_name: str = str(event.payload.get("entity_name") or event.entity_id)
     rule_name: str = getattr(rule, "name", "event")
 
-    ctx: dict = {
+    ctx: dict[str, object] = {
         "control": {
             "rule_id": getattr(rule, "id", ""),
             "run_mode": "task_loop",
@@ -103,7 +103,7 @@ def _merge_event(
     except (json.JSONDecodeError, AttributeError):
         ctx = {}
 
-    ctrl: dict = ctx.setdefault("control", {})
+    ctrl: dict[str, object] = ctx.setdefault("control", {})
     ctrl["last_event"] = event.payload
     ctrl["phase"] = "OBSERVE"
     ctrl["correlation_key"] = correlation_key

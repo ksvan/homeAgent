@@ -11,7 +11,7 @@ import logging
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 
-from sqlmodel import select
+from sqlmodel import col, select
 
 from app.db import users_session
 from app.models.world import (
@@ -963,7 +963,7 @@ class WorldModelRepository:
     def create_proposal(
         household_id: str,
         proposal_type: str,
-        payload: dict,
+        payload: dict[str, object],
         reason: str,
         confidence: float = 0.5,
         entity_type: str | None = None,
@@ -1000,7 +1000,7 @@ class WorldModelRepository:
                         WorldModelProposal.household_id == household_id,
                         WorldModelProposal.status == "pending",
                     )
-                    .order_by(WorldModelProposal.created_at.desc())  # type: ignore[union-attr]
+                    .order_by(col(WorldModelProposal.created_at).desc())
                 ).all()
             )
 
@@ -1011,7 +1011,7 @@ class WorldModelRepository:
                 session.exec(
                     select(WorldModelProposal)
                     .where(WorldModelProposal.household_id == household_id)
-                    .order_by(WorldModelProposal.created_at.desc())  # type: ignore[union-attr]
+                    .order_by(col(WorldModelProposal.created_at).desc())
                     .limit(limit)
                 ).all()
             )

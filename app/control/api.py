@@ -51,8 +51,9 @@ async def admin_stats() -> dict[str, Any]:
     app_uptime_s = int(time.time() - proc.create_time())
 
     with cache_session() as session:
+        from sqlmodel import col
         runs = session.exec(
-            select(AgentRunLog).order_by(AgentRunLog.created_at.desc()).limit(500)
+            select(AgentRunLog).order_by(col(AgentRunLog.created_at).desc()).limit(500)
         ).all()
 
     tool_counts: dict[str, int] = {}
@@ -89,7 +90,7 @@ async def admin_stats() -> dict[str, Any]:
         episodic_total = len(msession.exec(select(EpisodicMemory.id)).all())
         episodic_auto = len(
             msession.exec(
-                select(EpisodicMemory.id).where(EpisodicMemory.source_run_id.isnot(None))
+                select(EpisodicMemory.id).where(col(EpisodicMemory.source_run_id).isnot(None))
             ).all()
         )
         messages_total = len(msession.exec(select(ConversationMessage.id)).all())
@@ -196,7 +197,7 @@ def _format_sse(event: object) -> str:
 
 @router.get("/memory", dependencies=_auth)
 async def admin_memory() -> dict[str, Any]:
-    from sqlmodel import select
+    from sqlmodel import col, select
 
     from app.db import memory_session, users_session
     from app.models.memory import (
@@ -209,7 +210,7 @@ async def admin_memory() -> dict[str, Any]:
 
     with memory_session() as ms:
         memories = ms.exec(
-            select(EpisodicMemory).order_by(EpisodicMemory.created_at.desc())
+            select(EpisodicMemory).order_by(col(EpisodicMemory.created_at).desc())
         ).all()
         u_profiles = ms.exec(select(UserProfile)).all()
         h_profiles = ms.exec(select(HouseholdProfile)).all()
@@ -223,7 +224,7 @@ async def admin_memory() -> dict[str, Any]:
     user_names: dict[str, str] = {}
     if user_ids:
         with users_session() as us:
-            rows = us.exec(select(User).where(User.id.in_(list(user_ids)))).all()
+            rows = us.exec(select(User).where(col(User.id).in_(list(user_ids)))).all()
             user_names = {u.id: u.name for u in rows}
 
     h0 = h_profiles[0] if h_profiles else None
@@ -278,12 +279,12 @@ async def admin_scheduler() -> dict[str, Any]:
 
     with users_session() as session:
         tasks = session.exec(
-            select(Task).where(Task.status == "ACTIVE").order_by(Task.created_at)
+            select(Task).where(Task.status == "ACTIVE").order_by(col(Task.created_at))
         ).all()
         sps = session.exec(
             select(ScheduledPrompt)
             .where(ScheduledPrompt.enabled == True)  # noqa: E712
-            .order_by(ScheduledPrompt.created_at)
+            .order_by(col(ScheduledPrompt.created_at))
         ).all()
         # Batch-load all links for enabled prompts
         sp_ids = [sp.id for sp in sps]
@@ -295,7 +296,7 @@ async def admin_scheduler() -> dict[str, Any]:
             else []
         )
 
-    links_by_prompt: dict[str, list] = {}
+    links_by_prompt: dict[str, list[dict[str, str]]] = {}
     for ln in all_links:
         links_by_prompt.setdefault(ln.prompt_id, []).append(
             {"entity_type": ln.entity_type, "entity_id": ln.entity_id, "role": ln.role}
@@ -388,18 +389,23 @@ async def admin_run_prompt_now(prompt_id: str) -> dict[str, str]:
             return {"status": "error", "message": "Prompt not found"}
         if not sp.enabled:
             return {"status": "error", "message": "Prompt is disabled"}
-        kwargs = {
-            "prompt_id": sp.id,
-            "user_id": sp.user_id,
-            "household_id": sp.household_id,
-            "channel_user_id": sp.channel_user_id,
-            "prompt_text": sp.prompt,
-            "name": sp.name,
-            "is_one_shot": False,
-        }
+        _prompt_id = sp.id
+        _user_id = sp.user_id
+        _household_id = sp.household_id
+        _channel_user_id = sp.channel_user_id
+        _prompt_text = sp.prompt
+        _name = sp.name
 
-    asyncio.ensure_future(fire_scheduled_prompt(**kwargs))
-    return {"status": "ok", "message": f"Fired '{sp.name}'"}
+    asyncio.ensure_future(fire_scheduled_prompt(
+        prompt_id=_prompt_id,
+        user_id=_user_id,
+        household_id=_household_id,
+        channel_user_id=_channel_user_id,
+        prompt_text=_prompt_text,
+        name=_name,
+        is_one_shot=False,
+    ))
+    return {"status": "ok", "message": f"Fired '{_name}'"}
 
 
 @router.get("/world-model", dependencies=_auth)
@@ -419,7 +425,7 @@ async def admin_world_model() -> dict[str, Any]:
 
     snap = WorldModelRepository.get_full_snapshot(household.id)
 
-    def _serialize(items: list) -> list[dict[str, Any]]:
+    def _serialize(items: list[Any]) -> list[dict[str, Any]]:
         return [
             {k: v for k, v in row.__dict__.items() if not k.startswith("_")}
             for row in items
@@ -678,11 +684,13 @@ def _apply_accepted_proposal(p: object) -> None:
     """Apply an accepted proposal to the world model."""
     import json as _json
 
+    from app.models.world import WorldModelProposal
     from app.world.repository import WorldModelRepository as repo
 
-    payload = _json.loads(p.payload_json)  # type: ignore[union-attr]
-    ptype = p.proposal_type  # type: ignore[union-attr]
-    hid = p.household_id  # type: ignore[union-attr]
+    assert isinstance(p, WorldModelProposal)
+    payload = _json.loads(p.payload_json)
+    ptype = p.proposal_type
+    hid = p.household_id
 
     try:
         if ptype == "fact":
@@ -691,7 +699,7 @@ def _apply_accepted_proposal(p: object) -> None:
                 household_id=hid,
                 scope=payload.get("scope", "household"),
                 key=payload["key"],
-                value_json=_json.dumps(val) if not isinstance(val, str) else val,
+                value=val,
                 source="proposal_accepted",
             )
         elif ptype == "alias":
@@ -710,18 +718,18 @@ def _apply_accepted_proposal(p: object) -> None:
         elif ptype == "interest":
             member = repo.find_member_by_name(hid, payload.get("member_name", ""))
             if member:
-                repo.upsert_interest(hid, member.id, name=payload["name"],
+                repo.upsert_interest(hid, member_id=member.id, name=payload["name"],
                                      notes=payload.get("notes", ""), source="proposal_accepted")
         elif ptype == "activity":
             member = repo.find_member_by_name(hid, payload.get("member_name", ""))
             if member:
-                repo.upsert_activity(hid, member.id, name=payload["name"],
+                repo.upsert_activity(hid, member_id=member.id, name=payload["name"],
                                      schedule_hint=payload.get("schedule_hint", ""),
                                      notes=payload.get("notes", ""), source="proposal_accepted")
         elif ptype == "goal":
             member = repo.find_member_by_name(hid, payload.get("member_name", ""))
             if member:
-                repo.upsert_goal(hid, member.id, name=payload["name"],
+                repo.upsert_goal(hid, member_id=member.id, name=payload["name"],
                                  notes=payload.get("notes", ""), source="proposal_accepted")
         elif ptype == "routine":
             repo.upsert_routine(
@@ -732,7 +740,7 @@ def _apply_accepted_proposal(p: object) -> None:
                 source="proposal_accepted",
             )
     except Exception:
-        logger.warning("Failed to apply accepted proposal %s", p.id, exc_info=True)  # type: ignore[union-attr]
+        logger.warning("Failed to apply accepted proposal %s", p.id, exc_info=True)
 
 
 # ---------------------------------------------------------------------------
@@ -742,7 +750,7 @@ def _apply_accepted_proposal(p: object) -> None:
 @router.get("/tasks", dependencies=_auth)
 async def admin_tasks() -> dict[str, Any]:
     """List all non-terminal tasks with steps and links."""
-    from sqlmodel import select
+    from sqlmodel import col, select
 
     from app.db import users_session
     from app.models.tasks import TERMINAL_STATUSES, Task, TaskLink, TaskStep
@@ -751,29 +759,29 @@ async def admin_tasks() -> dict[str, Any]:
     with users_session() as session:
         tasks = session.exec(
             select(Task)
-            .where(Task.status.notin_(TERMINAL_STATUSES))  # type: ignore[attr-defined]
-            .order_by(Task.updated_at.desc())  # type: ignore[union-attr]
+            .where(col(Task.status).notin_(TERMINAL_STATUSES))
+            .order_by(col(Task.updated_at).desc())
         ).all()
 
         # Also fetch recently completed tasks (last 20)
         recent_done = session.exec(
             select(Task)
-            .where(Task.status.in_(TERMINAL_STATUSES))  # type: ignore[attr-defined]
-            .order_by(Task.updated_at.desc())  # type: ignore[union-attr]
+            .where(col(Task.status).in_(TERMINAL_STATUSES))
+            .order_by(col(Task.updated_at).desc())
             .limit(20)
         ).all()
 
         all_tasks = list(tasks) + list(recent_done)
         task_ids = [t.id for t in all_tasks]
 
-        steps_by_task: dict[str, list] = {}
-        links_by_task: dict[str, list] = {}
+        steps_by_task: dict[str, list[Any]] = {}
+        links_by_task: dict[str, list[Any]] = {}
         if task_ids:
             all_steps = session.exec(
-                select(TaskStep).where(TaskStep.task_id.in_(task_ids))  # type: ignore[attr-defined]
+                select(TaskStep).where(col(TaskStep.task_id).in_(task_ids))
             ).all()
             all_links = session.exec(
-                select(TaskLink).where(TaskLink.task_id.in_(task_ids))  # type: ignore[attr-defined]
+                select(TaskLink).where(col(TaskLink.task_id).in_(task_ids))
             ).all()
             for s in all_steps:
                 steps_by_task.setdefault(s.task_id, []).append(s)
@@ -784,7 +792,7 @@ async def admin_tasks() -> dict[str, Any]:
         user_ids = {t.user_id for t in all_tasks}
         user_names: dict[str, str] = {}
         if user_ids:
-            users = session.exec(select(User).where(User.id.in_(list(user_ids)))).all()
+            users = session.exec(select(User).where(col(User.id).in_(list(user_ids)))).all()
             user_names = {u.id: u.name for u in users}
 
     result = []
@@ -961,13 +969,13 @@ async def admin_list_users() -> dict[str, Any]:
 @router.get("/event-rules", dependencies=_auth)
 async def admin_event_rules() -> dict[str, Any]:
     """List all EventRule records for the household."""
-    from sqlmodel import select
+    from sqlmodel import col, select
 
     from app.db import users_session
     from app.models.events import EventRule
 
     with users_session() as session:
-        rules = session.exec(select(EventRule).order_by(EventRule.created_at.desc())).all()
+        rules = session.exec(select(EventRule).order_by(col(EventRule.created_at).desc())).all()
 
     return {"rules": [_rule_to_dict(r) for r in rules]}
 
@@ -1175,13 +1183,15 @@ async def admin_test_event_rule(  # noqa: E501
     if not household:
         return {"status": "error", "message": "No household configured."}
 
-    capability = body.capability or rule_snapshot["capability"] or ""
+    capability = body.capability or str(rule_snapshot["capability"] or "")
     event = InboundEvent(
-        source=rule_snapshot["source"],
-        event_type=rule_snapshot["event_type"],
+        source=str(rule_snapshot["source"] or ""),
+        event_type=str(rule_snapshot["event_type"] or ""),
         household_id=household.id,
         entity_id=(
-            rule_snapshot["entity_id"] if rule_snapshot["entity_id"] != "*" else "test-entity"
+            str(rule_snapshot["entity_id"])
+            if rule_snapshot["entity_id"] != "*"
+            else "test-entity"
         ),
         payload={
             "entity_name": body.entity_name or f"[test] {rule_snapshot['name']}",
@@ -1248,13 +1258,13 @@ async def admin_email_messages(
     if not settings.feature_email_channel:
         return {"enabled": False, "messages": []}
 
-    from sqlmodel import select
+    from sqlmodel import col, select
 
     from app.db import cache_session
     from app.email.models import EmailMessage
 
     with cache_session() as session:
-        q = select(EmailMessage).order_by(EmailMessage.created_at.desc()).limit(limit)  # type: ignore[attr-defined]
+        q = select(EmailMessage).order_by(col(EmailMessage.created_at).desc()).limit(limit)
         if status:
             q = q.where(EmailMessage.status == status)
         rows = session.exec(q).all()

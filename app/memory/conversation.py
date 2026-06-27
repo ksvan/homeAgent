@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import dataclasses
 import logging
 from datetime import datetime, timezone
 
@@ -7,6 +8,7 @@ from pydantic_ai import Agent
 from pydantic_ai.messages import (
     ModelMessage,
     ModelRequest,
+    ModelRequestPart,
     ModelResponse,
     TextPart,
     ToolReturnPart,
@@ -56,17 +58,18 @@ def _strip_tool_results(messages: list[ModelMessage]) -> list[ModelMessage]:
         if not any(isinstance(p, ToolReturnPart) for p in msg.parts):
             stripped.append(msg)
             continue
-        new_parts = [
-            ToolReturnPart(
-                tool_name=p.tool_name,
-                content="[result omitted]",
-                tool_call_id=p.tool_call_id,
-            )
-            if isinstance(p, ToolReturnPart)
-            else p
-            for p in msg.parts
-        ]
-        stripped.append(msg.model_copy(update={"parts": new_parts}))
+        if isinstance(msg, ModelRequest):
+            new_request_parts: list[ModelRequestPart] = [
+                ToolReturnPart(
+                    tool_name=p.tool_name,
+                    content="[result omitted]",
+                    tool_call_id=p.tool_call_id,
+                )
+                if isinstance(p, ToolReturnPart)
+                else p
+                for p in msg.parts
+            ]
+            stripped.append(dataclasses.replace(msg, parts=new_request_parts))
     return stripped
 
 

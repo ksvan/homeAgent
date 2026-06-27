@@ -57,7 +57,7 @@ async def _sync(force: bool) -> WineSyncResult:
         meta = repository.get_sync_meta()
         if meta is not None:
             # Within TTL?
-            last_sync = meta.last_sync_at  # type: ignore[union-attr]
+            last_sync = meta.last_sync_at
             last_sync_aware = last_sync.replace(tzinfo=timezone.utc) if last_sync else None
             ttl = settings.wine_cache_ttl_seconds
             if last_sync_aware and (now - last_sync_aware).total_seconds() < ttl:
@@ -70,14 +70,14 @@ async def _sync(force: bool) -> WineSyncResult:
                         settings.wine_graph_drive_id,
                         settings.wine_graph_item_id,
                     )
-                    if current_etag and current_etag == meta.etag:  # type: ignore[union-attr]
+                    if current_etag and current_etag == meta.etag:
                         bottles = repository.get_all_bottles()
                         import json
-                        warnings = json.loads(meta.parse_warnings or "[]")  # type: ignore[union-attr]
+                        warnings = json.loads(meta.parse_warnings or "[]")
                         result = WineSyncResult(
                             success=True,
                             row_count=len(bottles),
-                            etag=str(meta.etag),  # type: ignore[union-attr]
+                            etag=str(meta.etag),
                             synced_at=last_sync,
                             stale=False,
                             parse_warnings=warnings,
@@ -106,13 +106,13 @@ async def _sync(force: bool) -> WineSyncResult:
         meta = repository.get_sync_meta()
         if bottles and meta is not None:
             import json
-            warnings = json.loads(meta.parse_warnings or "[]")  # type: ignore[union-attr]
+            warnings = json.loads(meta.parse_warnings or "[]")
             emit("wine.cache_used_stale", {"error": err})
             return WineSyncResult(
                 success=True,
                 row_count=len(bottles),
-                etag=str(meta.etag),  # type: ignore[union-attr]
-                synced_at=meta.last_sync_at,  # type: ignore[union-attr]
+                etag=str(meta.etag),
+                synced_at=meta.last_sync_at,
                 stale=True,
                 parse_warnings=warnings,
                 error=err,
@@ -128,32 +128,27 @@ async def _sync(force: bool) -> WineSyncResult:
             table_name=settings.wine_excel_table_name,
         )
     except Exception as exc:
-        err = f"Parse failed: {exc}"
+        err = f"Failed to parse wine workbook: {exc}"
         logger.error(err, exc_info=True)
         repository.record_sync_attempt(error=err)
         emit("wine.sync_failed", {"error": err})
         return WineSyncResult(success=False, error=err)
 
-    for w in warnings:
-        emit("wine.parse_warning", {"warning": w})
-
     bottles = rows_to_bottles(rows)
     repository.upsert_snapshot(bottles, etag, warnings)
 
-    duration_ms = int((time.monotonic() - t0) * 1000)
-    emit(
-        "wine.sync_completed",
-        {"row_count": len(bottles), "etag": etag, "duration_ms": duration_ms},
-    )
+    elapsed = time.monotonic() - t0
     logger.info(
-        "Wine cellar synced: %d bottles etag=%s duration_ms=%d warnings=%d",
-        len(bottles), etag[:16] if etag else "", duration_ms, len(warnings),
+        "Wine sync complete: %d bottles parsed in %.1fs (etag=%s warnings=%d)",
+        len(bottles), elapsed, etag[:8] if etag else "?", len(warnings),
     )
+    emit("wine.sync_complete", {"row_count": len(bottles), "elapsed_s": round(elapsed, 2)})
 
     return WineSyncResult(
         success=True,
         row_count=len(bottles),
         etag=etag,
-        synced_at=datetime.now(timezone.utc),
+        synced_at=now,
+        stale=False,
         parse_warnings=warnings,
     )

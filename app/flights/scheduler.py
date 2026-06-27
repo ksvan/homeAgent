@@ -50,7 +50,9 @@ async def flight_watchdog_job() -> None:
             continue
 
         # Check when the snapshot was last fetched
-        last = get_latest_snapshot(watch.id)
+        from app.flights.models import FlightStatusSnapshot as _FSS
+        _last_raw = get_latest_snapshot(watch.id)
+        last = _last_raw if isinstance(_last_raw, _FSS) else None
         if last:
             fetched_at = last.fetched_at
             if fetched_at.tzinfo is None:

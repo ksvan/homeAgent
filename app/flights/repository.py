@@ -224,7 +224,7 @@ def save_snapshot(snapshot: object) -> None:
 
 
 def get_latest_snapshot(watch_id: str) -> object | None:
-    from sqlmodel import select
+    from sqlmodel import col, select
 
     from app.db import cache_session
     from app.models.flights import FlightStatusSnapshotRow
@@ -233,7 +233,7 @@ def get_latest_snapshot(watch_id: str) -> object | None:
         row = session.exec(
             select(FlightStatusSnapshotRow)
             .where(FlightStatusSnapshotRow.watch_id == watch_id)
-            .order_by(FlightStatusSnapshotRow.fetched_at.desc())  # type: ignore[union-attr]
+            .order_by(col(FlightStatusSnapshotRow.fetched_at).desc())
             .limit(1)
         ).first()
         if row is None:
@@ -241,12 +241,13 @@ def get_latest_snapshot(watch_id: str) -> object | None:
         return _row_to_snapshot(row)
 
 
-def _utc(dt: object) -> object:
+def _utc(dt: object) -> datetime | None:
     """Ensure a datetime read from SQLite is timezone-aware (UTC)."""
-    from datetime import datetime, timezone
     if isinstance(dt, datetime) and dt.tzinfo is None:
         return dt.replace(tzinfo=timezone.utc)
-    return dt
+    if isinstance(dt, datetime):
+        return dt
+    return None
 
 
 def _row_to_snapshot(row: object) -> object:
@@ -254,12 +255,13 @@ def _row_to_snapshot(row: object) -> object:
     from app.models.flights import FlightStatusSnapshotRow
 
     assert isinstance(row, FlightStatusSnapshotRow)
+    fetched_at = _utc(row.fetched_at) or datetime.now(timezone.utc)
     return FlightStatusSnapshot(
         id=row.id,
         watch_id=row.watch_id,
         provider=row.provider,
         provider_updated_at=_utc(row.provider_updated_at),
-        fetched_at=_utc(row.fetched_at),
+        fetched_at=fetched_at,
         state=row.state,
         scheduled_out=_utc(row.scheduled_out),
         estimated_out=_utc(row.estimated_out),
@@ -318,7 +320,7 @@ def save_event(event: object) -> None:
 
 
 def list_snapshots_for_watch(watch_id: str, limit: int = 20) -> list[object]:
-    from sqlmodel import select
+    from sqlmodel import col, select
 
     from app.db import cache_session
     from app.models.flights import FlightStatusSnapshotRow
@@ -327,14 +329,14 @@ def list_snapshots_for_watch(watch_id: str, limit: int = 20) -> list[object]:
         rows = session.exec(
             select(FlightStatusSnapshotRow)
             .where(FlightStatusSnapshotRow.watch_id == watch_id)
-            .order_by(FlightStatusSnapshotRow.fetched_at.asc())  # type: ignore[union-attr]
+            .order_by(col(FlightStatusSnapshotRow.fetched_at).asc())
             .limit(limit)
         ).all()
         return [_row_to_snapshot(r) for r in rows]
 
 
 def list_events_for_watch(watch_id: str, limit: int = 30) -> list[object]:
-    from sqlmodel import select
+    from sqlmodel import col, select
 
     from app.db import cache_session
     from app.models.flights import FlightEventRow
@@ -343,7 +345,7 @@ def list_events_for_watch(watch_id: str, limit: int = 30) -> list[object]:
         rows = session.exec(
             select(FlightEventRow)
             .where(FlightEventRow.watch_id == watch_id)
-            .order_by(FlightEventRow.received_at.asc())  # type: ignore[union-attr]
+            .order_by(col(FlightEventRow.received_at).asc())
             .limit(limit)
         ).all()
         return list(rows)
@@ -376,18 +378,19 @@ def delete_old_events(retention_days: int) -> int:
 
     cutoff = datetime.now(timezone.utc) - timedelta(days=retention_days)
     with cache_session() as session:
-        result = session.exec(  # type: ignore[call-overload]
-            sql_delete(FlightEventRow).where(FlightEventRow.received_at < cutoff)
+        from sqlmodel import col as _col
+        result = session.exec(
+            sql_delete(FlightEventRow).where(_col(FlightEventRow.received_at) < cutoff)
         )
         session.commit()
-        return result.rowcount  # type: ignore[union-attr]
+        return result.rowcount
 
 
 def delete_old_terminal_watches(retention_days: int) -> int:
     from datetime import timedelta
 
+    from sqlmodel import col, select
     from sqlmodel import delete as sql_delete
-    from sqlmodel import select
 
     from app.db import cache_session
     from app.models.flights import FlightStatusSnapshotRow, FlightWatchRow
@@ -397,19 +400,19 @@ def delete_old_terminal_watches(retention_days: int) -> int:
     with cache_session() as session:
         old_watches = session.exec(
             select(FlightWatchRow)
-            .where(FlightWatchRow.status.in_(terminal))  # type: ignore[union-attr]
-            .where(FlightWatchRow.completed_at < cutoff)
+            .where(col(FlightWatchRow.status).in_(terminal))
+            .where(col(FlightWatchRow.completed_at) < cutoff)
         ).all()
         ids = [w.id for w in old_watches]
         if not ids:
             return 0
-        session.exec(  # type: ignore[call-overload]
+        session.exec(
             sql_delete(FlightStatusSnapshotRow).where(
-                FlightStatusSnapshotRow.watch_id.in_(ids)  # type: ignore[union-attr]
+                col(FlightStatusSnapshotRow.watch_id).in_(ids)
             )
         )
-        session.exec(  # type: ignore[call-overload]
-            sql_delete(FlightWatchRow).where(FlightWatchRow.id.in_(ids))
+        session.exec(
+            sql_delete(FlightWatchRow).where(col(FlightWatchRow.id).in_(ids))
         )
         session.commit()
         return len(ids)

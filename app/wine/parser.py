@@ -4,6 +4,10 @@ import hashlib
 import logging
 from datetime import date
 from io import BytesIO
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from app.wine.models import WineBottle
 
 logger = logging.getLogger(__name__)
 
@@ -73,9 +77,10 @@ def parse_xlsx(
 
     rows_iter = ws.iter_rows(values_only=True)
 
+    from typing import Any
     # Find header row: first non-empty row
-    header_row: tuple[object, ...] | None = None
-    data_rows: list[tuple[object, ...]] = []
+    header_row: tuple[Any, ...] | None = None
+    data_rows: list[tuple[Any, ...]] = []
     for row in rows_iter:
         if any(c is not None for c in row):
             if header_row is None:
@@ -222,7 +227,7 @@ def _parse_date(val: object, row_num: int, warnings: list[str]) -> date | None:
     return None
 
 
-def rows_to_bottles(rows: list[dict[str, object]]) -> list[object]:
+def rows_to_bottles(rows: list[dict[str, object]]) -> list["WineBottle"]:
     """Convert parsed row dicts to WineBottle dataclasses."""
     from app.wine.models import WineBottle
 
@@ -243,7 +248,7 @@ def rows_to_bottles(rows: list[dict[str, object]]) -> list[object]:
                 region=r.get("region"),  # type: ignore[arg-type]
                 note=r.get("note"),  # type: ignore[arg-type]
                 consumed=bool(r.get("consumed", False)),
-                source_row=int(r["source_row"]),  # type: ignore[arg-type]
+                source_row=int(r["source_row"]),  # type: ignore[call-overload]
                 source_hash=str(r["source_hash"]),
             )
         )

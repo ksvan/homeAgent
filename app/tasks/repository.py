@@ -6,7 +6,7 @@ import json
 import logging
 from datetime import datetime, timezone
 
-from sqlmodel import select
+from sqlmodel import col, select
 
 from app.db import users_session
 from app.models.tasks import ALLOWED_TRANSITIONS, TERMINAL_STATUSES, Task, TaskLink, TaskStep
@@ -30,8 +30,8 @@ class TaskRepository:
         title: str,
         task_kind: str = "plan",
         summary: str | None = None,
-        steps: list[dict] | None = None,
-        context: dict | None = None,
+        steps: list[dict[str, object]] | None = None,
+        context: dict[str, object] | None = None,
     ) -> Task:
         """Create a task with optional initial steps in a single transaction."""
         with users_session() as session:
@@ -72,8 +72,8 @@ class TaskRepository:
             return list(
                 session.exec(
                     select(Task)
-                    .where(Task.user_id == user_id, Task.status.notin_(TERMINAL_STATUSES))  # type: ignore[attr-defined]
-                    .order_by(Task.updated_at.desc())  # type: ignore[union-attr]
+                    .where(Task.user_id == user_id, col(Task.status).notin_(TERMINAL_STATUSES))
+                    .order_by(col(Task.updated_at).desc())
                 ).all()
             )
 
@@ -96,8 +96,9 @@ class TaskRepository:
             return list(
                 session.exec(
                     select(Task)
-                    .where(Task.household_id == household_id, Task.status.notin_(TERMINAL_STATUSES))  # type: ignore[attr-defined]
-                    .order_by(Task.updated_at.desc())  # type: ignore[union-attr]
+                    .where(Task.household_id == household_id)
+                    .where(col(Task.status).notin_(TERMINAL_STATUSES))
+                    .order_by(col(Task.updated_at).desc())
                 ).all()
             )
 
@@ -155,7 +156,7 @@ class TaskRepository:
                 session.exec(
                     select(TaskStep)
                     .where(TaskStep.task_id == task_id)
-                    .order_by(TaskStep.step_index)
+                    .order_by(col(TaskStep.step_index))
                 ).all()
             )
 
@@ -184,7 +185,7 @@ class TaskRepository:
                 session.exec(
                     select(TaskStep)
                     .where(TaskStep.task_id == task_id)
-                    .order_by(TaskStep.step_index)
+                    .order_by(col(TaskStep.step_index))
                 ).all()
             )
 

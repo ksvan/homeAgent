@@ -32,9 +32,9 @@ class InboundEvent:
     event_type: str    # "device_state_change" | "flow_trigger" | "threshold"
     household_id: str
     entity_id: str     # device UUID, zone ID, etc.
-    payload: dict = field(default_factory=dict)   # event-specific data
+    payload: dict[str, object] = field(default_factory=dict)   # event-specific data
     timestamp: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
-    raw: dict = field(default_factory=dict)        # original payload for audit
+    raw: dict[str, object] = field(default_factory=dict)        # original payload for audit
 
 
 def enqueue_event(event: InboundEvent) -> None:

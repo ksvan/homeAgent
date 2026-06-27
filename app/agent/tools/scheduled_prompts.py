@@ -78,7 +78,7 @@ def register_scheduled_prompt_tools(agent: Agent[AgentDeps, str]) -> None:
                 return f"Could not schedule prompt: invalid run_at — {exc}"
 
         # Build delivery policy from explicit flags
-        delivery_policy: dict | None = None
+        delivery_policy: dict[str, object] | None = None
         if skip_if_empty or skip_if_unchanged:
             delivery_policy = {}
             if skip_if_empty:
@@ -87,7 +87,7 @@ def register_scheduled_prompt_tools(agent: Agent[AgentDeps, str]) -> None:
                 delivery_policy["skip_if_unchanged"] = True
 
         # Resolve linked entity names to IDs
-        resolved_links: list[dict] | None = None
+        resolved_links: list[dict[str, str]] | None = None
         try:
             raw_links = json.loads(linked_entities)
             if isinstance(raw_links, list) and raw_links:
@@ -222,7 +222,7 @@ def register_scheduled_prompt_tools(agent: Agent[AgentDeps, str]) -> None:
         return "\n".join(sections)
 
 
-def _resolve_links(household_id: str, raw_links: list[dict]) -> list[dict]:
+def _resolve_links(household_id: str, raw_links: list[dict[str, str]]) -> list[dict[str, str]]:
     """Resolve entity names to IDs via WorldModelRepository."""
     from app.world.repository import WorldModelRepository
 

@@ -10,7 +10,6 @@ Called as a fire-and-forget coroutine from bot.py — never blocks the response.
 """
 from __future__ import annotations
 
-import json
 import logging
 from typing import TYPE_CHECKING
 
@@ -58,7 +57,7 @@ IMPORTANT:
 
 class _Proposal(BaseModel):
     proposal_type: str
-    payload: dict
+    payload: dict[str, object]
     reason: str
     confidence: float = 0.5
 
@@ -189,7 +188,7 @@ def _apply_proposal(
     repo: WorldModelRepository,
     household_id: str,
     ptype: str,
-    payload: dict,
+    payload: dict[str, object],
     run_id: str,
 ) -> None:
     """Apply an auto-approved proposal to the world model."""
@@ -197,20 +196,15 @@ def _apply_proposal(
         if ptype == "fact":
             repo.upsert_world_fact(
                 household_id=household_id,
-                scope=payload.get("scope", "household"),
-                key=payload["key"],
-                value_json=(
-                    json.dumps(payload["value"])
-                    if not isinstance(payload["value"], str)
-                    else payload["value"]
-                ),
+                scope=str(payload.get("scope") or "household"),
+                key=str(payload.get("key") or ""),
+                value=payload.get("value"),
                 source="agent_inferred",
-                confidence=0.85,
             )
         elif ptype == "alias":
-            entity_type = payload.get("entity_type", "")
-            entity_name = payload.get("entity_name", "")
-            alias = payload.get("alias", "")
+            entity_type = str(payload.get("entity_type") or "")
+            entity_name = str(payload.get("entity_name") or "")
+            alias = str(payload.get("alias") or "")
             # Resolve entity name to ID
             finder = {
                 "member": repo.find_member_by_name,

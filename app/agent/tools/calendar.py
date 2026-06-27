@@ -75,7 +75,7 @@ def _format_event(
         tz_str = dt.tzname() or display_tz.key
         time_str = f"{time_str} {tz_str}"
     else:
-        day_str = dt.strftime("%A %-d %b")  # type: ignore[union-attr]
+        day_str = dt.strftime("%A %-d %b")
         time_str = "all day"
 
     summary = ev["summary"] or "(no title)"
@@ -278,7 +278,7 @@ def register_calendar_tools(agent: Agent[AgentDeps, str]) -> None:
                     )
                 )
 
-        all_events.sort(  # type: ignore[arg-type]
+        all_events.sort(
             key=lambda x: _sort_key(x[0]),
         )
 

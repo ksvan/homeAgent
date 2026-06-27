@@ -257,8 +257,8 @@ async def get_flight_status(
                 "error": "Multiple active watches found. Please specify a flight.",
                 "watches": [
                     {
-                        "watch_id": w.id,  # type: ignore[union-attr]
-                        "flight": w.flight_label,  # type: ignore[union-attr]
+                        "watch_id": w.id,
+                        "flight": w.flight_label,
                     }
                     for w in active
                     if isinstance(w, FlightWatch)
@@ -524,7 +524,9 @@ async def ingest_webhook(
         return {"ok": True, "note": "status_fetch_failed"}
 
     # Diff
-    previous = get_latest_snapshot(watch.id)
+    from app.flights.models import FlightStatusSnapshot as _FSS
+    _prev_raw = get_latest_snapshot(watch.id)
+    previous = _prev_raw if isinstance(_prev_raw, _FSS) else None
     snapshot.fetch_source = "webhook"
     save_snapshot(snapshot)
     _emit_admin_event("flight.status_refreshed", {"watch_id": watch.id, "source": "webhook"})
@@ -600,7 +602,9 @@ async def poll_watch(watch_id: str, *, force: bool = False) -> None:
         return
 
     # Skip if webhook refreshed recently (bypass when force=True, e.g. webhook fetch failed)
-    last_snapshot = get_latest_snapshot(watch.id)
+    from app.flights.models import FlightStatusSnapshot as _FSS2
+    _last_raw = get_latest_snapshot(watch.id)
+    last_snapshot = _last_raw if isinstance(_last_raw, _FSS2) else None
     if last_snapshot and not force:
         suppress_window = timedelta(minutes=settings.flight_poll_recent_webhook_suppress_minutes)
         if datetime.now(timezone.utc) - last_snapshot.fetched_at < suppress_window:
@@ -640,11 +644,10 @@ async def poll_watch(watch_id: str, *, force: bool = False) -> None:
             "consecutive": watch.consecutive_provider_errors,
         })
         if watch.consecutive_provider_errors >= settings.flight_watch_fail_consecutive_errors:
-            last = get_latest_snapshot(watch.id)
-            last_state = last.state if last else None
             from app.flights.models import FlightStatusSnapshot
-            if last and isinstance(last, FlightStatusSnapshot):
-                last_state = last.state
+            _last_raw2 = get_latest_snapshot(watch.id)
+            last = _last_raw2 if isinstance(_last_raw2, FlightStatusSnapshot) else None
+            last_state = last.state if last else None
             watch.status = WATCH_FAILED
             watch.status_reason = "consecutive_provider_errors"
             watch.completed_at = datetime.now(timezone.utc)
@@ -655,7 +658,9 @@ async def poll_watch(watch_id: str, *, force: bool = False) -> None:
             _emit_admin_event("flight.watch_failed", {"watch_id": watch.id})
         return
 
-    previous = get_latest_snapshot(watch.id)
+    from app.flights.models import FlightStatusSnapshot as _FSS3
+    _prev_raw2 = get_latest_snapshot(watch.id)
+    previous = _prev_raw2 if isinstance(_prev_raw2, _FSS3) else None
     snapshot.fetch_source = "poll"
     save_snapshot(snapshot)
     save_watch(watch)

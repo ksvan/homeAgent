@@ -14,7 +14,7 @@ logger = logging.getLogger(__name__)
 # Behaviour-kind defaults
 # ---------------------------------------------------------------------------
 
-_KIND_DEFAULTS: dict[str | None, dict] = {
+_KIND_DEFAULTS: dict[str | None, dict[str, object]] = {
     None: {"skip_if_empty": False, "skip_if_unchanged": False},
     "generic_prompt": {"skip_if_empty": False, "skip_if_unchanged": False},
     "morning_briefing": {"skip_if_empty": True, "skip_if_unchanged": False},
@@ -39,7 +39,7 @@ _KIND_DEFAULTS: dict[str | None, dict] = {
 _MIN_OUTPUT_LEN = 10
 
 
-def parse_delivery_policy(sp: object) -> dict:
+def parse_delivery_policy(sp: object) -> dict[str, object]:
     """Parse delivery_policy_json from a ScheduledPrompt, merged with kind defaults.
 
     Returns a dict with at least ``skip_if_empty`` and ``skip_if_unchanged`` keys.
@@ -75,7 +75,7 @@ def compute_output_hash(output: str) -> str:
 
 def evaluate_preflight(
     sp: object,
-    policy: dict,
+    policy: dict[str, object],
     now_utc: datetime,
 ) -> tuple[bool, str | None]:
     """Decide whether this scheduled prompt should proceed to the LLM call.
@@ -86,21 +86,23 @@ def evaluate_preflight(
     qh_start = policy.get("quiet_hours_start")
     qh_end = policy.get("quiet_hours_end")
     if qh_start and qh_end:
-        if _in_quiet_hours(qh_start, qh_end, now_utc):
+        if _in_quiet_hours(str(qh_start), str(qh_end), now_utc):
             return False, "quiet_hours"
 
     # Cooldown
     cooldown_min = policy.get("cooldown_minutes")
     if cooldown_min:
         last_fired = getattr(sp, "last_fired_at", None)
-        if last_fired and (now_utc - last_fired) < timedelta(minutes=int(cooldown_min)):
+        _cm = int(cooldown_min) if isinstance(cooldown_min, (int, float)) else 0
+        if last_fired and (now_utc - last_fired) < timedelta(minutes=_cm):
             return False, "cooldown"
 
     # Daily delivery cap
     max_per_day = policy.get("max_deliveries_per_day")
     if max_per_day:
         prompt_id = getattr(sp, "id", None)
-        if prompt_id and _delivered_today_count(prompt_id, now_utc) >= int(max_per_day):
+        _mpd = int(max_per_day) if isinstance(max_per_day, (int, float)) else 0
+        if prompt_id and _delivered_today_count(prompt_id, now_utc) >= _mpd:
             return False, "daily_cap"
 
     return True, None
@@ -160,7 +162,7 @@ def _delivered_today_count(prompt_id: str, now_utc: datetime) -> int:
 def evaluate_postflight(
     output: str,
     sp: object,
-    policy: dict,
+    policy: dict[str, object],
 ) -> tuple[str, str | None]:
     """Decide whether the output should be delivered or suppressed.
 

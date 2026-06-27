@@ -296,7 +296,7 @@ def _extract_flights(data: Any) -> list[dict[str, Any]]:
     if isinstance(data, dict):
         for key in ("flights", "departures", "arrivals", "items", "data"):
             if key in data and isinstance(data[key], list):
-                return data[key]  # type: ignore[return-value]
+                return list(data[key])
         # Single flight dict
         if "number" in data or "flightNumber" in data or "iata" in data:
             return [data]

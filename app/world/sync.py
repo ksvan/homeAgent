@@ -166,11 +166,11 @@ def _extract_text(result: object) -> str:
         parts = [p.text for p in result if hasattr(p, "text")]
         return "".join(parts)
     if hasattr(result, "text"):
-        return str(result.text)  # type: ignore[union-attr]
+        return str(result.text)
     return str(result)
 
 
-def _try_parse_home_structure(text: str) -> dict | None:
+def _try_parse_home_structure(text: str) -> dict[str, object] | None:
     """Attempt to parse the Homey get_home_structure response.
 
     Returns a dict on success, None on failure. Handles both direct JSON
@@ -197,16 +197,22 @@ def _try_parse_home_structure(text: str) -> dict | None:
     return None
 
 
-def _sync_zones(household_id: str, data: dict) -> dict[str, str]:
+def _sync_zones(household_id: str, data: dict[str, object]) -> dict[str, str]:
     """Sync zones from Homey structure into Place table.
 
     Returns a mapping of external_zone_id → Place.id for device linking.
     """
     from app.world.repository import WorldModelRepository
 
-    zones = data.get("zones") or data.get("Zones") or {}
-    if isinstance(zones, list):
-        zones = {z.get("id", ""): z for z in zones if isinstance(z, dict)}
+    _zones_raw = data.get("zones") or data.get("Zones") or {}
+    if isinstance(_zones_raw, list):
+        zones: dict[object, object] = {
+            z.get("id", ""): z for z in _zones_raw if isinstance(z, dict)
+        }
+    elif isinstance(_zones_raw, dict):
+        zones = dict(_zones_raw)
+    else:
+        zones = {}
 
     zone_id_map: dict[str, str] = {}  # homey_zone_id → Place.id
     synced = 0
@@ -247,11 +253,11 @@ def _sync_zones(household_id: str, data: dict) -> dict[str, str]:
             from app.models.world import Place
 
             with users_session() as session:
-                place = session.get(Place, place_id)
-                if place and place.parent_place_id != parent_place_id:
-                    place.parent_place_id = parent_place_id
-                    place.updated_at = datetime.now(timezone.utc)
-                    session.add(place)
+                existing_place = session.get(Place, place_id)
+                if existing_place and existing_place.parent_place_id != parent_place_id:
+                    existing_place.parent_place_id = parent_place_id
+                    existing_place.updated_at = datetime.now(timezone.utc)
+                    session.add(existing_place)
                     session.commit()
 
     if synced:
@@ -261,14 +267,20 @@ def _sync_zones(household_id: str, data: dict) -> dict[str, str]:
 
 
 def _sync_devices_from_structure(
-    household_id: str, data: dict, zone_id_map: dict[str, str]
+    household_id: str, data: dict[str, object], zone_id_map: dict[str, str]
 ) -> None:
     """Sync devices from Homey structure into DeviceEntity table."""
     from app.world.repository import WorldModelRepository
 
-    devices = data.get("devices") or data.get("Devices") or {}
-    if isinstance(devices, list):
-        devices = {d.get("id", ""): d for d in devices if isinstance(d, dict)}
+    _devices_raw = data.get("devices") or data.get("Devices") or {}
+    if isinstance(_devices_raw, list):
+        devices: dict[object, object] = {
+            d.get("id", ""): d for d in _devices_raw if isinstance(d, dict)
+        }
+    elif isinstance(_devices_raw, dict):
+        devices = dict(_devices_raw)
+    else:
+        devices = {}
 
     synced = 0
     for device_id, dev_info in devices.items():

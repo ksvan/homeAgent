@@ -136,7 +136,7 @@ async def purge_old_tasks() -> None:
         with users_session() as session:
             result = session.exec(
                 delete(Task).where(
-                    Task.status != "ACTIVE",
+                    col(Task.status) != "ACTIVE",
                     col(Task.created_at) < cutoff,
                 )
             )
@@ -284,7 +284,7 @@ async def register_cleanup_jobs() -> None:
         try:
             await scheduler.add_schedule(
                 fn,
-                IntervalTrigger(hours=24, start_delay=timedelta(hours=delay_hours)),
+                IntervalTrigger(hours=24),
                 id=job_id,
             )
             logger.debug("Cleanup job registered (id=%s)", job_id)

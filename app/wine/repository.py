@@ -3,11 +3,16 @@ from __future__ import annotations
 import json
 import logging
 from datetime import datetime, timezone
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from app.models.wine import WineSyncMeta
+    from app.wine.models import WineBottle
 
 logger = logging.getLogger(__name__)
 
 
-def get_sync_meta() -> object:
+def get_sync_meta() -> "WineSyncMeta | None":
     """Return the WineSyncMeta row, or None if the table is empty."""
     from app.db import cache_session
     from app.models.wine import WineSyncMeta
@@ -17,7 +22,7 @@ def get_sync_meta() -> object:
 
 
 def upsert_snapshot(
-    bottles: list[object],
+    bottles: "list[WineBottle]",
     etag: str,
     warnings: list[str],
     error: str | None = None,
@@ -33,7 +38,7 @@ def upsert_snapshot(
 
     with cache_session() as session:
         # Delete all existing bottle rows
-        session.exec(delete(WineBottleRow))  # type: ignore[call-overload]
+        session.exec(delete(WineBottleRow))
 
         # Insert new rows
         for b in bottles:
@@ -88,7 +93,7 @@ def record_sync_attempt(error: str | None = None) -> None:
         session.commit()
 
 
-def get_all_bottles() -> list[object]:
+def get_all_bottles() -> "list[WineBottle]":
     """Return all persisted WineBottle instances from cache.db."""
     from sqlmodel import select
 

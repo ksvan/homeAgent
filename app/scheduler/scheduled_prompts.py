@@ -1,6 +1,10 @@
 from __future__ import annotations
 
 import logging
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from apscheduler.abc import Trigger
 
 logger = logging.getLogger(__name__)
 
@@ -8,14 +12,17 @@ logger = logging.getLogger(__name__)
 _VALID_DAYS = {"mon", "tue", "wed", "thu", "fri", "sat", "sun"}
 
 
-def _build_trigger(recurrence: str, time_of_day: str, run_at: object = None) -> object:
+def _build_trigger(recurrence: str, time_of_day: str, run_at: object = None) -> "Trigger":
     """Return an APScheduler trigger for the given recurrence + time."""
     if recurrence == "once":
+        from datetime import datetime
+
         from apscheduler.triggers.date import DateTrigger
 
         if run_at is None:
             raise ValueError("run_at is required when recurrence='once'")
-        return DateTrigger(run_time=run_at)
+        run_time: datetime | str = run_at if isinstance(run_at, (datetime, str)) else str(run_at)
+        return DateTrigger(run_time=run_time)
 
     from apscheduler.triggers.cron import CronTrigger
 
@@ -57,8 +64,9 @@ def recurrence_label(recurrence: str, time_of_day: str, run_at: object = None) -
     if recurrence == "once":
         if run_at is not None:
             from datetime import datetime
-            dt = run_at if isinstance(run_at, datetime) else run_at
-            return f"Once on {dt.strftime('%d %b %Y at %H:%M')}"
+            if isinstance(run_at, datetime):
+                return f"Once on {run_at.strftime('%d %b %Y at %H:%M')}"
+            return f"Once on {run_at}"
         return "Once (time unknown)"
     if recurrence == "daily":
         return f"Every day at {time_of_day}"
@@ -84,7 +92,7 @@ async def create_scheduled_prompt(
     behavior_kind: str | None = None,
     goal: str | None = None,
     delivery_policy_json: str | None = None,
-    links: list[dict] | None = None,
+    links: list[dict[str, str]] | None = None,
 ) -> str:
     """
     Persist a ScheduledPrompt record and register the APScheduler job.

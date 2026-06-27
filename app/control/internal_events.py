@@ -34,7 +34,7 @@ def emit_verify_result(
     try:
         from app.control.event_bus import InboundEvent, enqueue_event
 
-        payload: dict = {
+        payload: dict[str, object] = {
             "capability": capability,
             "expected": expected,
             "observed": observed,

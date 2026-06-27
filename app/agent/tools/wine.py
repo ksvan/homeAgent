@@ -122,7 +122,7 @@ def register_wine_tools(agent: Agent[AgentDeps, str]) -> None:
         if not result.success and not result.stale:
             return f"Wine cellar unavailable: {result.error}"
 
-        bottles: list[WineBottle] = get_all_bottles()  # type: ignore[assignment]
+        bottles: list[WineBottle] = get_all_bottles()
 
         # --- Filter ---
         candidates = []
@@ -217,7 +217,7 @@ def register_wine_tools(agent: Agent[AgentDeps, str]) -> None:
         if not result.success and not result.stale:
             return f"Wine cellar unavailable: {result.error}"
 
-        bottles: list[WineBottle] = get_all_bottles()  # type: ignore[assignment]
+        bottles: list[WineBottle] = get_all_bottles()
         available = [b for b in bottles if b.available]
 
         cats: Counter[str] = Counter()
@@ -237,8 +237,8 @@ def register_wine_tools(agent: Agent[AgentDeps, str]) -> None:
 
         meta = get_sync_meta()
         last_sync = (
-            meta.last_sync_at.strftime("%Y-%m-%d %H:%M UTC")  # type: ignore[union-attr]
-            if meta and meta.last_sync_at  # type: ignore[union-attr]
+            meta.last_sync_at.strftime("%Y-%m-%d %H:%M UTC")
+            if meta and meta.last_sync_at
             else "unknown"
         )
 

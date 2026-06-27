@@ -150,9 +150,10 @@ def register_world_model_tools(agent: Agent[AgentDeps, str]) -> None:
             name = d.get("name", "")
             if not member_name or not name:
                 return "Missing 'member_name' or 'name' in details."
-            member = repo.find_member_by_name(household_id, member_name)
-            if member is None:
+            member_opt = repo.find_member_by_name(household_id, member_name)
+            if member_opt is None:
                 return f"Could not find member named '{member_name}'."
+            member = member_opt
             repo.upsert_interest(
                 household_id, member_id=member.id, name=name,
                 notes=d.get("notes", ""), source="user_explicit",
@@ -174,9 +175,10 @@ def register_world_model_tools(agent: Agent[AgentDeps, str]) -> None:
             name = d.get("name", "")
             if not member_name or not name:
                 return "Missing 'member_name' or 'name' in details."
-            member = repo.find_member_by_name(household_id, member_name)
-            if member is None:
+            member_opt = repo.find_member_by_name(household_id, member_name)
+            if member_opt is None:
                 return f"Could not find member named '{member_name}'."
+            member = member_opt
             repo.upsert_activity(
                 household_id, member_id=member.id, name=name,
                 schedule_hint=d.get("schedule", ""), notes=d.get("notes", ""),
@@ -199,9 +201,10 @@ def register_world_model_tools(agent: Agent[AgentDeps, str]) -> None:
             name = d.get("name", "")
             if not member_name or not name:
                 return "Missing 'member_name' or 'name' in details."
-            member = repo.find_member_by_name(household_id, member_name)
-            if member is None:
+            member_opt = repo.find_member_by_name(household_id, member_name)
+            if member_opt is None:
                 return f"Could not find member named '{member_name}'."
+            member = member_opt
             repo.upsert_goal(
                 household_id, member_id=member.id, name=name,
                 notes=d.get("notes", ""), source="user_explicit",

@@ -21,9 +21,13 @@ import asyncio
 import json
 import logging
 from datetime import datetime, timedelta, timezone
+from typing import TYPE_CHECKING
 from zoneinfo import ZoneInfo
 
 from app.control.event_bus import InboundEvent, get_event
+
+if TYPE_CHECKING:
+    from app.models.events import EventRule
 
 logger = logging.getLogger(__name__)
 
@@ -220,7 +224,7 @@ async def _sync_world_state(event: InboundEvent) -> None:
         logger.warning("Failed to sync world state for event", exc_info=True)
 
 
-async def _load_matching_rules(event: InboundEvent) -> list:
+async def _load_matching_rules(event: InboundEvent) -> "list[EventRule]":
     """Load enabled EventRules for this household that match the event."""
     try:
         from sqlmodel import select
@@ -309,11 +313,13 @@ def _in_quiet_hours(rule: object) -> bool:
     now_time = datetime.now(tz).strftime("%H:%M")
     # Simple string comparison works for HH:MM when start < end (same day).
     # For overnight ranges (e.g. 22:00–07:00) we check the complement.
-    if qh_start <= qh_end:
-        return qh_start <= now_time < qh_end
+    qh_start_str = str(qh_start)
+    qh_end_str = str(qh_end)
+    if qh_start_str <= qh_end_str:
+        return bool(qh_start_str <= now_time < qh_end_str)
     else:
         # Overnight: quiet if after start OR before end
-        return now_time >= qh_start or now_time < qh_end
+        return bool(now_time >= qh_start_str or now_time < qh_end_str)
 
 
 def _matches_value_filter(event: InboundEvent, rule: object) -> bool:
@@ -328,9 +334,9 @@ def _matches_value_filter(event: InboundEvent, rule: object) -> bool:
 
     value = event.payload.get("value")
     if "eq" in filt:
-        return value == filt["eq"]
+        return bool(value == filt["eq"])
     if "ne" in filt:
-        return value != filt["ne"]
+        return bool(value != filt["ne"])
     if "gt" in filt:
         return isinstance(value, (int, float)) and value > filt["gt"]
     if "lt" in filt:

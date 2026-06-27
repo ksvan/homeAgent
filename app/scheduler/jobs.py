@@ -236,8 +236,10 @@ async def resume_task(
         session.commit()
 
     # Build rich resume prompt from stored intent
-    attempt_count = int(pursuit.get("attempt_count", 0))
-    max_attempts = int(pursuit.get("max_attempts", 5))
+    _ac = pursuit.get("attempt_count")
+    attempt_count = int(_ac) if isinstance(_ac, (int, float)) else 0
+    _ma = pursuit.get("max_attempts")
+    max_attempts = int(_ma) if isinstance(_ma, (int, float)) else 5
     lines = [f"[Task resume] Task ID: {task_id}"]
 
     # Prepend goal contract so the agent is anchored to the original intent

@@ -22,6 +22,10 @@ import time
 import uuid
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass, field
+from typing import TYPE_CHECKING, cast
+
+if TYPE_CHECKING:
+    from app.channels.base import MediaAttachment
 
 logger = logging.getLogger(__name__)
 
@@ -51,7 +55,7 @@ class RunOutcome:
     tool_calls: list[dict[str, object]] = field(default_factory=list)
     # Stripped new messages (binary replaced with text labels) — callers can
     # use these for snapshot updates, further processing, etc.
-    new_messages: list = field(default_factory=list)
+    new_messages: list[object] = field(default_factory=list)
 
 
 async def agent_run(
@@ -64,7 +68,7 @@ async def agent_run(
     trigger: str = "user_message",
     user_name: str = "",
     household_name: str = "the household",
-    media: list | None = None,
+    media: "list[MediaAttachment] | None" = None,
     save_history: bool = False,
     retries: int = 0,
     on_retry: Callable[[int], Awaitable[None]] | None = None,
@@ -214,7 +218,7 @@ async def agent_run(
     duration_ms = int((time.monotonic() - t_start) * 1000)
 
     # --- Extract tool calls and token usage from new messages ---
-    raw_new_messages: list = []
+    raw_new_messages: list[object] = []
     tool_calls: list[dict[str, object]] = []
     input_tokens = 0
     output_tokens = 0
@@ -281,9 +285,11 @@ async def agent_run(
     # --- Optionally persist conversation turn for future LLM context ---
     if save_history and new_messages:
         try:
+            from pydantic_ai.messages import ModelMessage as _MM
+
             from app.memory.conversation import save_conversation_turn
 
-            save_conversation_turn(user_id, new_messages)
+            save_conversation_turn(user_id, cast(list[_MM], new_messages))
         except Exception:
             logger.warning("agent_run: failed to save conversation turn", exc_info=True)
 
@@ -348,17 +354,17 @@ def _estimate_context_chars(ctx: object) -> int:
     return total
 
 
-def _strip_binary_from_messages(messages: list) -> list:
+def _strip_binary_from_messages(messages: list[object]) -> list[object]:
     """Replace BinaryContent in UserPromptParts with text labels."""
     from pydantic_ai import BinaryContent
-    from pydantic_ai.messages import ModelRequest, UserPromptPart
+    from pydantic_ai.messages import ModelRequest, ModelRequestPart, UserPromptPart
 
-    result = []
+    result: list[object] = []
     for msg in messages:
         if not isinstance(msg, ModelRequest):
             result.append(msg)
             continue
-        new_parts = []
+        new_parts: list[ModelRequestPart] = []
         for part in msg.parts:
             if not isinstance(part, UserPromptPart):
                 new_parts.append(part)
@@ -367,11 +373,20 @@ def _strip_binary_from_messages(messages: list) -> list:
             if isinstance(content, str):
                 new_parts.append(part)
                 continue
-            new_content: list = []
+            from pydantic_ai.messages import (
+                AudioUrl,
+                CachePoint,
+                DocumentUrl,
+                ImageUrl,
+                VideoUrl,
+            )
+            new_content: list[
+                str | ImageUrl | AudioUrl | DocumentUrl | VideoUrl | BinaryContent | CachePoint
+            ] = []
             for item in content:
                 if isinstance(item, BinaryContent):
                     new_content.append(f"[{item.media_type} attached]")
-                else:
+                elif isinstance(item, (str, ImageUrl, AudioUrl, DocumentUrl, VideoUrl, CachePoint)):
                     new_content.append(item)
             if len(new_content) == 1 and isinstance(new_content[0], str):
                 new_parts.append(UserPromptPart(content=new_content[0], timestamp=part.timestamp))
@@ -421,15 +436,19 @@ def _fire_background_tasks(
     household_id: str,
     user_id: str,
     run_id: str,
-    new_messages: list,
+    new_messages: list[object],
     world_model_text: str,
 ) -> None:
+    from pydantic_ai.messages import ModelMessage as _MM
+
     from app.config import get_settings
     from app.memory.conversation import maybe_summarize_conversation
     from app.memory.extraction import extract_and_store_memories
 
-    def _done_cb(label: str):  # noqa: ANN202
-        def _cb(fut: asyncio.Future) -> None:  # type: ignore[type-arg]
+    _msgs = cast(list[_MM], new_messages)
+
+    def _done_cb(label: str) -> "Callable[[asyncio.Task[None]], object]":
+        def _cb(fut: "asyncio.Task[None]") -> None:
             if not fut.cancelled() and (exc := fut.exception()):
                 logger.error("Background task %r failed: %s", label, exc, exc_info=exc)
                 from app.control.events import emit
@@ -443,7 +462,7 @@ def _fire_background_tasks(
             household_id=household_id,
             user_id=user_id,
             run_id=run_id,
-            new_messages=new_messages,
+            new_messages=_msgs,
         )
     ).add_done_callback(_done_cb("extract_memories"))
 
@@ -459,7 +478,7 @@ def _fire_background_tasks(
                 household_id=household_id,
                 user_id=user_id,
                 run_id=run_id,
-                new_messages=new_messages,
+                new_messages=_msgs,
                 world_model_text=world_model_text,
             )
         ).add_done_callback(_done_cb("world_model_extraction"))

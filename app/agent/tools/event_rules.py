@@ -172,10 +172,11 @@ def register_event_rule_tools(agent: Agent[AgentDeps, str]) -> None:
             return "Cannot list event rules — household context is missing."
 
         with users_session() as session:
+            from sqlmodel import col as _col
             rules = session.exec(
                 select(EventRule)
                 .where(EventRule.household_id == household_id)
-                .order_by(EventRule.created_at)
+                .order_by(_col(EventRule.created_at))
             ).all()
 
         if not rules:
