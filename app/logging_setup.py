@@ -32,8 +32,7 @@ def configure_logging(log_level: str = "INFO", log_format: str = "console") -> N
     # Native structlog loggers use this chain; the last processor hands off to
     # stdlib's ProcessorFormatter which applies the renderer.
     structlog.configure(
-        processors=shared_processors
-        + [structlog.stdlib.ProcessorFormatter.wrap_for_formatter],
+        processors=shared_processors + [structlog.stdlib.ProcessorFormatter.wrap_for_formatter],
         logger_factory=structlog.stdlib.LoggerFactory(),
         wrapper_class=structlog.make_filtering_bound_logger(level),
         cache_logger_on_first_use=True,

@@ -42,7 +42,8 @@ def emit(event_type: str, payload: dict[str, Any], run_id: str = "") -> None:
         except asyncio.QueueFull:
             logger.warning(
                 "SSE subscriber queue full — dropping event %s (subscribers=%d)",
-                event_type, len(_subscribers),
+                event_type,
+                len(_subscribers),
             )
     logger.debug("control.event %s run_id=%s", event_type, event.run_id)
 

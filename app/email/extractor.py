@@ -7,6 +7,7 @@ on the EmailMessage and included in the intake summary passed to the agent.
 
 All extracted values are candidates — the agent validates them via tools.
 """
+
 from __future__ import annotations
 
 import json
@@ -14,17 +15,13 @@ import re
 from dataclasses import asdict, dataclass, field
 
 # IATA airline code (2-char) + flight number (1–4 digits) + optional suffix
-_FLIGHT_NUMBER = re.compile(
-    r"\b([A-Z]{2}|[A-Z][0-9])[0-9]{1,4}[A-Z]?\b"
-)
+_FLIGHT_NUMBER = re.compile(r"\b([A-Z]{2}|[A-Z][0-9])[0-9]{1,4}[A-Z]?\b")
 
 # IATA airport codes: 3 uppercase letters standing alone or in route context
 _AIRPORT_CODE = re.compile(r"\b([A-Z]{3})\b")
 
 # Route patterns: OSL-CPH, OSL → CPH, OSL -> CPH, OSL/CPH
-_ROUTE = re.compile(
-    r"\b([A-Z]{3})\s*(?:[-–→/]|->)\s*([A-Z]{3})\b"
-)
+_ROUTE = re.compile(r"\b([A-Z]{3})\s*(?:[-–→/]|->)\s*([A-Z]{3})\b")
 
 # Date patterns in multiple formats
 _DATE_PATTERNS = [
@@ -44,23 +41,92 @@ _BOOKING_REF = re.compile(r"\b([A-Z0-9]{5,8})\b")
 
 # Common non-reference uppercase strings to exclude
 _BOOKING_REF_EXCLUDE = {
-    "FLIGHT", "TICKET", "CLASS", "CABIN", "ECONOMY", "BUSINESS", "FIRST",
-    "PLEASE", "EMAIL", "PHONE", "CHECK", "SEATS", "TERMS", "MILES",
-    "BONUS", "POINT", "DEBIT", "CREDIT", "TOTAL", "PRICE", "ORDER",
+    "FLIGHT",
+    "TICKET",
+    "CLASS",
+    "CABIN",
+    "ECONOMY",
+    "BUSINESS",
+    "FIRST",
+    "PLEASE",
+    "EMAIL",
+    "PHONE",
+    "CHECK",
+    "SEATS",
+    "TERMS",
+    "MILES",
+    "BONUS",
+    "POINT",
+    "DEBIT",
+    "CREDIT",
+    "TOTAL",
+    "PRICE",
+    "ORDER",
 }
 
 _KNOWN_AIRLINES = {
-    "SK", "DY", "LH", "BA", "AF", "KL", "AA", "UA", "DL", "EK", "QR",
-    "TK", "FR", "U2", "W6", "LS", "BT", "AY", "SN", "LX", "OS", "IB",
-    "VY", "TO", "PC", "WF", "D8", "DX",
+    "SK",
+    "DY",
+    "LH",
+    "BA",
+    "AF",
+    "KL",
+    "AA",
+    "UA",
+    "DL",
+    "EK",
+    "QR",
+    "TK",
+    "FR",
+    "U2",
+    "W6",
+    "LS",
+    "BT",
+    "AY",
+    "SN",
+    "LX",
+    "OS",
+    "IB",
+    "VY",
+    "TO",
+    "PC",
+    "WF",
+    "D8",
+    "DX",
 }
 
 _KNOWN_AIRPORTS = {
-    "OSL", "BGO", "SVG", "TRD", "TOS", "BOO", "LYR",  # Norway
-    "CPH", "ARN", "HEL", "GOT",                          # Nordics
-    "LHR", "LGW", "MAN", "EDI", "AMS", "CDG", "FRA",   # Western Europe
-    "JFK", "LGA", "EWR", "LAX", "SFO", "ORD", "MIA",   # North America
-    "DXB", "DOH", "SIN", "HKG", "NRT", "BKK",           # Long-haul
+    "OSL",
+    "BGO",
+    "SVG",
+    "TRD",
+    "TOS",
+    "BOO",
+    "LYR",  # Norway
+    "CPH",
+    "ARN",
+    "HEL",
+    "GOT",  # Nordics
+    "LHR",
+    "LGW",
+    "MAN",
+    "EDI",
+    "AMS",
+    "CDG",
+    "FRA",  # Western Europe
+    "JFK",
+    "LGA",
+    "EWR",
+    "LAX",
+    "SFO",
+    "ORD",
+    "MIA",  # North America
+    "DXB",
+    "DOH",
+    "SIN",
+    "HKG",
+    "NRT",
+    "BKK",  # Long-haul
 }
 
 
@@ -79,8 +145,8 @@ class EmailSignals:
     flights: list[FlightCandidate] = field(default_factory=list)
     booking_refs: list[str] = field(default_factory=list)
     dates: list[str] = field(default_factory=list)
-    kind: str = "general"           # "travel_booking" | "general"
-    confidence: str = "low"         # "high" | "medium" | "low"
+    kind: str = "general"  # "travel_booking" | "general"
+    confidence: str = "low"  # "high" | "medium" | "low"
 
 
 def extract_signals(text: str) -> EmailSignals:
@@ -97,11 +163,13 @@ def extract_signals(text: str) -> EmailSignals:
         if carrier in _KNOWN_AIRLINES or len(number) >= 2:
             if raw not in seen_flights:
                 seen_flights.add(raw)
-                signals.flights.append(FlightCandidate(
-                    flight_number=raw,
-                    carrier_code=carrier,
-                    number=number,
-                ))
+                signals.flights.append(
+                    FlightCandidate(
+                        flight_number=raw,
+                        carrier_code=carrier,
+                        number=number,
+                    )
+                )
 
     # --- Routes — try to associate with a nearby flight ---
     routes = _ROUTE.findall(upper)

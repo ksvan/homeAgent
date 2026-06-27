@@ -78,8 +78,7 @@ class AeroDataBoxProvider(FlightProvider):
 
         date_str = query.departure_date.strftime("%Y-%m-%d")
         url = (
-            f"{self._base_url}/flights/number"
-            f"/{query.carrier_code}{query.flight_number}/{date_str}"
+            f"{self._base_url}/flights/number/{query.carrier_code}{query.flight_number}/{date_str}"
         )
         params: dict[str, str] = {
             "withAircraftImage": "false",
@@ -99,9 +98,7 @@ class AeroDataBoxProvider(FlightProvider):
         if resp.status_code == 429:
             raise ProviderQuotaError("AeroDataBox quota exceeded")
         if resp.status_code >= 400:
-            raise ProviderError(
-                f"AeroDataBox resolve_flight {resp.status_code}: {resp.text[:200]}"
-            )
+            raise ProviderError(f"AeroDataBox resolve_flight {resp.status_code}: {resp.text[:200]}")
 
         data = resp.json()
         # AeroDataBox returns a dict with "departures"/"arrivals" or a list of flights
@@ -124,8 +121,7 @@ class AeroDataBoxProvider(FlightProvider):
 
         date_str = query.departure_date.strftime("%Y-%m-%d")
         url = (
-            f"{self._base_url}/flights/number"
-            f"/{query.carrier_code}{query.flight_number}/{date_str}"
+            f"{self._base_url}/flights/number/{query.carrier_code}{query.flight_number}/{date_str}"
         )
         params: dict[str, str] = {
             "withAircraftImage": "false",
@@ -144,9 +140,7 @@ class AeroDataBoxProvider(FlightProvider):
         if resp.status_code == 429:
             raise ProviderQuotaError("AeroDataBox quota exceeded")
         if resp.status_code >= 400:
-            raise ProviderError(
-                f"AeroDataBox get_status {resp.status_code}: {resp.text[:200]}"
-            )
+            raise ProviderError(f"AeroDataBox get_status {resp.status_code}: {resp.text[:200]}")
 
         data = resp.json()
         flights = _extract_flights(data)
@@ -289,6 +283,7 @@ class AeroDataBoxProvider(FlightProvider):
 # Internal helpers — adapt as actual AeroDataBox response shape becomes known
 # ---------------------------------------------------------------------------
 
+
 def _extract_flights(data: Any) -> list[dict[str, Any]]:
     """Extract the list of flight objects from whatever AeroDataBox returns."""
     if isinstance(data, list):
@@ -322,7 +317,7 @@ def _parse_resolved_flight(f: dict[str, Any]) -> ResolvedFlight:
     # "number" field is the full IATA flight number e.g. "DY 4104" — strip carrier prefix
     number_raw = f.get("flightNumber") or f.get("number") or f.get("iataNumber") or ""
     if iata and number_raw.startswith(iata):
-        number = number_raw[len(iata):].strip()
+        number = number_raw[len(iata) :].strip()
     else:
         number = number_raw.strip()
 
@@ -334,9 +329,11 @@ def _parse_resolved_flight(f: dict[str, Any]) -> ResolvedFlight:
     dep_date_raw = dep_sched.get("local") or dep_sched.get("utc") or ""
     try:
         from datetime import date as _date
+
         dep_date = _date.fromisoformat(dep_date_raw[:10]) if dep_date_raw else _date.today()
     except Exception:
         from datetime import date as _date
+
         dep_date = _date.today()
 
     return ResolvedFlight(
@@ -376,11 +373,7 @@ def _parse_snapshot(
         except Exception:
             return None
 
-    status_raw = (
-        flight_data.get("status")
-        or flight_data.get("flightStatus")
-        or "Unknown"
-    )
+    status_raw = flight_data.get("status") or flight_data.get("flightStatus") or "Unknown"
     state = _STATE_MAP.get(status_raw, "UNKNOWN")
 
     def _utc(block: dict[str, Any] | None, key: str = "utc") -> str | None:

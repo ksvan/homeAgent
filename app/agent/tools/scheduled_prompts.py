@@ -9,6 +9,7 @@ from app.agent.agent import AgentDeps
 
 logger = logging.getLogger(__name__)
 
+
 def register_scheduled_prompt_tools(agent: Agent[AgentDeps, str]) -> None:
     """Attach scheduled-prompt tools to the conversation agent."""
 
@@ -200,11 +201,13 @@ def register_scheduled_prompt_tools(agent: Agent[AgentDeps, str]) -> None:
             sp = session.get(ScheduledPrompt, prompt_id)
             if sp is None or sp.household_id != ctx.deps.household_id:
                 return f"Scheduled prompt '{prompt_id}' not found."
-            links = list(session.exec(
-                select(ScheduledPromptLink).where(
-                    col(ScheduledPromptLink.prompt_id) == prompt_id
-                )
-            ).all())
+            links = list(
+                session.exec(
+                    select(ScheduledPromptLink).where(
+                        col(ScheduledPromptLink.prompt_id) == prompt_id
+                    )
+                ).all()
+            )
 
         policy = parse_delivery_policy(sp)
         envelope = build_prompt_envelope(sp, links=links)
@@ -247,9 +250,11 @@ def _resolve_links(household_id: str, raw_links: list[dict[str, str]]) -> list[d
             if entity:
                 entity_id = entity.id
 
-        resolved.append({
-            "entity_type": entity_type,
-            "entity_id": entity_id,
-            "role": role,
-        })
+        resolved.append(
+            {
+                "entity_type": entity_type,
+                "entity_id": entity_id,
+                "role": role,
+            }
+        )
     return resolved

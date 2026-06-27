@@ -66,8 +66,7 @@ def evaluate_policy(tool_name: str, tool_args: dict[str, object]) -> PolicyDecis
             try:
                 conditions: dict[str, str] = json.loads(policy.arg_conditions)
                 args_match = all(
-                    fnmatch.fnmatch(str(tool_args.get(k, "")), v)
-                    for k, v in conditions.items()
+                    fnmatch.fnmatch(str(tool_args.get(k, "")), v) for k, v in conditions.items()
                 )
                 if not args_match:
                     continue

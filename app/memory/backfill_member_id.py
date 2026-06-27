@@ -9,6 +9,7 @@ Run after both Alembic migrations are applied:
 
 Safe to run multiple times — skips rows that already have member_id set.
 """
+
 from __future__ import annotations
 
 import logging
@@ -57,17 +58,17 @@ def run_backfill() -> None:
         )
         sys.exit(1)
 
-    logger.info(
-        "Backfill: member confirmed — %s (id=%s)", member.name, member.id[:8]
-    )
+    logger.info("Backfill: member confirmed — %s (id=%s)", member.name, member.id[:8])
 
     with memory_session() as session:
-        rows = list(session.exec(
-            select(EpisodicMemory).where(
-                EpisodicMemory.user_id == user.id,
-                EpisodicMemory.member_id.is_(None),  # type: ignore[union-attr]
-            )
-        ).all())
+        rows = list(
+            session.exec(
+                select(EpisodicMemory).where(
+                    EpisodicMemory.user_id == user.id,
+                    EpisodicMemory.member_id.is_(None),  # type: ignore[union-attr]
+                )
+            ).all()
+        )
 
     if not rows:
         logger.info("Backfill: no rows to update — all personal memories already have member_id.")
@@ -78,9 +79,7 @@ def run_backfill() -> None:
     with memory_session() as session:
         updated = 0
         for row in rows:
-            record = session.exec(
-                select(EpisodicMemory).where(EpisodicMemory.id == row.id)
-            ).first()
+            record = session.exec(select(EpisodicMemory).where(EpisodicMemory.id == row.id)).first()
             if record and record.member_id is None:
                 record.member_id = member.id
                 session.add(record)

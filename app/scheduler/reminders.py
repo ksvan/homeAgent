@@ -112,9 +112,7 @@ def cancel_reminder(task_id: str) -> bool:
             try:
                 await scheduler.remove_schedule(task_id)
             except Exception:
-                logger.debug(
-                    "Could not remove schedule %s (may have already fired)", task_id
-                )
+                logger.debug("Could not remove schedule %s (may have already fired)", task_id)
 
         asyncio.ensure_future(_remove())
 

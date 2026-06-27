@@ -75,8 +75,7 @@ class FlightWatch:
     @property
     def flight_label(self) -> str:
         return (
-            self.label
-            or f"{self.carrier_code}{self.flight_number} {self.scheduled_departure_date}"
+            self.label or f"{self.carrier_code}{self.flight_number} {self.scheduled_departure_date}"
         )
 
     @property
@@ -176,7 +175,7 @@ class FlightStatusChange:
     watch_id: str
     flight_label: str
     change_type: str  # e.g. "gate_changed", "delay_increased", "cancelled", etc.
-    severity: str     # critical | warning | info | debug
+    severity: str  # critical | warning | info | debug
     summary: str
     old_values: dict[str, Any] = field(default_factory=dict)
     new_values: dict[str, Any] = field(default_factory=dict)

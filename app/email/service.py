@@ -4,6 +4,7 @@ Email intake processing pipeline.
 Takes a persisted EmailMessage (status=RECEIVED) through:
   sender mapping → full message fetch → preprocess → Telegram confirmation
 """
+
 from __future__ import annotations
 
 import logging
@@ -30,13 +31,14 @@ _BURST_THRESHOLD = 3
 def _emit(event_type: str, payload: dict) -> None:  # type: ignore[type-arg]
     try:
         from app.control.admin_events import emit_admin_event
+
         emit_admin_event(event_type, payload)
     except Exception:
         pass
 
 
 def _schedule_retry(row_id: str, attempt_count: int, reason: str) -> None:
-    delay = _RETRY_BASE_SECONDS * (2 ** attempt_count)
+    delay = _RETRY_BASE_SECONDS * (2**attempt_count)
     next_attempt = datetime.now(timezone.utc) + timedelta(seconds=delay)
     update_status(
         row_id,
@@ -127,10 +129,13 @@ async def process_email_message(row: EmailMessage) -> None:
     mapping = _resolve_user(row.channel_user_id)
     if mapping is None:
         update_status(row.id, "IGNORED", status_reason="unmapped_sender")
-        _emit("email.sender_unmapped", {
-            "email_message_id": row.id,
-            "from_email": row.channel_user_id,
-        })
+        _emit(
+            "email.sender_unmapped",
+            {
+                "email_message_id": row.id,
+                "from_email": row.channel_user_id,
+            },
+        )
         return
 
     user_id = mapping.user_id
@@ -183,11 +188,14 @@ async def process_email_message(row: EmailMessage) -> None:
         )
         try:
             await channel.send_message(telegram_cuid, digest)
-            _emit("email.confirmation_digest_requested", {
-                "email_message_id": row.id,
-                "user_id": user_id,
-                "pending_count": pending,
-            })
+            _emit(
+                "email.confirmation_digest_requested",
+                {
+                    "email_message_id": row.id,
+                    "user_id": user_id,
+                    "pending_count": pending,
+                },
+            )
         except Exception as exc:
             logger.warning("Email intake: digest send failed: %s", exc)
         # Still create the confirmation so it's accessible via check_email_now
@@ -228,13 +236,18 @@ async def process_email_message(row: EmailMessage) -> None:
 
     try:
         await channel.send_email_intake_prompt(telegram_cuid, telegram_prompt, token)
-        _emit("email.confirmation_requested", {
-            "email_message_id": row.id,
-            "user_id": user_id,
-        })
+        _emit(
+            "email.confirmation_requested",
+            {
+                "email_message_id": row.id,
+                "user_id": user_id,
+            },
+        )
         logger.info(
             "Email intake: confirmation sent to user=%s (message_id=%s token=%s)",
-            user_id, row.id, token,
+            user_id,
+            row.id,
+            token,
         )
     except Exception as exc:
         logger.warning("Email intake: confirmation send failed: %s", exc)

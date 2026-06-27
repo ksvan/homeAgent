@@ -188,9 +188,7 @@ def store_memory(
                     record.last_used_at = _now()
                     session.add(record)
                     session.commit()
-            logger.debug(
-                "Dedup: skipped near-duplicate memory, refreshed id=%s", duplicate.id[:8]
-            )
+            logger.debug("Dedup: skipped near-duplicate memory, refreshed id=%s", duplicate.id[:8])
             return duplicate.id
 
     with memory_session() as session:
@@ -247,9 +245,7 @@ async def async_store_memory(
                     record.last_used_at = _now()
                     session.add(record)
                     session.commit()
-            logger.debug(
-                "Dedup: skipped near-duplicate memory, refreshed id=%s", duplicate.id[:8]
-            )
+            logger.debug("Dedup: skipped near-duplicate memory, refreshed id=%s", duplicate.id[:8])
             return duplicate.id
 
     with memory_session() as session:
@@ -342,9 +338,7 @@ def _visible_filter(household_id: str, user_id: str) -> object:
     )
 
 
-def _vec_search(
-    household_id: str, user_id: str, embedding: list[float], limit: int
-) -> list[str]:
+def _vec_search(household_id: str, user_id: str, embedding: list[float], limit: int) -> list[str]:
     try:
         vec_bytes = _pack_embedding(embedding)
         with _raw_memory_conn() as raw:

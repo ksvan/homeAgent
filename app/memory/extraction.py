@@ -5,6 +5,7 @@ After each agent run, this module analyses the new conversation exchange with a
 cheap background model and stores any stable facts it finds as episodic memories.
 Called as a fire-and-forget coroutine from bot.py — never blocks the response.
 """
+
 from __future__ import annotations
 
 import logging
@@ -120,9 +121,11 @@ async def extract_and_store_memories(
     stored_facts: list[str] = []
     for fact in facts:
         content = fact.content.strip()
-        importance = fact.importance if fact.importance in {
-            "critical", "important", "normal", "ephemeral"
-        } else "normal"
+        importance = (
+            fact.importance
+            if fact.importance in {"critical", "important", "normal", "ephemeral"}
+            else "normal"
+        )
         if not content:
             continue
         try:

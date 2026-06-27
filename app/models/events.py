@@ -31,9 +31,9 @@ class EventRule(SQLModel, table=True):
     name: str  # human label, e.g. "Motion alert after 22:00"
 
     # --- Matching ---
-    source: str = "homey"           # "homey" | future: "calendar", "internal"
-    event_type: str = "*"           # "device_state_change" | "flow_trigger" | "*"
-    entity_id: str = "*"            # specific device UUID, or "*" for any
+    source: str = "homey"  # "homey" | future: "calendar", "internal"
+    event_type: str = "*"  # "device_state_change" | "flow_trigger" | "*"
+    entity_id: str = "*"  # specific device UUID, or "*" for any
     capability: Optional[str] = None  # filter by capability name, nullable = any
     # JSON object: {"eq": true}, {"gt": 22.5}, {"ne": null} — applied to payload value
     value_filter_json: Optional[str] = None

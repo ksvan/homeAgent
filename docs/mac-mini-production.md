@@ -198,6 +198,64 @@ curl -X POST "https://api.telegram.org/bot<YOUR_TOKEN>/setWebhook" \
   -d '{"url": "https://your-domain.com/webhook/telegram", "secret_token": "<YOUR_WEBHOOK_SECRET>"}'
 ```
 
+## Pull-Based Auto-Update
+
+As an alternative to push deploys from the source Mac, the Mac mini can update itself by polling GitHub and pulling only when CI has passed.
+
+### Setup
+
+1. Add a `GITHUB_TOKEN` to the Mac mini's `.env` file — a GitHub fine-grained PAT with **read** access on **Actions** and **Contents** for this repo:
+
+```text
+GITHUB_TOKEN=github_pat_...
+```
+
+1. Create the logs directory if it does not exist:
+
+```bash
+mkdir -p ~/homeAgent/logs
+```
+
+1. Run a dry run to verify everything is wired up:
+
+```bash
+APP_DIR=$HOME/homeAgent $HOME/homeAgent/scripts/auto-update.sh --dry-run
+```
+
+### Manual run
+
+```bash
+$HOME/homeAgent/scripts/auto-update.sh
+```
+
+The script exits quietly if already up to date or if CI has not yet passed for the latest commit.
+
+### Cron (simplest)
+
+```bash
+crontab -e
+```
+
+Add:
+
+```text
+*/15 * * * * $HOME/homeAgent/scripts/auto-update.sh >> $HOME/homeAgent/logs/auto-update.log 2>&1
+```
+
+### launchd (macOS-native alternative)
+
+A template is provided at `scripts/auto-update.plist.example`. Copy it, replace `<YOUR_USERNAME>`, and load it with `launchctl`. See the comments inside the file for full instructions.
+
+### What the script does
+
+1. Fetches the latest SHA on `main` from the GitHub API.
+2. Checks that the `lint-and-test` CI job completed with `success`.
+3. Skips if local HEAD already matches, or if CI is pending/failed.
+4. Runs `git pull --ff-only` then `docker compose up -d --build`.
+5. Logs all steps with timestamps to `logs/auto-update.log`.
+
+Local config (`.env`), data (`data/`), and prompts (`prompts/`) are never touched.
+
 ## Consistency Notes
 
 The app uses SQLite WAL files and other local runtime state under `data/`. A consistent migration requires the writer to be stopped before copying.

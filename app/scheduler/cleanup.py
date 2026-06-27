@@ -182,6 +182,7 @@ async def purge_stale_tasks() -> None:
 
         if stale:
             from app.control.events import emit
+
             for task in stale:
                 emit("task.auto_cancel", {"task_id": task.id, "title": task.title})
             logger.info("Stale task cleanup: cancelled %d task(s)", len(stale))
@@ -204,9 +205,7 @@ async def purge_old_turns() -> None:
 
         total_deleted = 0
         with memory_session() as session:
-            user_ids = session.exec(
-                select(ConversationTurn.user_id).distinct()
-            ).all()
+            user_ids = session.exec(select(ConversationTurn.user_id).distinct()).all()
             for uid in user_ids:
                 keep_ids = session.exec(
                     select(ConversationTurn.id)
@@ -274,11 +273,11 @@ async def register_cleanup_jobs() -> None:
         return
 
     for fn, job_id, delay_hours in [
-        (purge_old_logs,       _CLEANUP_JOB_ID,       0),
-        (purge_stale_memories, _MEMORY_PURGE_JOB_ID,  1),
-        (purge_old_tasks,      _TASK_PURGE_JOB_ID,    2),
-        (purge_stale_tasks,    _STALE_TASK_JOB_ID,    2.5),
-        (purge_old_turns,      _TURNS_PURGE_JOB_ID,   3),
+        (purge_old_logs, _CLEANUP_JOB_ID, 0),
+        (purge_stale_memories, _MEMORY_PURGE_JOB_ID, 1),
+        (purge_old_tasks, _TASK_PURGE_JOB_ID, 2),
+        (purge_stale_tasks, _STALE_TASK_JOB_ID, 2.5),
+        (purge_old_turns, _TURNS_PURGE_JOB_ID, 3),
         (purge_old_prompt_runs, _PROMPT_RUN_PURGE_JOB_ID, 3.5),
     ]:
         try:

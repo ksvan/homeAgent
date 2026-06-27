@@ -1,4 +1,5 @@
 """Agent tools for the email channel."""
+
 from __future__ import annotations
 
 import logging
@@ -46,6 +47,7 @@ def register_email_tools(agent: Agent[AgentDeps, str]) -> None:
                 continue
 
             from email.utils import parseaddr
+
             _, from_email = parseaddr(m.from_display)
             from_email = from_email.strip().lower()
 
@@ -61,6 +63,7 @@ def register_email_tools(agent: Agent[AgentDeps, str]) -> None:
             )
             saved = save(row)
             import asyncio
+
             asyncio.create_task(process_email_message(saved))
             queued += 1
 

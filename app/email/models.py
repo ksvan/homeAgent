@@ -24,14 +24,14 @@ class EmailMessage(SQLModel, table=True):
     # Provider-level deduplication keys
     provider_event_id: Optional[str] = Field(default=None, index=True)
     provider_delivery_id: Optional[str] = Field(default=None, index=True)  # Svix svix-id
-    provider_message_id: str = Field(index=True)                            # RFC 2822 Message-ID
+    provider_message_id: str = Field(index=True)  # RFC 2822 Message-ID
     provider_thread_id: Optional[str] = Field(default=None)
     provider_inbox_id: str
 
     # User resolution
     household_id: Optional[str] = Field(default=None, index=True)
     user_id: Optional[str] = Field(default=None, index=True)
-    channel_user_id: str                # normalized sender email
+    channel_user_id: str  # normalized sender email
 
     # Envelope
     from_email: str
@@ -61,7 +61,7 @@ class EmailMessage(SQLModel, table=True):
     instruction_text: str = ""
     intake_summary_text: str = ""
     proposed_action_json: Optional[str] = None
-    confirmation_id: Optional[str] = None   # -> EmailIntakeConfirmation.token
+    confirmation_id: Optional[str] = None  # -> EmailIntakeConfirmation.token
     confirmed_at: Optional[datetime] = None
 
     # Storage
@@ -93,6 +93,6 @@ class EmailIntakeConfirmation(SQLModel, table=True):
     email_message_id: str = Field(index=True)
     user_id: str
     household_id: str
-    intake_text: str           # pre-built text passed to agent_run on confirm
+    intake_text: str  # pre-built text passed to agent_run on confirm
     expires_at: datetime
     created_at: datetime = Field(default_factory=_now)

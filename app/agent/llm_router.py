@@ -66,6 +66,5 @@ class LLMRouter:
                 return _make_model(s.model_fallback, key)
 
         raise RuntimeError(
-            "No LLM provider configured. "
-            "Set ANTHROPIC_API_KEY or OPENAI_API_KEY in .env"
+            "No LLM provider configured. Set ANTHROPIC_API_KEY or OPENAI_API_KEY in .env"
         )

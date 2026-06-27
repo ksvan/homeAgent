@@ -4,6 +4,7 @@ Optional email acknowledgement reply after Telegram confirmation.
 Gated on EMAIL_CHANNEL_ALLOW_REPLY_TO=true (default false).
 Replies only to the mapped outer From sender. Never reply-all.
 """
+
 from __future__ import annotations
 
 import logging

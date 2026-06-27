@@ -28,6 +28,7 @@ async def _instrument_process_tool_call(
         result = await call_tool(tool_name, tool_args, None)
         duration_ms = int((time.monotonic() - t0) * 1000)
         from app.control.events import emit
+
         emit(
             "run.tool_call",
             {"tool": tool_name, "duration_ms": duration_ms, "success": True},
@@ -37,6 +38,7 @@ async def _instrument_process_tool_call(
     except Exception as exc:
         duration_ms = int((time.monotonic() - t0) * 1000)
         from app.control.events import emit
+
         emit(
             "run.tool_call",
             {"tool": tool_name, "duration_ms": duration_ms, "success": False, "error": str(exc)},
@@ -99,7 +101,10 @@ async def start_mcp() -> MCPServerStreamableHTTP | None:
             if attempt < _MCP_MAX_RETRIES:
                 logger.warning(
                     "Tools MCP not reachable (attempt %d/%d: %s) — retrying in %ds",
-                    attempt, _MCP_MAX_RETRIES, exc, _MCP_RETRY_BACKOFF,
+                    attempt,
+                    _MCP_MAX_RETRIES,
+                    exc,
+                    _MCP_RETRY_BACKOFF,
                 )
                 await asyncio.sleep(_MCP_RETRY_BACKOFF)
                 server = _create_mcp_server()

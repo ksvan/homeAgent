@@ -258,6 +258,7 @@ async def run_conversation(
     agent = get_conversation_agent()
 
     from app.homey.mcp_client import get_mcp_server as _get_homey
+
     _homey = _get_homey()
     logger.info(
         "run_conversation: homey_mcp=%s running_count=%s agent_toolsets=%d",

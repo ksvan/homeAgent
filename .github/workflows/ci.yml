@@ -24,6 +24,9 @@ jobs:
       - name: Lint (ruff)
         run: uv run ruff check app/
 
+      - name: Format check (ruff)
+        run: uv run ruff format --check app/
+
       - name: Type check (mypy)
         run: uv run mypy app/
 

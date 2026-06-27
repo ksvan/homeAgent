@@ -15,9 +15,7 @@ logger = logging.getLogger(__name__)
 def get_user_profile(user_id: str) -> dict[str, object]:
     """Return the profile dict for a user (empty dict if none exists)."""
     with memory_session() as session:
-        profile = session.exec(
-            select(UserProfile).where(UserProfile.user_id == user_id)
-        ).first()
+        profile = session.exec(select(UserProfile).where(UserProfile.user_id == user_id)).first()
         if profile is None:
             return {}
         return json.loads(profile.summary)  # type: ignore[no-any-return]
@@ -36,9 +34,7 @@ def upsert_user_profile(user_id: str, data: dict[str, object]) -> None:
     if not data:
         return
     with memory_session() as session:
-        profile = session.exec(
-            select(UserProfile).where(UserProfile.user_id == user_id)
-        ).first()
+        profile = session.exec(select(UserProfile).where(UserProfile.user_id == user_id)).first()
         if profile is None:
             profile = UserProfile(user_id=user_id, summary=json.dumps(data))
             session.add(profile)

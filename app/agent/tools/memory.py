@@ -165,7 +165,8 @@ def register_memory_tools(agent: Agent[AgentDeps, str]) -> None:
             ).all()
 
             to_delete = [
-                m for m in memories
+                m
+                for m in memories
                 if content_substring.lower() in m.content.lower()
                 and (m.user_id is None or m.user_id == user_id)
             ]

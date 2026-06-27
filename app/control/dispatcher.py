@@ -71,21 +71,27 @@ async def run_event_dispatcher() -> None:
 async def _dispatch(event: InboundEvent) -> None:
     from app.control.events import emit
 
-    emit("event.received", {
-        "source": event.source,
-        "event_type": event.event_type,
-        "entity_id": event.entity_id,
-        "household_id": event.household_id,
-    })
+    emit(
+        "event.received",
+        {
+            "source": event.source,
+            "event_type": event.event_type,
+            "entity_id": event.entity_id,
+            "household_id": event.household_id,
+        },
+    )
 
     # 1. Always sync world state (fast, inline — never blocked by agent runs)
     await _sync_world_state(event)
 
-    emit("event.synced", {
-        "source": event.source,
-        "event_type": event.event_type,
-        "entity_id": event.entity_id,
-    })
+    emit(
+        "event.synced",
+        {
+            "source": event.source,
+            "event_type": event.event_type,
+            "entity_id": event.entity_id,
+        },
+    )
 
     # 2. Find matching EventRule records
     rules = await _load_matching_rules(event)
@@ -121,6 +127,7 @@ async def _dispatch(event: InboundEvent) -> None:
         if getattr(rule, "run_mode", "notify_only") == "task_loop":
             try:
                 from app.control.loop_service import resolve_or_create_control_task
+
                 task_id = resolve_or_create_control_task(event, rule)
             except Exception:
                 logger.warning(
@@ -130,11 +137,14 @@ async def _dispatch(event: InboundEvent) -> None:
                 )
 
         text = _build_prompt_envelope(event, rule, task_id=task_id)
-        emit("event.triggered", {
-            "rule_id": rule.id,
-            "rule_name": rule.name,
-            "entity_id": event.entity_id,
-        })
+        emit(
+            "event.triggered",
+            {
+                "rule_id": rule.id,
+                "rule_name": rule.name,
+                "entity_id": event.entity_id,
+            },
+        )
 
         # 7. Fire agent_run() as a background task so the dispatch loop
         #    continues draining events immediately.
@@ -263,6 +273,7 @@ def _is_on_cooldown(rule: object) -> bool:
     if last is None:
         # Fall back to DB-persisted timestamp so cooldown survives restarts.
         from app.models.events import EventRule
+
         if isinstance(rule, EventRule) and rule.last_triggered_at is not None:
             last = rule.last_triggered_at
     if last is None:
@@ -288,9 +299,7 @@ def _persist_last_triggered(rule_id: str) -> None:
                 session.add(rule_row)
                 session.commit()
     except Exception:
-        logger.warning(
-            "Failed to persist last_triggered_at for rule %s", rule_id, exc_info=True
-        )
+        logger.warning("Failed to persist last_triggered_at for rule %s", rule_id, exc_info=True)
 
 
 def _in_quiet_hours(rule: object) -> bool:
@@ -309,6 +318,7 @@ def _in_quiet_hours(rule: object) -> bool:
         return False
 
     from app.config import get_settings
+
     tz = ZoneInfo(get_settings().household_timezone)
     now_time = datetime.now(tz).strftime("%H:%M")
     # Simple string comparison works for HH:MM when start < end (same day).
@@ -348,9 +358,7 @@ def _matches_value_filter(event: InboundEvent, rule: object) -> bool:
     return True
 
 
-def _build_prompt_envelope(
-    event: InboundEvent, rule: object, task_id: str | None = None
-) -> str:
+def _build_prompt_envelope(event: InboundEvent, rule: object, task_id: str | None = None) -> str:
     """Build the structured text passed to agent_run() for an event-triggered run."""
     now_str = datetime.now(timezone.utc).strftime("%H:%M UTC")
     entity_name = event.payload.get("entity_name", event.entity_id)

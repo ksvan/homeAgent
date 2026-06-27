@@ -25,8 +25,7 @@ async def refresh_home_profile(household_id: str) -> None:
     try:
         tools = await server.list_tools()
         tool_summaries = [
-            {"name": t.name, "description": (t.description or "")[:120]}
-            for t in tools
+            {"name": t.name, "description": (t.description or "")[:120]} for t in tools
         ]
         await _try_discover_devices(server, household_id)
 
@@ -37,9 +36,7 @@ async def refresh_home_profile(household_id: str) -> None:
                 "homey_tools": tool_summaries,
             },
         )
-        logger.info(
-            "Home profile refreshed: %d Homey tools registered", len(tool_summaries)
-        )
+        logger.info("Home profile refreshed: %d Homey tools registered", len(tool_summaries))
     except Exception:
         logger.warning("Home profile refresh failed", exc_info=True)
 

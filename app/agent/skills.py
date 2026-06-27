@@ -23,7 +23,7 @@ def _parse_frontmatter(text: str) -> tuple[dict[str, str], str]:
     if end is None:
         return {}, text
     meta = yaml.safe_load("\n".join(lines[1:end])) or {}
-    body = "\n".join(lines[end + 1:]).strip()
+    body = "\n".join(lines[end + 1 :]).strip()
     return meta, body
 
 
@@ -41,7 +41,7 @@ class SkillMeta:
     def index_entry(self) -> str:
         return (
             f"- **{self.name}** — {self.short_description or self.description}\n"
-            f"  Invoke: \"{self.default_prompt}\""
+            f'  Invoke: "{self.default_prompt}"'
         )
 
 
@@ -127,6 +127,7 @@ def get_skill_registry() -> SkillRegistry:
 
 def _load_registry(reg: SkillRegistry) -> None:
     from app.config import get_settings
+
     settings = get_settings()
     skills_dir = Path(settings.skills_dir)
     if not skills_dir.is_absolute():

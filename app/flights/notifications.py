@@ -61,6 +61,7 @@ async def notify_watch_cancelled(watch: "FlightWatch", reason: str = "airline") 
 # Internal helpers
 # ---------------------------------------------------------------------------
 
+
 def _build_context_block(
     watch: "FlightWatch",
     changes: "list[FlightStatusChange]",

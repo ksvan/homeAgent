@@ -32,9 +32,7 @@ def register_skills_tools(agent: Agent[AgentDeps, str]) -> None:
             available = ", ".join(s.name for s in registry.list()) or "none"
             return f"Skill {name!r} not found. Available skills: {available}"
 
-        logger.info(
-            "Skill loaded by agent: name=%r user=%s", name, ctx.deps.user_id
-        )
+        logger.info("Skill loaded by agent: name=%r user=%s", name, ctx.deps.user_id)
         return content
 
     @agent.tool

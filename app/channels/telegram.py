@@ -47,6 +47,7 @@ def _split_message(text: str) -> list[str]:
 
     return [c for c in chunks if c]
 
+
 # Callback type: (telegram_id, text, attachments) → response string or None
 MessageCallback = Callable[[int, str, list[MediaAttachment]], Awaitable[str | None]]
 
@@ -62,9 +63,7 @@ class TelegramChannel(Channel):
     # ------------------------------------------------------------------
 
     def _register_handlers(self) -> None:
-        self._app.add_handler(
-            MessageHandler(filters.TEXT | filters.COMMAND, self._handle_message)
-        )
+        self._app.add_handler(MessageHandler(filters.TEXT | filters.COMMAND, self._handle_message))
         self._app.add_handler(
             MessageHandler(filters.PHOTO | filters.VOICE | filters.AUDIO, self._handle_media)
         )
@@ -126,6 +125,7 @@ class TelegramChannel(Channel):
 
         try:
             from telegram import Bot
+
             bot: Bot = self._app.bot
             tg_file = await bot.get_file(file_id)
             ba = await tg_file.download_as_bytearray()
@@ -137,7 +137,10 @@ class TelegramChannel(Channel):
 
         logger.info(
             "Media received: mime=%s size=%d caption=%r telegram_id=%d",
-            mime_type, len(ba), caption, telegram_id,
+            mime_type,
+            len(ba),
+            caption,
+            telegram_id,
         )
         response = await self._on_message(telegram_id, caption, attachments)
         if response:
@@ -158,16 +161,16 @@ class TelegramChannel(Channel):
 
         data: str = query.data
         if data.startswith("confirm:"):
-            token = data[len("confirm:"):]
+            token = data[len("confirm:") :]
             await self._execute_confirmed_action(query, token, telegram_id)
         elif data.startswith("cancel:"):
-            token = data[len("cancel:"):]
+            token = data[len("cancel:") :]
             await self._cancel_pending_action(query, token, telegram_id)
         elif data.startswith("email_confirm:"):
-            token = data[len("email_confirm:"):]
+            token = data[len("email_confirm:") :]
             await self._execute_email_intake(query, token, telegram_id)
         elif data.startswith("email_cancel:"):
-            token = data[len("email_cancel:"):]
+            token = data[len("email_cancel:") :]
             await self._cancel_email_intake(query, token, telegram_id)
         else:
             await query.answer("Unknown action")
@@ -205,9 +208,7 @@ class TelegramChannel(Channel):
             result = await server.direct_call_tool(action.tool_name, tool_args, None)
 
             await query.edit_message_text(f"✅ Done: {result}")
-            logger.info(
-                "Confirmed action executed: %s (token=%s)", action.tool_name, token
-            )
+            logger.info("Confirmed action executed: %s (token=%s)", action.tool_name, token)
 
             # Persist to conversation history so the agent doesn't re-prompt next message
             save_message_pair(
@@ -266,9 +267,7 @@ class TelegramChannel(Channel):
         from app.models.users import User
 
         with users_session() as session:
-            user = session.exec(
-                select(User).where(User.telegram_id == telegram_id)
-            ).first()
+            user = session.exec(select(User).where(User.telegram_id == telegram_id)).first()
         return user is not None and user.id == action_user_id
 
     async def _execute_email_intake(

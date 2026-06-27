@@ -4,6 +4,7 @@ HomeAgent entry point.
 Run via Docker Compose (production and local dev):
   docker compose up --build
 """
+
 from __future__ import annotations
 
 import asyncio
@@ -46,7 +47,7 @@ async def _run() -> None:
     if settings.app_env == "production" and len(settings.app_secret_key) < 32:
         raise SystemExit(
             "ERROR: APP_SECRET_KEY must be a strong random string (≥32 chars) in production.\n"
-            "Generate one with: python -c \"import secrets; print(secrets.token_hex(32))\""
+            'Generate one with: python -c "import secrets; print(secrets.token_hex(32))"'
         )
 
     class _AdminServer(uvicorn.Server):

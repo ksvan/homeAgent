@@ -118,9 +118,7 @@ def save_conversation_turn(user_id: str, new_messages: list[ModelMessage]) -> No
         session.commit()
 
 
-def load_recent_messages(
-    user_id: str, limit_pairs: int = _MAX_RECENT_PAIRS
-) -> list[ModelMessage]:
+def load_recent_messages(user_id: str, limit_pairs: int = _MAX_RECENT_PAIRS) -> list[ModelMessage]:
     """Load the most recent conversation turns as PydanticAI ModelMessage objects.
 
     Reads from ConversationTurn (full tool-call history). Falls back to
@@ -152,7 +150,9 @@ def load_recent_messages(
         if len(selected) < len(turns):
             logger.debug(
                 "Recent message budget: kept %d/%d turns (%d chars)",
-                len(selected), len(turns), cumulative_chars,
+                len(selected),
+                len(turns),
+                cumulative_chars,
             )
 
         # Chronological order; strip tool results from older turns to save context space
@@ -164,9 +164,7 @@ def load_recent_messages(
         for turn in old_turns:
             try:
                 messages.extend(
-                    _strip_tool_results(
-                        ModelMessagesTypeAdapter.validate_json(turn.messages_json)
-                    )
+                    _strip_tool_results(ModelMessagesTypeAdapter.validate_json(turn.messages_json))
                 )
             except Exception:
                 logger.warning("Failed to deserialize ConversationTurn id=%s", turn.id)
@@ -277,9 +275,7 @@ async def maybe_summarize_conversation(user_id: str) -> None:
         # Remove the summarized messages
         msg_ids = {m.id for m in old_msgs}
         msgs_to_delete = session.exec(
-            select(ConversationMessage).where(
-                col(ConversationMessage.id).in_(msg_ids)
-            )
+            select(ConversationMessage).where(col(ConversationMessage.id).in_(msg_ids))
         ).all()
         for msg in msgs_to_delete:
             session.delete(msg)

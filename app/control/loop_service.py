@@ -79,10 +79,7 @@ def resolve_or_create_control_task(event: InboundEvent, rule: object) -> str:
 
 
 def _compute_correlation_key(event: InboundEvent, rule: object) -> str:
-    tpl: str = (
-        getattr(rule, "correlation_key_tpl", None)
-        or "rule:{rule_id}:entity:{entity_id}"
-    )
+    tpl: str = getattr(rule, "correlation_key_tpl", None) or "rule:{rule_id}:entity:{entity_id}"
     return tpl.format(rule_id=getattr(rule, "id", ""), entity_id=event.entity_id)
 
 

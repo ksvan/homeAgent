@@ -5,6 +5,7 @@ Overdue tasks (resume_after in the past) are handled by firing them near-immedia
 unless they exceed the stale threshold — in which case task.resume_missed is emitted
 and the task is transitioned back to ACTIVE for the agent to handle on next contact.
 """
+
 from __future__ import annotations
 
 import logging
@@ -43,9 +44,7 @@ async def restore_pending_task_resumes() -> None:
     missed = 0
 
     with users_session() as session:
-        tasks = session.exec(
-            select(Task).where(Task.status == "AWAITING_RESUME")
-        ).all()
+        tasks = session.exec(select(Task).where(Task.status == "AWAITING_RESUME")).all()
 
         for task in tasks:
             if task.resume_after is None:
@@ -71,7 +70,8 @@ async def restore_pending_task_resumes() -> None:
                 logger.warning(
                     "Task resume: no channel mapping for user_id=%s, task_id=%s — "
                     "will run agent but cannot deliver response",
-                    task.user_id, task.id,
+                    task.user_id,
+                    task.id,
                 )
             channel_user_id = mapping.channel_user_id if mapping else ""
 
@@ -141,6 +141,4 @@ async def restore_pending_task_resumes() -> None:
         session.commit()
 
     if restored or missed:
-        logger.info(
-            "Task resume restore complete: restored=%d missed=%d", restored, missed
-        )
+        logger.info("Task resume restore complete: restored=%d missed=%d", restored, missed)

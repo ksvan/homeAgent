@@ -194,9 +194,11 @@ def register_task_tools(agent: Agent[AgentDeps, str]) -> None:
                             step_fields["details_json"] = json.dumps({"note": su["details"]})
                         if status == "done":
                             from datetime import datetime, timezone
+
                             step_fields["completed_at"] = datetime.now(timezone.utc)
                         elif status == "active":
                             from datetime import datetime, timezone
+
                             step_fields["started_at"] = datetime.now(timezone.utc)
                         repo.update_step(step.id, **step_fields)
         except json.JSONDecodeError:
@@ -665,9 +667,7 @@ def register_task_tools(agent: Agent[AgentDeps, str]) -> None:
             run_id=ctx.deps.run_id,
         )
 
-        return (
-            f"Attempt {attempt_count} recorded: {result} — {result_note}"
-        )
+        return f"Attempt {attempt_count} recorded: {result} — {result_note}"
 
     @agent.tool
     async def schedule_task_followup(
@@ -756,9 +756,7 @@ def register_task_tools(agent: Agent[AgentDeps, str]) -> None:
         # a follow-up (only enforced once at least one attempt has been recorded).
         if attempt_count > 0:
             last_attempt = pursuit.get("last_attempt", {})
-            last_run_id = (
-                last_attempt.get("run_id") if isinstance(last_attempt, dict) else None
-            )
+            last_run_id = last_attempt.get("run_id") if isinstance(last_attempt, dict) else None
             if last_run_id != ctx.deps.run_id:
                 emit(
                     "task.attempt_missing",

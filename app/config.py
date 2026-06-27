@@ -107,7 +107,7 @@ class Settings(BaseSettings):
     # ------------------------------------------------------------------
     # Homey MCP  (local LAN app — no auth required)
     # ------------------------------------------------------------------
-    homey_mcp_url: str = ""   # e.g. http://192.168.1.x:3000/mcp
+    homey_mcp_url: str = ""  # e.g. http://192.168.1.x:3000/mcp
     homey_poll_interval_seconds: int = 300
     homey_verify_delay_seconds: int = 2
     homey_tool_timeout_secs: int = 15
@@ -164,7 +164,7 @@ class Settings(BaseSettings):
         if self.telegram_bot_token and not self.telegram_webhook_secret:
             raise ValueError(
                 "TELEGRAM_WEBHOOK_SECRET must be set when TELEGRAM_BOT_TOKEN is configured. "
-                "Generate one with: python -c \"import secrets; print(secrets.token_hex(32))\""
+                'Generate one with: python -c "import secrets; print(secrets.token_hex(32))"'
             )
         return self
 
@@ -205,8 +205,8 @@ class Settings(BaseSettings):
     wine_graph_item_id: str = ""
     wine_excel_table_name: str = ""
     wine_worksheet_name: str = ""
-    wine_cache_ttl_seconds: int = 21600         # 6 hours
-    wine_refresh_cron: str = "0 6 * * *"        # daily at 06:00 household TZ
+    wine_cache_ttl_seconds: int = 21600  # 6 hours
+    wine_refresh_cron: str = "0 6 * * *"  # daily at 06:00 household TZ
     wine_search_default_limit: int = 20
 
     # ------------------------------------------------------------------
@@ -251,14 +251,14 @@ class Settings(BaseSettings):
     feature_email_channel: bool = False
 
     agentmail_api_key: str = ""
-    agentmail_inbox_id: str = ""           # inbox email address, e.g. agent@agentmail.to
-    agentmail_address: str = ""            # same address for loopback rejection
-    agentmail_webhook_id: str = ""         # Svix webhook endpoint id
-    agentmail_webhook_secret: str = ""     # Svix signing secret (whsec_...)
-    agentmail_webhook_public_url: str = "" # public URL AgentMail posts to
+    agentmail_inbox_id: str = ""  # inbox email address, e.g. agent@agentmail.to
+    agentmail_address: str = ""  # same address for loopback rejection
+    agentmail_webhook_id: str = ""  # Svix webhook endpoint id
+    agentmail_webhook_secret: str = ""  # Svix signing secret (whsec_...)
+    agentmail_webhook_public_url: str = ""  # public URL AgentMail posts to
 
     email_channel_require_mapped_sender: bool = True
-    email_channel_allow_reply_to: bool = False   # send ack reply after Telegram confirm
+    email_channel_allow_reply_to: bool = False  # send ack reply after Telegram confirm
     email_channel_save_history: bool = False
     email_channel_max_agent_chars: int = 12_000
     email_channel_max_raw_body_bytes: int = 1_048_576

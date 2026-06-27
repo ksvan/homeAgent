@@ -51,6 +51,7 @@ async def _lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     from app.homey.mcp_client import get_mcp_server as _get_homey_mcp
     from app.prometheus.mcp_client import get_mcp_server as _get_prom_mcp
     from app.tools.mcp_client import get_mcp_server as _get_tools_mcp
+
     logger.info(
         "MCP startup: homey=%s prom=%s tools=%s",
         "ok" if _get_homey_mcp() else "MISSING",
@@ -135,9 +136,9 @@ def create_app() -> FastAPI:
     app = FastAPI(
         title="HomeAgent",
         lifespan=_lifespan,
-        docs_url=None,      # disable Swagger UI
+        docs_url=None,  # disable Swagger UI
         redoc_url=None,
-        openapi_url=None,   # suppress schema discovery
+        openapi_url=None,  # suppress schema discovery
     )
 
     from app.api.health import router as health_router

@@ -46,7 +46,7 @@ class EpisodicMemory(SQLModel, table=True):
     source_run_id: Optional[str] = None
     # Lifecycle fields
     importance: str = Field(default="normal")  # critical | important | normal | ephemeral
-    last_used_at: Optional[datetime] = None    # updated each time the memory is retrieved
+    last_used_at: Optional[datetime] = None  # updated each time the memory is retrieved
 
 
 class ConversationMessage(SQLModel, table=True):

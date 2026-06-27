@@ -70,9 +70,7 @@ def format_snapshots_for_prompt(snapshots: list[DeviceSnapshot]) -> str:
     # Group by device_id
     devices: dict[str, list[tuple[str, object]]] = {}
     for snap in snapshots:
-        devices.setdefault(snap.device_id, []).append(
-            (snap.capability, json.loads(snap.value))
-        )
+        devices.setdefault(snap.device_id, []).append((snap.capability, json.loads(snap.value)))
 
     lines = ["## Current Device States"]
     for device_id, caps in devices.items():
@@ -105,9 +103,7 @@ def update_snapshots_from_tool_calls(
             _try_update_from_tool(household_id, part.tool_name, args)
 
 
-def _try_update_from_tool(
-    household_id: str, tool_name: str, args: dict[str, object]
-) -> None:
+def _try_update_from_tool(household_id: str, tool_name: str, args: dict[str, object]) -> None:
     """Best-effort: extract state update from a Homey tool call and persist it."""
     try:
         device_id = str(args.get("device_id", ""))

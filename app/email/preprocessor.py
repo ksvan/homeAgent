@@ -4,6 +4,7 @@ Compact email preprocessor for intake summaries.
 Converts raw email text into a bounded, clean intake summary suitable for
 the Telegram confirmation prompt and eventual agent_run input.
 """
+
 from __future__ import annotations
 
 import re
@@ -54,9 +55,7 @@ def _split_instruction_and_body(text: str) -> tuple[str, str]:
     return instruction, body
 
 
-def build_intake_summary(
-    msg: AgentMailMessage, max_chars: int = 8_000
-) -> tuple[str, str, str]:
+def build_intake_summary(msg: AgentMailMessage, max_chars: int = 8_000) -> tuple[str, str, str]:
     """
     Build a compact intake summary from a full AgentMail message.
 
@@ -131,9 +130,4 @@ def build_telegram_prompt(msg: AgentMailMessage, instruction: str) -> str:
         preview = (msg.text or "")[:200].strip()
         body = f'"{preview}"' if preview else "(no body)"
 
-    return (
-        f"📧 Email from {msg.from_email}:\n"
-        f"Subject: {subject}\n\n"
-        f"{body}\n\n"
-        f"Process this email?"
-    )
+    return f"📧 Email from {msg.from_email}:\nSubject: {subject}\n\n{body}\n\nProcess this email?"

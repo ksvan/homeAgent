@@ -4,6 +4,7 @@ Default policy set shipped with HomeAgent.
 Policies are matched in order — the first matching enabled policy wins.
 High-impact / specific policies must come before broad catch-all entries.
 """
+
 from __future__ import annotations
 
 # Each dict maps directly to ActionPolicy fields (minus id/created_at).

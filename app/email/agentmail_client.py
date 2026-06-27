@@ -4,6 +4,7 @@ Thin wrapper around the AgentMail Python SDK.
 All SDK interaction is funnelled through this module so the rest of the
 email package never imports `agentmail` directly.
 """
+
 from __future__ import annotations
 
 import logging
@@ -22,8 +23,8 @@ class AgentMailMessage:
     inbox_id: str
     message_id: str
     thread_id: Optional[str]
-    from_email: str                  # normalized bare email address
-    from_display: str                # full "Name <email>" string from API
+    from_email: str  # normalized bare email address
+    from_display: str  # full "Name <email>" string from API
     to: list[str]
     cc: list[str]
     subject: str

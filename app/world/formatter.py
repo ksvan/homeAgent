@@ -1,6 +1,7 @@
 """
 World Model Formatter — render a compact markdown snapshot for the agent system prompt.
 """
+
 from __future__ import annotations
 
 import json

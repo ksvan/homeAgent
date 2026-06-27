@@ -9,6 +9,7 @@ Three independent layers:
 All state is in-memory and resets on restart (intentional — same pattern as
 the Telegram rate limiter in bot.py). A restart clears any transient burst.
 """
+
 from __future__ import annotations
 
 from collections import defaultdict

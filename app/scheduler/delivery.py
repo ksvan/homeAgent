@@ -239,5 +239,6 @@ def record_run(
     except Exception:
         logger.warning(
             "Failed to record run for prompt_id=%s — continuing",
-            prompt_id, exc_info=True,
+            prompt_id,
+            exc_info=True,
         )

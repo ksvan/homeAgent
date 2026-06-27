@@ -17,6 +17,7 @@ _RETENTION_JOB_ID = "flight_retention_cleanup"
 # Watchdog — runs every 15 minutes, decides which watches to poll
 # ---------------------------------------------------------------------------
 
+
 async def flight_watchdog_job() -> None:
     """Check all active flight watches and poll those whose interval has elapsed."""
 
@@ -44,7 +45,8 @@ async def flight_watchdog_job() -> None:
         poll_interval = _poll_interval_for_delta(delta)
         if poll_interval is None:
             logger.info(
-                "Watchdog: skipping %s — too far out (%.1fh)", watch.id,
+                "Watchdog: skipping %s — too far out (%.1fh)",
+                watch.id,
                 delta.total_seconds() / 3600,
             )
             continue
@@ -61,7 +63,9 @@ async def flight_watchdog_job() -> None:
             if age < poll_interval:
                 logger.info(
                     "Watchdog: skipping %s — fetched %.0fm ago (interval %s)",
-                    watch.id, age.total_seconds() / 60, poll_interval,
+                    watch.id,
+                    age.total_seconds() / 60,
+                    poll_interval,
                 )
                 continue
 
@@ -89,6 +93,7 @@ def _departure_datetime(watch: object, now: datetime) -> datetime | None:
 
     # Use scheduled departure date at midnight UTC as a fallback
     from datetime import datetime as dt
+
     return dt(
         watch.scheduled_departure_date.year,
         watch.scheduled_departure_date.month,
@@ -120,6 +125,7 @@ def _poll_interval_for_delta(delta: timedelta) -> timedelta | None:
 # ---------------------------------------------------------------------------
 # Deferred alert subscription retry
 # ---------------------------------------------------------------------------
+
 
 async def alert_subscription_retry_job() -> None:
     """Retry creating alert subscriptions for watches that were deferred at creation."""
@@ -172,11 +178,14 @@ async def alert_subscription_retry_job() -> None:
             watch.provider_subscription_kind = alert.subscription_kind
             watch.webhook_token_hash = token_hash
             save_watch(watch)
-            _emit_admin_event("flight.provider_alert_created", {
-                "watch_id": watch.id,
-                "alert_id": alert.alert_id,
-                "source": "retry",
-            })
+            _emit_admin_event(
+                "flight.provider_alert_created",
+                {
+                    "watch_id": watch.id,
+                    "alert_id": alert.alert_id,
+                    "source": "retry",
+                },
+            )
             logger.info("Alert subscription created for watch %s (retry)", watch.id)
         except ProviderAlertDeferredError:
             # Still too far out — will retry again tomorrow
@@ -185,6 +194,7 @@ async def alert_subscription_retry_job() -> None:
             logger.warning("Alert retry failed for watch %s: %s", watch.id, exc)
             # If within 24 hours of departure, emit a failure event
             from datetime import datetime as dt
+
             dep = dt(
                 watch.scheduled_departure_date.year,
                 watch.scheduled_departure_date.month,
@@ -199,6 +209,7 @@ async def alert_subscription_retry_job() -> None:
 # Alert credit balance check
 # ---------------------------------------------------------------------------
 
+
 async def alert_credit_check_job() -> None:
     """Daily check of AeroDataBox alert credit balance."""
     from app.flights.service import check_alert_credit_balance
@@ -210,6 +221,7 @@ async def alert_credit_check_job() -> None:
 # Retention cleanup
 # ---------------------------------------------------------------------------
 
+
 async def flight_retention_job() -> None:
     """Daily retention cleanup for old flight events and terminal watch records."""
     from app.flights.service import run_retention_cleanup
@@ -220,6 +232,7 @@ async def flight_retention_job() -> None:
 # ---------------------------------------------------------------------------
 # Registration and startup restore
 # ---------------------------------------------------------------------------
+
 
 async def register_flight_scheduler_jobs() -> None:
     """Register all flight-related APScheduler jobs. Safe to call on startup."""

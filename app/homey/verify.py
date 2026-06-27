@@ -42,9 +42,7 @@ async def verify_after_write(
 
     try:
         # Ask Homey for the current device state
-        result = await server.direct_call_tool(
-            "get_device_state", {"device_id": device_id}, None
-        )
+        result = await server.direct_call_tool("get_device_state", {"device_id": device_id}, None)
         result_text = str(result) if result else ""
 
         # Optimistically update cache from what Homey reports
@@ -73,9 +71,7 @@ async def verify_after_write(
 
     except Exception:
         # If the read-back fails, warn the user
-        logger.warning(
-            "Verify read-back failed for %s/%s", device_id, capability, exc_info=True
-        )
+        logger.warning("Verify read-back failed for %s/%s", device_id, capability, exc_info=True)
         _notify_verify_failure(channel_user_id, device_id, capability)
 
         # Emit failure result so the loop knows verification didn't complete

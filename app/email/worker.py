@@ -7,6 +7,7 @@ Two scheduled jobs:
   - stale_lock_job (every 5 min) — releases locked rows that have been
                                    stuck in CLASSIFYING/PROCESSING too long
 """
+
 from __future__ import annotations
 
 import logging
@@ -20,8 +21,8 @@ from app.email.models import EmailMessage
 logger = logging.getLogger(__name__)
 
 _MAX_ATTEMPTS = 3
-_RETRY_BASE_SECONDS = 60          # first retry after 60 s; doubles each attempt
-_STALE_LOCK_MINUTES = 10          # locks older than this are released
+_RETRY_BASE_SECONDS = 60  # first retry after 60 s; doubles each attempt
+_STALE_LOCK_MINUTES = 10  # locks older than this are released
 
 _RETRY_JOB_ID = "email_retry_worker"
 _STALE_LOCK_JOB_ID = "email_stale_lock_sweeper"
@@ -31,6 +32,7 @@ _RETENTION_JOB_ID = "email_retention_cleanup"
 def _emit(event_type: str, payload: dict[str, object]) -> None:
     try:
         from app.control.admin_events import emit_admin_event
+
         emit_admin_event(event_type, payload)
     except Exception:
         pass
@@ -59,9 +61,7 @@ async def retry_job() -> None:
 
     for row in rows:
         with cache_session() as session:
-            live = session.exec(
-                select(EmailMessage).where(EmailMessage.id == row.id)
-            ).first()
+            live = session.exec(select(EmailMessage).where(EmailMessage.id == row.id)).first()
             if live is None or live.status != "FAILED_RETRYABLE":
                 continue
             live.status = "RECEIVED"
@@ -121,11 +121,14 @@ async def stale_lock_job() -> None:
             row.next_attempt_at = _next_attempt(row.attempt_count)
             row.last_error = "stale_lock_released"
             session.add(row)
-            _emit("email.retry_scheduled", {
-                "email_message_id": row.id,
-                "reason": "stale_lock",
-                "attempt": row.attempt_count,
-            })
+            _emit(
+                "email.retry_scheduled",
+                {
+                    "email_message_id": row.id,
+                    "reason": "stale_lock",
+                    "attempt": row.attempt_count,
+                },
+            )
         session.commit()
 
 
@@ -137,9 +140,7 @@ async def retention_job() -> None:
     cutoff = datetime.now(timezone.utc) - timedelta(days=settings.email_channel_retention_days)
 
     with cache_session() as session:
-        rows = session.exec(
-            select(EmailMessage).where(EmailMessage.created_at < cutoff)
-        ).all()
+        rows = session.exec(select(EmailMessage).where(EmailMessage.created_at < cutoff)).all()
         if not rows:
             return
         for row in rows:
@@ -149,7 +150,7 @@ async def retention_job() -> None:
 
 
 def _next_attempt(attempt_count: int) -> datetime:
-    delay = _RETRY_BASE_SECONDS * (2 ** attempt_count)
+    delay = _RETRY_BASE_SECONDS * (2**attempt_count)
     return datetime.now(timezone.utc) + timedelta(seconds=delay)
 
 

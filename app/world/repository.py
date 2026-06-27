@@ -4,6 +4,7 @@ World Model Repository — clean DB access layer for all world-model queries.
 All methods use users_session() internally. A future Postgres migration only
 needs to swap the session factory.
 """
+
 from __future__ import annotations
 
 import json
@@ -48,10 +49,16 @@ class WorldModelSnapshot:
 
     @property
     def is_empty(self) -> bool:
-        return not any([
-            self.members, self.places, self.devices, self.calendars,
-            self.routines, self.facts,
-        ])
+        return not any(
+            [
+                self.members,
+                self.places,
+                self.devices,
+                self.calendars,
+                self.routines,
+                self.facts,
+            ]
+        )
 
 
 class WorldModelRepository:
@@ -65,60 +72,83 @@ class WorldModelRepository:
     def get_full_snapshot(household_id: str) -> WorldModelSnapshot:
         """Load the entire world model for a household in a single session."""
         with users_session() as session:
-            members = list(session.exec(
-                select(HouseholdMember)
-                .where(HouseholdMember.household_id == household_id,
-                       HouseholdMember.is_active == True)  # noqa: E712
-            ).all())
+            members = list(
+                session.exec(
+                    select(HouseholdMember).where(
+                        HouseholdMember.household_id == household_id,
+                        HouseholdMember.is_active == True,  # noqa: E712
+                    )
+                ).all()
+            )
 
             member_ids = [m.id for m in members]
 
-            interests = list(session.exec(
-                select(MemberInterest)
-                .where(MemberInterest.household_id == household_id)
-            ).all()) if member_ids else []
+            interests = (
+                list(
+                    session.exec(
+                        select(MemberInterest).where(MemberInterest.household_id == household_id)
+                    ).all()
+                )
+                if member_ids
+                else []
+            )
 
-            goals = list(session.exec(
-                select(MemberGoal)
-                .where(MemberGoal.household_id == household_id,
-                       MemberGoal.status == "active")
-            ).all()) if member_ids else []
+            goals = (
+                list(
+                    session.exec(
+                        select(MemberGoal).where(
+                            MemberGoal.household_id == household_id, MemberGoal.status == "active"
+                        )
+                    ).all()
+                )
+                if member_ids
+                else []
+            )
 
-            activities = list(session.exec(
-                select(MemberActivity)
-                .where(MemberActivity.household_id == household_id)
-            ).all()) if member_ids else []
+            activities = (
+                list(
+                    session.exec(
+                        select(MemberActivity).where(MemberActivity.household_id == household_id)
+                    ).all()
+                )
+                if member_ids
+                else []
+            )
 
-            places = list(session.exec(
-                select(Place)
-                .where(Place.household_id == household_id)
-            ).all())
+            places = list(
+                session.exec(select(Place).where(Place.household_id == household_id)).all()
+            )
 
-            devices = list(session.exec(
-                select(DeviceEntity)
-                .where(DeviceEntity.household_id == household_id)
-            ).all())
+            devices = list(
+                session.exec(
+                    select(DeviceEntity).where(DeviceEntity.household_id == household_id)
+                ).all()
+            )
 
-            calendars = list(session.exec(
-                select(CalendarEntity)
-                .where(CalendarEntity.household_id == household_id,
-                       CalendarEntity.is_active == True)  # noqa: E712
-            ).all())
+            calendars = list(
+                session.exec(
+                    select(CalendarEntity).where(
+                        CalendarEntity.household_id == household_id,
+                        CalendarEntity.is_active == True,  # noqa: E712
+                    )
+                ).all()
+            )
 
-            routines = list(session.exec(
-                select(RoutineEntity)
-                .where(RoutineEntity.household_id == household_id)
-            ).all())
+            routines = list(
+                session.exec(
+                    select(RoutineEntity).where(RoutineEntity.household_id == household_id)
+                ).all()
+            )
 
-            relationships = list(session.exec(
-                select(Relationship)
-                .where(Relationship.household_id == household_id)
-            ).all())
+            relationships = list(
+                session.exec(
+                    select(Relationship).where(Relationship.household_id == household_id)
+                ).all()
+            )
 
-            facts = list(session.exec(
-                select(WorldFact)
-                .where(WorldFact.household_id == household_id)
-            ).all())
+            facts = list(
+                session.exec(select(WorldFact).where(WorldFact.household_id == household_id)).all()
+            )
 
         return WorldModelSnapshot(
             members=members,
@@ -136,41 +166,49 @@ class WorldModelRepository:
     @staticmethod
     def get_members(household_id: str) -> list[HouseholdMember]:
         with users_session() as session:
-            return list(session.exec(
-                select(HouseholdMember)
-                .where(HouseholdMember.household_id == household_id,
-                       HouseholdMember.is_active == True)  # noqa: E712
-            ).all())
+            return list(
+                session.exec(
+                    select(HouseholdMember).where(
+                        HouseholdMember.household_id == household_id,
+                        HouseholdMember.is_active == True,  # noqa: E712
+                    )
+                ).all()
+            )
 
     @staticmethod
     def get_places(household_id: str) -> list[Place]:
         with users_session() as session:
-            return list(session.exec(
-                select(Place).where(Place.household_id == household_id)
-            ).all())
+            return list(session.exec(select(Place).where(Place.household_id == household_id)).all())
 
     @staticmethod
     def get_devices(household_id: str) -> list[DeviceEntity]:
         with users_session() as session:
-            return list(session.exec(
-                select(DeviceEntity).where(DeviceEntity.household_id == household_id)
-            ).all())
+            return list(
+                session.exec(
+                    select(DeviceEntity).where(DeviceEntity.household_id == household_id)
+                ).all()
+            )
 
     @staticmethod
     def get_calendars(household_id: str) -> list[CalendarEntity]:
         with users_session() as session:
-            return list(session.exec(
-                select(CalendarEntity)
-                .where(CalendarEntity.household_id == household_id,
-                       CalendarEntity.is_active == True)  # noqa: E712
-            ).all())
+            return list(
+                session.exec(
+                    select(CalendarEntity).where(
+                        CalendarEntity.household_id == household_id,
+                        CalendarEntity.is_active == True,  # noqa: E712
+                    )
+                ).all()
+            )
 
     @staticmethod
     def get_routines(household_id: str) -> list[RoutineEntity]:
         with users_session() as session:
-            return list(session.exec(
-                select(RoutineEntity).where(RoutineEntity.household_id == household_id)
-            ).all())
+            return list(
+                session.exec(
+                    select(RoutineEntity).where(RoutineEntity.household_id == household_id)
+                ).all()
+            )
 
     @staticmethod
     def get_relationships(
@@ -197,24 +235,31 @@ class WorldModelRepository:
     @staticmethod
     def get_member_interests(member_id: str) -> list[MemberInterest]:
         with users_session() as session:
-            return list(session.exec(
-                select(MemberInterest).where(MemberInterest.member_id == member_id)
-            ).all())
+            return list(
+                session.exec(
+                    select(MemberInterest).where(MemberInterest.member_id == member_id)
+                ).all()
+            )
 
     @staticmethod
     def get_member_goals(member_id: str) -> list[MemberGoal]:
         with users_session() as session:
-            return list(session.exec(
-                select(MemberGoal)
-                .where(MemberGoal.member_id == member_id, MemberGoal.status == "active")
-            ).all())
+            return list(
+                session.exec(
+                    select(MemberGoal).where(
+                        MemberGoal.member_id == member_id, MemberGoal.status == "active"
+                    )
+                ).all()
+            )
 
     @staticmethod
     def get_member_activities(member_id: str) -> list[MemberActivity]:
         with users_session() as session:
-            return list(session.exec(
-                select(MemberActivity).where(MemberActivity.member_id == member_id)
-            ).all())
+            return list(
+                session.exec(
+                    select(MemberActivity).where(MemberActivity.member_id == member_id)
+                ).all()
+            )
 
     # ------------------------------------------------------------------
     # Upsert methods (used by sync)
@@ -229,9 +274,9 @@ class WorldModelRepository:
         """Case-insensitive lookup by name or alias."""
         with users_session() as session:
             members = session.exec(
-                select(HouseholdMember)
-                .where(HouseholdMember.household_id == household_id,
-                       HouseholdMember.is_active == True)  # noqa: E712
+                select(HouseholdMember).where(
+                    HouseholdMember.household_id == household_id, HouseholdMember.is_active == True  # noqa: E712
+                )
             ).all()
             needle = name.lower()
             for m in members:
@@ -249,9 +294,7 @@ class WorldModelRepository:
     def find_place_by_name(household_id: str, name: str) -> Place | None:
         """Case-insensitive lookup by name or alias."""
         with users_session() as session:
-            places = session.exec(
-                select(Place).where(Place.household_id == household_id)
-            ).all()
+            places = session.exec(select(Place).where(Place.household_id == household_id)).all()
             needle = name.lower()
             for p in places:
                 if p.name.lower() == needle:
@@ -305,9 +348,9 @@ class WorldModelRepository:
         """Return the HouseholdMember linked to user_id, or None."""
         with users_session() as session:
             return session.exec(
-                select(HouseholdMember)
-                .where(HouseholdMember.household_id == household_id,
-                       HouseholdMember.user_id == user_id)
+                select(HouseholdMember).where(
+                    HouseholdMember.household_id == household_id, HouseholdMember.user_id == user_id
+                )
             ).first()
 
     @staticmethod
@@ -332,15 +375,16 @@ class WorldModelRepository:
             existing = None
             if user_id:
                 existing = session.exec(
-                    select(HouseholdMember)
-                    .where(HouseholdMember.household_id == household_id,
-                           HouseholdMember.user_id == user_id)
+                    select(HouseholdMember).where(
+                        HouseholdMember.household_id == household_id,
+                        HouseholdMember.user_id == user_id,
+                    )
                 ).first()
             if existing is None:
                 existing = session.exec(
-                    select(HouseholdMember)
-                    .where(HouseholdMember.household_id == household_id,
-                           HouseholdMember.name == name)
+                    select(HouseholdMember).where(
+                        HouseholdMember.household_id == household_id, HouseholdMember.name == name
+                    )
                 ).first()
 
             if existing:
@@ -386,15 +430,14 @@ class WorldModelRepository:
             existing = None
             if external_zone_id:
                 existing = session.exec(
-                    select(Place)
-                    .where(Place.household_id == household_id,
-                           Place.external_zone_id == external_zone_id)
+                    select(Place).where(
+                        Place.household_id == household_id,
+                        Place.external_zone_id == external_zone_id,
+                    )
                 ).first()
             if existing is None:
                 existing = session.exec(
-                    select(Place)
-                    .where(Place.household_id == household_id,
-                           Place.name == name)
+                    select(Place).where(Place.household_id == household_id, Place.name == name)
                 ).first()
 
             if existing:
@@ -441,15 +484,16 @@ class WorldModelRepository:
             existing = None
             if external_device_id:
                 existing = session.exec(
-                    select(DeviceEntity)
-                    .where(DeviceEntity.household_id == household_id,
-                           DeviceEntity.external_device_id == external_device_id)
+                    select(DeviceEntity).where(
+                        DeviceEntity.household_id == household_id,
+                        DeviceEntity.external_device_id == external_device_id,
+                    )
                 ).first()
             if existing is None:
                 existing = session.exec(
-                    select(DeviceEntity)
-                    .where(DeviceEntity.household_id == household_id,
-                           DeviceEntity.name == name)
+                    select(DeviceEntity).where(
+                        DeviceEntity.household_id == household_id, DeviceEntity.name == name
+                    )
                 ).first()
 
             if existing:
@@ -498,15 +542,16 @@ class WorldModelRepository:
             existing = None
             if calendar_id:
                 existing = session.exec(
-                    select(CalendarEntity)
-                    .where(CalendarEntity.household_id == household_id,
-                           CalendarEntity.calendar_id == calendar_id)
+                    select(CalendarEntity).where(
+                        CalendarEntity.household_id == household_id,
+                        CalendarEntity.calendar_id == calendar_id,
+                    )
                 ).first()
             if existing is None:
                 existing = session.exec(
-                    select(CalendarEntity)
-                    .where(CalendarEntity.household_id == household_id,
-                           CalendarEntity.name == name)
+                    select(CalendarEntity).where(
+                        CalendarEntity.household_id == household_id, CalendarEntity.name == name
+                    )
                 ).first()
 
             if existing:
@@ -549,9 +594,9 @@ class WorldModelRepository:
         now = datetime.now(timezone.utc)
         with users_session() as session:
             existing = session.exec(
-                select(RoutineEntity)
-                .where(RoutineEntity.household_id == household_id,
-                       RoutineEntity.name == name)
+                select(RoutineEntity).where(
+                    RoutineEntity.household_id == household_id, RoutineEntity.name == name
+                )
             ).first()
 
             if existing:
@@ -594,10 +639,11 @@ class WorldModelRepository:
         now = datetime.now(timezone.utc)
         with users_session() as session:
             existing = session.exec(
-                select(WorldFact)
-                .where(WorldFact.household_id == household_id,
-                       WorldFact.scope == scope,
-                       WorldFact.key == key)
+                select(WorldFact).where(
+                    WorldFact.household_id == household_id,
+                    WorldFact.scope == scope,
+                    WorldFact.key == key,
+                )
             ).first()
 
             if existing:
@@ -636,9 +682,9 @@ class WorldModelRepository:
         now = datetime.now(timezone.utc)
         with users_session() as session:
             existing = session.exec(
-                select(MemberInterest)
-                .where(MemberInterest.member_id == member_id,
-                       MemberInterest.name == name)
+                select(MemberInterest).where(
+                    MemberInterest.member_id == member_id, MemberInterest.name == name
+                )
             ).first()
 
             if existing:
@@ -676,9 +722,9 @@ class WorldModelRepository:
         now = datetime.now(timezone.utc)
         with users_session() as session:
             existing = session.exec(
-                select(MemberActivity)
-                .where(MemberActivity.member_id == member_id,
-                       MemberActivity.name == name)
+                select(MemberActivity).where(
+                    MemberActivity.member_id == member_id, MemberActivity.name == name
+                )
             ).first()
 
             if existing:
@@ -717,9 +763,7 @@ class WorldModelRepository:
         now = datetime.now(timezone.utc)
         with users_session() as session:
             existing = session.exec(
-                select(MemberGoal)
-                .where(MemberGoal.member_id == member_id,
-                       MemberGoal.name == name)
+                select(MemberGoal).where(MemberGoal.member_id == member_id, MemberGoal.name == name)
             ).first()
 
             if existing:
@@ -760,8 +804,7 @@ class WorldModelRepository:
         now = datetime.now(timezone.utc)
         with users_session() as session:
             existing = session.exec(
-                select(Relationship)
-                .where(
+                select(Relationship).where(
                     Relationship.household_id == household_id,
                     Relationship.subject_type == subject_type,
                     Relationship.subject_id == subject_id,
@@ -803,7 +846,10 @@ class WorldModelRepository:
 
     @staticmethod
     def add_alias(
-        household_id: str, entity_type: str, entity_id: str, alias: str,
+        household_id: str,
+        entity_type: str,
+        entity_id: str,
+        alias: str,
     ) -> bool:
         """Append an alias to an entity's aliases_json. Returns True if changed."""
         model_map: dict[str, type] = {
@@ -837,7 +883,10 @@ class WorldModelRepository:
 
     @staticmethod
     def remove_alias(
-        household_id: str, entity_type: str, entity_id: str, alias: str,
+        household_id: str,
+        entity_type: str,
+        entity_id: str,
+        alias: str,
     ) -> bool:
         """Remove an alias from an entity's aliases_json. Returns True if changed."""
         model_map: dict[str, type] = {
@@ -902,9 +951,9 @@ class WorldModelRepository:
     def delete_interest(member_id: str, name: str) -> bool:
         with users_session() as session:
             item = session.exec(
-                select(MemberInterest)
-                .where(MemberInterest.member_id == member_id,
-                       MemberInterest.name == name)
+                select(MemberInterest).where(
+                    MemberInterest.member_id == member_id, MemberInterest.name == name
+                )
             ).first()
             if item is None:
                 return False
@@ -916,9 +965,9 @@ class WorldModelRepository:
     def delete_activity(member_id: str, name: str) -> bool:
         with users_session() as session:
             item = session.exec(
-                select(MemberActivity)
-                .where(MemberActivity.member_id == member_id,
-                       MemberActivity.name == name)
+                select(MemberActivity).where(
+                    MemberActivity.member_id == member_id, MemberActivity.name == name
+                )
             ).first()
             if item is None:
                 return False
@@ -930,9 +979,7 @@ class WorldModelRepository:
     def delete_goal(member_id: str, name: str) -> bool:
         with users_session() as session:
             item = session.exec(
-                select(MemberGoal)
-                .where(MemberGoal.member_id == member_id,
-                       MemberGoal.name == name)
+                select(MemberGoal).where(MemberGoal.member_id == member_id, MemberGoal.name == name)
             ).first()
             if item is None:
                 return False
@@ -944,10 +991,11 @@ class WorldModelRepository:
     def delete_fact(household_id: str, scope: str, key: str) -> bool:
         with users_session() as session:
             item = session.exec(
-                select(WorldFact)
-                .where(WorldFact.household_id == household_id,
-                       WorldFact.scope == scope,
-                       WorldFact.key == key)
+                select(WorldFact).where(
+                    WorldFact.household_id == household_id,
+                    WorldFact.scope == scope,
+                    WorldFact.key == key,
+                )
             ).first()
             if item is None:
                 return False
@@ -1018,7 +1066,9 @@ class WorldModelRepository:
 
     @staticmethod
     def review_proposal(
-        proposal_id: str, decision: str, reviewed_by: str = "admin",
+        proposal_id: str,
+        decision: str,
+        reviewed_by: str = "admin",
     ) -> WorldModelProposal | None:
         """Accept or reject a proposal. If accepted, the caller applies the change."""
         with users_session() as session:

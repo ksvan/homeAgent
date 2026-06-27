@@ -43,6 +43,7 @@ async def send_reminder(
     # Save to conversation history so the agent has context when the user replies
     try:
         from app.memory.conversation import save_message_pair
+
         save_message_pair(user_id, "", reminder_text)
     except Exception:
         logger.warning("Could not save reminder to conversation history", exc_info=True)
@@ -120,7 +121,9 @@ async def execute_homey_action(
             )
             logger.warning(
                 "Scheduled action blocked by policy: task_id=%s tool=%s policy=%s",
-                task_id, raw_name, decision.policy_name,
+                task_id,
+                raw_name,
+                decision.policy_name,
             )
         else:
             try:
@@ -138,8 +141,11 @@ async def execute_homey_action(
     emit(
         "job.complete" if success else "job.error",
         {
-            "job": "homey_action", "tool": raw_name, "description": description[:80],
-            "duration_ms": duration_ms, "success": success,
+            "job": "homey_action",
+            "tool": raw_name,
+            "description": description[:80],
+            "duration_ms": duration_ms,
+            "success": success,
         },
         run_id=task_id,
     )
@@ -153,6 +159,7 @@ async def execute_homey_action(
     # Save to conversation history so the agent has context when the user replies
     try:
         from app.memory.conversation import save_message_pair
+
         save_message_pair(user_id, "", msg)
     except Exception:
         logger.warning("Could not save scheduled action to conversation history", exc_info=True)
@@ -209,7 +216,8 @@ async def resume_task(
         if task.status not in ("AWAITING_INPUT", "AWAITING_CONFIRMATION", "AWAITING_RESUME"):
             logger.info(
                 "Task resume skipped (unexpected status=%s): task_id=%s",
-                task.status, task_id,
+                task.status,
+                task_id,
             )
             return
 
@@ -473,9 +481,7 @@ async def _fire_scheduled_prompt_inner(
             "Scheduled prompt complete: prompt_id=%s name=%r run_id=%s", prompt_id, name, run_id
         )
     else:
-        logger.error(
-            "Scheduled prompt agent_run failed: prompt_id=%s name=%r", prompt_id, name
-        )
+        logger.error("Scheduled prompt agent_run failed: prompt_id=%s name=%r", prompt_id, name)
 
     channel = get_channel()
 
@@ -494,11 +500,13 @@ async def _fire_scheduled_prompt_inner(
             try:
                 await channel.send_message(channel_user_id, response)
                 from app.memory.conversation import save_message_pair
+
                 save_message_pair(user_id, "", response)
             except Exception:
                 logger.error(
                     "Could not deliver scheduled prompt error: prompt_id=%s",
-                    prompt_id, exc_info=True,
+                    prompt_id,
+                    exc_info=True,
                 )
     else:
         # --- Postflight evaluation ---
@@ -513,13 +521,16 @@ async def _fire_scheduled_prompt_inner(
         if status == "skipped":
             logger.info(
                 "Scheduled prompt postflight skip: prompt_id=%s reason=%s",
-                prompt_id, post_skip_reason,
+                prompt_id,
+                post_skip_reason,
             )
             emit(
                 "proactive.skip",
                 {
-                    "name": name[:80], "behavior_kind": behavior_kind,
-                    "reason": post_skip_reason, "duration_ms": duration_ms,
+                    "name": name[:80],
+                    "behavior_kind": behavior_kind,
+                    "reason": post_skip_reason,
+                    "duration_ms": duration_ms,
                 },
                 run_id=run_id,
             )
@@ -529,18 +540,20 @@ async def _fire_scheduled_prompt_inner(
                 try:
                     await channel.send_message(channel_user_id, response)
                     from app.memory.conversation import save_message_pair
+
                     save_message_pair(user_id, "", response)
                 except Exception:
                     logger.error(
                         "Could not deliver scheduled prompt response:"
                         " prompt_id=%s channel_user_id=%s",
-                        prompt_id, channel_user_id,
+                        prompt_id,
+                        channel_user_id,
                         exc_info=True,
                     )
             elif not channel:
                 logger.error(
-                    "Scheduled prompt: no active channel — not delivered:"
-                    " prompt_id=%s", prompt_id,
+                    "Scheduled prompt: no active channel — not delivered: prompt_id=%s",
+                    prompt_id,
                 )
 
             emit(
@@ -553,8 +566,10 @@ async def _fire_scheduled_prompt_inner(
     emit(
         "job.complete" if success else "job.error",
         {
-            "job": "scheduled_prompt", "name": name[:80],
-            "duration_ms": duration_ms, "success": success,
+            "job": "scheduled_prompt",
+            "name": name[:80],
+            "duration_ms": duration_ms,
+            "success": success,
         },
         run_id=run_id,
     )
@@ -569,10 +584,12 @@ async def _fire_scheduled_prompt_inner(
                     s.commit()
             logger.info(
                 "One-shot prompt deleted after firing: prompt_id=%s name=%r",
-                prompt_id, name,
+                prompt_id,
+                name,
             )
         except Exception:
             logger.warning(
                 "Failed to delete one-shot prompt after firing: prompt_id=%s",
-                prompt_id, exc_info=True,
+                prompt_id,
+                exc_info=True,
             )

@@ -1,4 +1,5 @@
 """EmailMessage persistence and deduplication."""
+
 from __future__ import annotations
 
 import logging
@@ -32,9 +33,7 @@ def get_by_provider_ids(
 def get_by_delivery_id(delivery_id: str) -> EmailMessage | None:
     with cache_session() as session:
         row = session.exec(
-            select(EmailMessage).where(
-                EmailMessage.provider_delivery_id == delivery_id
-            )
+            select(EmailMessage).where(EmailMessage.provider_delivery_id == delivery_id)
         ).first()
         if row is None:
             return None
@@ -58,9 +57,7 @@ def update_status(
     **extra: object,
 ) -> None:
     with cache_session() as session:
-        row = session.exec(
-            select(EmailMessage).where(EmailMessage.id == message_id)
-        ).first()
+        row = session.exec(select(EmailMessage).where(EmailMessage.id == message_id)).first()
         if row is None:
             logger.warning("EmailMessage %s not found for status update", message_id)
             return

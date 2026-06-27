@@ -239,11 +239,7 @@ class TaskRepository:
 
     def get_links(self, task_id: str) -> list[TaskLink]:
         with users_session() as session:
-            return list(
-                session.exec(
-                    select(TaskLink).where(TaskLink.task_id == task_id)
-                ).all()
-            )
+            return list(session.exec(select(TaskLink).where(TaskLink.task_id == task_id)).all())
 
     def remove_link(self, link_id: str) -> bool:
         with users_session() as session:

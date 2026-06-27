@@ -86,7 +86,9 @@ def register_world_model_tools(agent: Agent[AgentDeps, str]) -> None:
             if role not in ("member", "child", "guest", "admin"):
                 return f"Invalid role '{role}'. Use: member, child, guest."
             member = repo.upsert_member(
-                household_id, name=name, role=role,
+                household_id,
+                name=name,
+                role=role,
                 source="user_explicit",
             )
             emit("world.update", {"entity_type": "member", "action": "upsert", "name": member.name})
@@ -100,8 +102,12 @@ def register_world_model_tools(agent: Agent[AgentDeps, str]) -> None:
             if not key:
                 return "Missing 'key' in fact details."
             repo.upsert_world_fact(
-                household_id, scope=scope, key=key, value=value,
-                source="user_explicit", overwrite=True,
+                household_id,
+                scope=scope,
+                key=key,
+                value=value,
+                source="user_explicit",
+                overwrite=True,
             )
             emit("world.update", {"entity_type": "fact", "action": "upsert", "key": key})
             logger.info("World model fact upserted: %s.%s", scope, key)
@@ -155,8 +161,11 @@ def register_world_model_tools(agent: Agent[AgentDeps, str]) -> None:
                 return f"Could not find member named '{member_name}'."
             member = member_opt
             repo.upsert_interest(
-                household_id, member_id=member.id, name=name,
-                notes=d.get("notes", ""), source="user_explicit",
+                household_id,
+                member_id=member.id,
+                name=name,
+                notes=d.get("notes", ""),
+                source="user_explicit",
             )
             emit(
                 "world.update",
@@ -180,8 +189,11 @@ def register_world_model_tools(agent: Agent[AgentDeps, str]) -> None:
                 return f"Could not find member named '{member_name}'."
             member = member_opt
             repo.upsert_activity(
-                household_id, member_id=member.id, name=name,
-                schedule_hint=d.get("schedule", ""), notes=d.get("notes", ""),
+                household_id,
+                member_id=member.id,
+                name=name,
+                schedule_hint=d.get("schedule", ""),
+                notes=d.get("notes", ""),
                 source="user_explicit",
             )
             emit(
@@ -206,8 +218,11 @@ def register_world_model_tools(agent: Agent[AgentDeps, str]) -> None:
                 return f"Could not find member named '{member_name}'."
             member = member_opt
             repo.upsert_goal(
-                household_id, member_id=member.id, name=name,
-                notes=d.get("notes", ""), source="user_explicit",
+                household_id,
+                member_id=member.id,
+                name=name,
+                notes=d.get("notes", ""),
+                source="user_explicit",
             )
             emit(
                 "world.update",
@@ -267,7 +282,8 @@ def register_world_model_tools(agent: Agent[AgentDeps, str]) -> None:
             if not name:
                 return "Missing 'name' in routine details."
             repo.upsert_routine(
-                household_id, name=name,
+                household_id,
+                name=name,
                 description=d.get("description", ""),
                 kind=d.get("kind", ""),
                 source="user_explicit",
@@ -356,8 +372,10 @@ def register_world_model_tools(agent: Agent[AgentDeps, str]) -> None:
                 emit(
                     "world.update",
                     {
-                        "entity_type": etype, "action": "alias_removed",
-                        "name": entity.name, "alias": alias,
+                        "entity_type": etype,
+                        "action": "alias_removed",
+                        "name": entity.name,
+                        "alias": alias,
                     },
                 )
                 return f"Removed alias '{alias}' from {etype} '{entity.name}'."
@@ -381,8 +399,10 @@ def register_world_model_tools(agent: Agent[AgentDeps, str]) -> None:
                 emit(
                     "world.update",
                     {
-                        "entity_type": entry_type, "action": "delete",
-                        "member": member.name, "name": name,
+                        "entity_type": entry_type,
+                        "action": "delete",
+                        "member": member.name,
+                        "name": name,
                     },
                 )
                 return f"Removed {entry_type} '{name}' from {member.name}."

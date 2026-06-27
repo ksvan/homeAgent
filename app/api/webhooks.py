@@ -196,9 +196,9 @@ async def agentmail_webhook(
         if not fut.cancelled() and (exc := fut.exception()):
             logger.error("agentmail intake failed: %s", exc, exc_info=exc)
 
-    asyncio.create_task(
-        _ingest_agentmail_event(payload, svix_id, event_type)
-    ).add_done_callback(_task_done)
+    asyncio.create_task(_ingest_agentmail_event(payload, svix_id, event_type)).add_done_callback(
+        _task_done
+    )
 
     return {"ok": True}
 
@@ -237,9 +237,7 @@ async def _ingest_agentmail_event(
     # Message-level deduplication
     existing_msg = get_by_provider_ids("agentmail", provider_message_id)
     if existing_msg:
-        logger.info(
-            "AgentMail webhook: duplicate message_id=%s — skipped", provider_message_id
-        )
+        logger.info("AgentMail webhook: duplicate message_id=%s — skipped", provider_message_id)
         return
 
     # Auto-detection: ignore auto-replies, delivery status notifications, loopbacks
@@ -282,9 +280,7 @@ async def _ingest_agentmail_event(
 
     throttle_reason = check_and_record(from_email, user_id=None)
     if throttle_reason:
-        logger.info(
-            "AgentMail webhook: throttled from=%s reason=%s", from_email, throttle_reason
-        )
+        logger.info("AgentMail webhook: throttled from=%s reason=%s", from_email, throttle_reason)
         return
 
     # Build minimized provider metadata (no raw body)
@@ -327,12 +323,16 @@ async def _ingest_agentmail_event(
 
     try:
         from app.control.admin_events import emit_admin_event
-        emit_admin_event("email.received", {
-            "email_message_id": saved.id,
-            "from_email": from_email,
-            "subject": saved.subject[:80],
-            "auth_status": auth_status,
-        })
+
+        emit_admin_event(
+            "email.received",
+            {
+                "email_message_id": saved.id,
+                "from_email": from_email,
+                "subject": saved.subject[:80],
+                "auth_status": auth_status,
+            },
+        )
     except Exception:
         pass
 
@@ -378,8 +378,8 @@ async def flight_webhook(
         if not fut.cancelled() and (exc := fut.exception()):
             logger.error("ingest_webhook failed: %s", exc, exc_info=exc)
 
-    asyncio.create_task(
-        ingest_webhook(vendor, webhook_token, headers, raw_body)
-    ).add_done_callback(_task_done)
+    asyncio.create_task(ingest_webhook(vendor, webhook_token, headers, raw_body)).add_done_callback(
+        _task_done
+    )
 
     return {"ok": True}

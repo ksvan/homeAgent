@@ -47,9 +47,7 @@ def save_pending_action(
 def get_pending_action(token: str) -> PendingAction | None:
     """Look up a PendingAction by token, returning None if not found or expired."""
     with cache_session() as session:
-        action = session.exec(
-            select(PendingAction).where(PendingAction.token == token)
-        ).first()
+        action = session.exec(select(PendingAction).where(PendingAction.token == token)).first()
         if action is None:
             return None
         if action.expires_at < datetime.utcnow():
@@ -71,9 +69,7 @@ def get_pending_action(token: str) -> PendingAction | None:
 
 def delete_pending_action(token: str) -> None:
     with cache_session() as session:
-        action = session.exec(
-            select(PendingAction).where(PendingAction.token == token)
-        ).first()
+        action = session.exec(select(PendingAction).where(PendingAction.token == token)).first()
         if action:
             session.delete(action)
             session.commit()

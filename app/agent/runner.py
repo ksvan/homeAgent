@@ -14,6 +14,7 @@ Callers are responsible for:
 - Delivering the response to the user (send_message).
 - Trigger-specific pre/post work (task state transitions, preflight checks, etc.).
 """
+
 from __future__ import annotations
 
 import asyncio
@@ -203,15 +204,11 @@ async def agent_run(
                         pass
                 await asyncio.sleep(wait)
                 continue
-            logger.exception(
-                "agent_run: run failed trigger=%s attempt=%d", trigger, attempt
-            )
+            logger.exception("agent_run: run failed trigger=%s attempt=%d", trigger, attempt)
             response = "Sorry, something went wrong. Please try again in a moment."
             break
         except Exception:
-            logger.exception(
-                "agent_run: run failed trigger=%s attempt=%d", trigger, attempt
-            )
+            logger.exception("agent_run: run failed trigger=%s attempt=%d", trigger, attempt)
             response = "Sorry, something went wrong. Please try again in a moment."
             break
 
@@ -246,9 +243,7 @@ async def agent_run(
     # --- Emit run.complete / run.error ---
     if success:
         if input_tokens > settings.token_cost_warn_threshold:
-            logger.warning(
-                "High token usage: input_tokens=%d trigger=%s", input_tokens, trigger
-            )
+            logger.warning("High token usage: input_tokens=%d trigger=%s", input_tokens, trigger)
             emit("run.token_warning", {"input_tokens": input_tokens}, run_id=run_id)
         emit(
             "run.complete",
@@ -466,9 +461,9 @@ def _fire_background_tasks(
         )
     ).add_done_callback(_done_cb("extract_memories"))
 
-    asyncio.ensure_future(
-        maybe_summarize_conversation(user_id)
-    ).add_done_callback(_done_cb("summarize_conversation"))
+    asyncio.ensure_future(maybe_summarize_conversation(user_id)).add_done_callback(
+        _done_cb("summarize_conversation")
+    )
 
     if get_settings().features.world_model_proposals:
         from app.world.extraction import extract_and_propose_world_updates

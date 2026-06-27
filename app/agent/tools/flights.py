@@ -53,9 +53,8 @@ def register_flight_tools(agent: Agent[AgentDeps, str]) -> None:
         if not result.get("ok"):
             error = result.get("error", "Unknown error")
             if "candidates" in result:
-                return (
-                    f"{error}\n\nMatching flights:\n"
-                    + json.dumps(result["candidates"], indent=2)
+                return f"{error}\n\nMatching flights:\n" + json.dumps(
+                    result["candidates"], indent=2
                 )
             return f"Could not start monitoring: {error}"
 
@@ -113,8 +112,7 @@ def register_flight_tools(agent: Agent[AgentDeps, str]) -> None:
             error = str(result.get("error", "Unknown error"))
             if "watches" in result:
                 watches_str = ", ".join(
-                    f"{w['flight']} (ID: {w['watch_id']})"
-                    for w in result["watches"]
+                    f"{w['flight']} (ID: {w['watch_id']})" for w in result["watches"]
                 )
                 return f"{error} Active watches: {watches_str}"
             return error
@@ -154,17 +152,19 @@ def register_flight_tools(agent: Agent[AgentDeps, str]) -> None:
         for w in watches:
             if not isinstance(w, FlightWatch):
                 continue
-            result.append({
-                "watch_id": w.id,
-                "flight": w.flight_label,
-                "carrier": w.carrier_code,
-                "flight_number": w.flight_number,
-                "departure_date": str(w.scheduled_departure_date),
-                "origin": w.origin,
-                "destination": w.destination,
-                "status": w.status,
-                "alert_subscription": w.provider_alert_id is not None,
-            })
+            result.append(
+                {
+                    "watch_id": w.id,
+                    "flight": w.flight_label,
+                    "carrier": w.carrier_code,
+                    "flight_number": w.flight_number,
+                    "departure_date": str(w.scheduled_departure_date),
+                    "origin": w.origin,
+                    "destination": w.destination,
+                    "status": w.status,
+                    "alert_subscription": w.provider_alert_id is not None,
+                }
+            )
 
         return json.dumps(result, default=str)
 
@@ -203,9 +203,7 @@ def register_flight_tools(agent: Agent[AgentDeps, str]) -> None:
                 return "No active flight watches found."
             if len(watches) > 1:
                 ids = ", ".join(
-                    f"{w.flight_label} (ID: {w.id})"
-                    for w in watches
-                    if isinstance(w, FlightWatch)
+                    f"{w.flight_label} (ID: {w.id})" for w in watches if isinstance(w, FlightWatch)
                 )
                 return f"Multiple active watches — specify flight_watch_id. Watches: {ids}"
             w = watches[0]
@@ -218,10 +216,14 @@ def register_flight_tools(agent: Agent[AgentDeps, str]) -> None:
         if watch is None:
             return f"Watch {watch_id} not found."
 
-        snapshots = [s for s in list_snapshots_for_watch(watch_id, limit=25)
-                     if isinstance(s, FlightStatusSnapshot)]
-        events = [e for e in list_events_for_watch(watch_id, limit=40)
-                  if isinstance(e, FlightEventRow)]
+        snapshots = [
+            s
+            for s in list_snapshots_for_watch(watch_id, limit=25)
+            if isinstance(s, FlightStatusSnapshot)
+        ]
+        events = [
+            e for e in list_events_for_watch(watch_id, limit=40) if isinstance(e, FlightEventRow)
+        ]
 
         # Build a merged timeline of entries
         timeline: list[dict[str, object]] = []
@@ -263,12 +265,14 @@ def register_flight_tools(agent: Agent[AgentDeps, str]) -> None:
             timeline.append(entry)
 
         for ev in events:
-            timeline.append({
-                "type": "webhook_event",
-                "at": ev.received_at.isoformat(),
-                "event_type": ev.event_type,
-                "severity": ev.severity,
-            })
+            timeline.append(
+                {
+                    "type": "webhook_event",
+                    "at": ev.received_at.isoformat(),
+                    "event_type": ev.event_type,
+                    "severity": ev.severity,
+                }
+            )
 
         timeline.sort(key=lambda e: str(e["at"]))
 

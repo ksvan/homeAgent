@@ -189,8 +189,7 @@ def register_event_rule_tools(agent: Agent[AgentDeps, str]) -> None:
             if r.capability:
                 match += f", cap={r.capability}"
             last = (
-                r.last_triggered_at.strftime("%Y-%m-%d %H:%M")
-                if r.last_triggered_at else "never"
+                r.last_triggered_at.strftime("%Y-%m-%d %H:%M") if r.last_triggered_at else "never"
             )
             lines.append(
                 f"- [{status}] {r.name} (id={r.id})\n"

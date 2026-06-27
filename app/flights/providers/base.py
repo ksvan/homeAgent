@@ -117,6 +117,7 @@ class FlightProvider(ABC):
 # Provider error hierarchy
 # ---------------------------------------------------------------------------
 
+
 class ProviderError(Exception):
     """General provider API error."""
 

@@ -14,8 +14,19 @@ _FOOD_HINTS: dict[str, list[str]] = {
     "fish": ["hvitvin", "white", "sparkling", "champagne", "chablis", "riesling", "sauvignon"],
     "shellfish": ["hvitvin", "white", "sparkling", "champagne", "chablis", "riesling", "sauvignon"],
     "seafood": ["hvitvin", "white", "sparkling", "champagne", "riesling", "sauvignon"],
-    "lamb": ["rødvin", "red", "bordeaux", "rioja", "barolo", "barbaresco", "rhône", "syrah",
-             "cabernet", "nebbiolo", "merlot"],
+    "lamb": [
+        "rødvin",
+        "red",
+        "bordeaux",
+        "rioja",
+        "barolo",
+        "barbaresco",
+        "rhône",
+        "syrah",
+        "cabernet",
+        "nebbiolo",
+        "merlot",
+    ],
     "beef": ["rødvin", "red", "bordeaux", "rioja", "barolo", "cabernet", "syrah", "malbec"],
     "game": ["rødvin", "red", "barolo", "barbaresco", "rhône", "syrah", "cabernet", "nebbiolo"],
     "pork": ["chardonnay", "pinot", "hvitvin", "white", "rødvin", "red"],
@@ -148,10 +159,14 @@ def register_wine_tools(agent: Agent[AgentDeps, str]) -> None:
 
         if not candidates:
             filters_used = [
-                k for k, v in [
-                    ("category", category), ("country", country), ("region", region),
+                k
+                for k, v in [
+                    ("category", category),
+                    ("country", country),
+                    ("region", region),
                     ("name_search", name_search),
-                ] if v
+                ]
+                if v
             ]
             hint = f" (filters: {', '.join(filters_used)})" if filters_used else ""
             return (

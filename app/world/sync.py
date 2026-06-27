@@ -6,6 +6,7 @@ Users, Calendars, Homey zones/devices, and seed facts.
 
 All functions are idempotent — safe to re-run on every startup.
 """
+
 from __future__ import annotations
 
 import json
@@ -24,7 +25,8 @@ async def bootstrap_world_model(household_id: str) -> None:
         logger.info("World model bootstrap complete for household_id=%s", household_id)
     except Exception:
         logger.error(
-            "World model bootstrap failed for household_id=%s", household_id,
+            "World model bootstrap failed for household_id=%s",
+            household_id,
             exc_info=True,
         )
 
@@ -32,6 +34,7 @@ async def bootstrap_world_model(household_id: str) -> None:
 # ---------------------------------------------------------------------------
 # Step 1: Sync User → HouseholdMember
 # ---------------------------------------------------------------------------
+
 
 def _sync_members(household_id: str) -> None:
     from sqlmodel import select
@@ -41,9 +44,7 @@ def _sync_members(household_id: str) -> None:
     from app.world.repository import WorldModelRepository
 
     with users_session() as session:
-        users = list(session.exec(
-            select(User).where(User.household_id == household_id)
-        ).all())
+        users = list(session.exec(select(User).where(User.household_id == household_id)).all())
 
     synced = 0
     for user in users:
@@ -64,6 +65,7 @@ def _sync_members(household_id: str) -> None:
 # Step 2: Sync Calendar → CalendarEntity
 # ---------------------------------------------------------------------------
 
+
 def _sync_calendars(household_id: str) -> None:
     from sqlmodel import select
 
@@ -73,14 +75,16 @@ def _sync_calendars(household_id: str) -> None:
     from app.world.repository import WorldModelRepository
 
     with users_session() as session:
-        calendars = list(session.exec(
-            select(Calendar).where(Calendar.household_id == household_id)
-        ).all())
-        members = list(session.exec(
-            select(HouseholdMember)
-            .where(HouseholdMember.household_id == household_id,
-                   HouseholdMember.is_active == True)  # noqa: E712
-        ).all())
+        calendars = list(
+            session.exec(select(Calendar).where(Calendar.household_id == household_id)).all()
+        )
+        members = list(
+            session.exec(
+                select(HouseholdMember).where(
+                    HouseholdMember.household_id == household_id, HouseholdMember.is_active == True  # noqa: E712
+                )
+            ).all()
+        )
 
     # Build case-insensitive name→id lookup
     member_lookup: dict[str, str] = {m.name.lower(): m.id for m in members}
@@ -108,6 +112,7 @@ def _sync_calendars(household_id: str) -> None:
 # ---------------------------------------------------------------------------
 # Step 3+4: Sync Homey zones → Place, Homey devices → DeviceEntity
 # ---------------------------------------------------------------------------
+
 
 async def _sync_homey(household_id: str) -> None:
     """Sync Homey zones and devices into Place and DeviceEntity tables.
@@ -322,6 +327,7 @@ def _sync_devices_from_structure(
 # ---------------------------------------------------------------------------
 # Step 5: Seed world facts
 # ---------------------------------------------------------------------------
+
 
 def _seed_world_facts(household_id: str) -> None:
     """Seed hardcoded world facts. Uses insert-or-skip semantics."""

@@ -11,6 +11,7 @@ Scope: catches common *structured* PII patterns (card numbers, IBANs, SSNs,
 passwords, IPs, etc.).  Semantic categories such as medical diagnoses are handled
 by instructing the extraction LLM not to store them.
 """
+
 from __future__ import annotations
 
 import logging
@@ -44,9 +45,7 @@ _PATTERNS: list[tuple[str, re.Pattern[str]]] = [
     # Password / passord / passwort / passcode followed by a value
     (
         "password_literal",
-        re.compile(
-            r"(?i)\b(?:password|passord|passwort|passcode|passphrase)\s*[:=]\s*\S+"
-        ),
+        re.compile(r"(?i)\b(?:password|passord|passwort|passcode|passphrase)\s*[:=]\s*\S+"),
     ),
     # Common API key / secret token prefixes
     (
