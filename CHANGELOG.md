@@ -6,6 +6,37 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 
 ---
 
+## [0.14.4] - 2026-06-27
+
+### Added
+
+- **Flight activity log agent tool** — new `get_flight_activity_log` tool gives the
+  agent a chronological timeline of snapshot fetches (tagged `poll` or `webhook`),
+  computed diffs between consecutive snapshots, and incoming webhook events. Lets the
+  agent reason about data freshness and what changed when without guessing.
+- **`fetch_source` on flight snapshots** — every stored snapshot now records whether
+  it was fetched by a scheduled poll or triggered by a webhook event. DB migration
+  `0005_cache` adds the column with a default of `"poll"`.
+
+### Fixed
+
+- **Webhook fetch failure bypassed suppress window** — `poll_watch()` now accepts
+  `force=True`; the webhook-fetch-failure fallback passes this flag so a transient
+  provider error no longer silently waits out the full 20-minute suppress window
+  before picking up the event.
+
+### Changed
+
+- **Mypy strict compliance — zero errors** — full remediation across 39 files:
+  created missing `app/control/admin_events` module (runtime crash on email/flight
+  paths), fixed `upsert_world_fact` call sites with invalid kwargs, removed invalid
+  APScheduler `start_delay` kwarg, fixed all SQLModel `col()` patterns, corrected
+  return types for `_utc()` / `_row_to_snapshot()` / `_row_to_watch()`, and
+  eliminated all bare generic parameters throughout the codebase.
+- **Mypy added to CI** — runs after lint/format check, before unit tests.
+
+---
+
 ## [0.14.3] - 2026-06-25
 
 ### Fixed
