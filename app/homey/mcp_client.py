@@ -3,17 +3,16 @@ from __future__ import annotations
 import asyncio
 import logging
 import time
-from collections.abc import Awaitable, Callable
 from typing import Any
 
 from pydantic_ai import RunContext
-from pydantic_ai.mcp import MCPServerStreamableHTTP
+from pydantic_ai.mcp import CallToolFunc, MCPToolset, ToolResult
 
 from app.config import get_settings
 
 logger = logging.getLogger(__name__)
 
-_mcp_server: MCPServerStreamableHTTP | None = None
+_mcp_server: MCPToolset | None = None
 
 # Cap MCP tool responses to prevent token budget blowout.
 # homey_get_home_structure can return 20k+ chars for large homes; raised to
@@ -25,19 +24,16 @@ _MAX_TOOL_RESULT_CHARS = 40_000
 # all device actions, plus three read-only structural tools.
 _SIMPLE_TOOLS: frozenset[str] = frozenset(
     {
-        "homey_search_tools",
-        "homey_use_tool",
-        "homey_get_home_structure",
-        "homey_get_states",
-        "homey_get_flow_overview",
+        "search_tools",
+        "use_tool",
+        "get_home_structure",
+        "get_states",
+        "get_flow_overview",
     }
 )
 
-# Type alias for the inner call_tool callable passed to process_tool_call
-_DirectCallFn = Callable[[str, dict[str, Any], Any], Awaitable[Any]]
 
-
-def get_mcp_server() -> MCPServerStreamableHTTP | None:
+def get_mcp_server() -> MCPToolset | None:
     """Return the running Homey MCP server instance, or None if not configured."""
     return _mcp_server
 
@@ -57,10 +53,10 @@ def get_mcp_toolset(advanced: bool = False) -> object:
 
 async def _policy_process_tool_call(
     ctx: RunContext[Any],
-    call_tool: _DirectCallFn,
+    call_tool: CallToolFunc,
     tool_name: str,
     tool_args: dict[str, Any],
-) -> Any:
+) -> ToolResult:
     """
     Policy gate callback for every Homey MCP tool call.
 
@@ -81,7 +77,7 @@ async def _policy_process_tool_call(
         t0 = time.monotonic()
         try:
             result = await asyncio.wait_for(
-                call_tool(tool_name, tool_args, None),
+                call_tool(tool_name, tool_args),
                 timeout=_get_settings().homey_tool_timeout_secs,
             )
             duration_ms = int((time.monotonic() - t0) * 1000)
@@ -201,16 +197,15 @@ def _is_write_tool(tool_name: str) -> bool:
     return any(tool_name.startswith(p) for p in write_prefixes)
 
 
-def _create_mcp_server() -> MCPServerStreamableHTTP | None:
-    """Instantiate an MCPServerStreamableHTTP from current settings, or return None."""
+def _create_mcp_server() -> MCPToolset | None:
+    """Instantiate an MCPToolset from current settings, or return None."""
     settings = get_settings()
     if not settings.homey_mcp_url:
         logger.info("Homey MCP not configured — smart home tools disabled")
         return None
 
-    return MCPServerStreamableHTTP(
-        url=settings.homey_mcp_url,
-        tool_prefix="homey",
+    return MCPToolset(
+        settings.homey_mcp_url,
         process_tool_call=_policy_process_tool_call,
     )
 
@@ -220,7 +215,7 @@ _MCP_MAX_RETRIES = 3
 _MCP_RETRY_BACKOFF = 5  # seconds between retries
 
 
-async def start_mcp() -> MCPServerStreamableHTTP | None:
+async def start_mcp() -> MCPToolset | None:
     """
     Connect to the Homey MCP server and register it as the module singleton.
 

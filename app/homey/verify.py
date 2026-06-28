@@ -42,7 +42,7 @@ async def verify_after_write(
 
     try:
         # Ask Homey for the current device state
-        result = await server.direct_call_tool("get_device_state", {"device_id": device_id}, None)
+        result = await server.direct_call_tool("get_device_state", {"device_id": device_id})
         result_text = str(result) if result else ""
 
         # Optimistically update cache from what Homey reports

@@ -205,7 +205,7 @@ class TelegramChannel(Channel):
 
         try:
             tool_args: dict[str, object] = json.loads(action.tool_args)
-            result = await server.direct_call_tool(action.tool_name, tool_args, None)
+            result = await server.direct_call_tool(action.tool_name, tool_args)
 
             await query.edit_message_text(f"✅ Done: {result}")
             logger.info("Confirmed action executed: %s (token=%s)", action.tool_name, token)

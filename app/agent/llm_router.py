@@ -4,7 +4,7 @@ from enum import Enum
 
 from pydantic_ai.models import Model
 from pydantic_ai.models.anthropic import AnthropicModel
-from pydantic_ai.models.openai import OpenAIModel
+from pydantic_ai.models.openai import OpenAIChatModel
 from pydantic_ai.providers.anthropic import AnthropicProvider
 from pydantic_ai.providers.openai import OpenAIProvider
 
@@ -32,7 +32,7 @@ def _make_model(model_name: str, api_key: str) -> Model:
     """Instantiate the correct provider model from the API key prefix."""
     if api_key.startswith("sk-ant-"):
         return AnthropicModel(model_name, provider=AnthropicProvider(api_key=api_key))
-    return OpenAIModel(model_name, provider=OpenAIProvider(api_key=api_key))
+    return OpenAIChatModel(model_name, provider=OpenAIProvider(api_key=api_key))
 
 
 class LLMRouter:

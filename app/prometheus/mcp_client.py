@@ -2,30 +2,27 @@ from __future__ import annotations
 
 import logging
 import time
-from collections.abc import Awaitable, Callable
 from typing import Any
 
 from pydantic_ai import RunContext
-from pydantic_ai.mcp import MCPServerStreamableHTTP
+from pydantic_ai.mcp import CallToolFunc, MCPToolset, ToolResult
 
 from app.config import get_settings
 
 logger = logging.getLogger(__name__)
 
-_DirectCallFn = Callable[[str, dict[str, Any], Any], Awaitable[Any]]
-
 
 async def _instrument_process_tool_call(
     ctx: RunContext[Any],
-    call_tool: _DirectCallFn,
+    call_tool: CallToolFunc,
     tool_name: str,
     tool_args: dict[str, Any],
-) -> Any:
+) -> ToolResult:
     """Pass-through process_tool_call that emits control events for Prometheus tool calls."""
     run_id: str = getattr(ctx.deps, "run_id", "")
     t0 = time.monotonic()
     try:
-        result = await call_tool(tool_name, tool_args, None)
+        result = await call_tool(tool_name, tool_args)
         duration_ms = int((time.monotonic() - t0) * 1000)
         from app.control.events import emit
 
@@ -47,21 +44,21 @@ async def _instrument_process_tool_call(
         raise
 
 
-_mcp_server: MCPServerStreamableHTTP | None = None
+_mcp_server: MCPToolset | None = None
 
 
-def get_mcp_server() -> MCPServerStreamableHTTP | None:
+def get_mcp_server() -> MCPToolset | None:
     """Return the running Prometheus MCP server instance, or None if not configured."""
     return _mcp_server
 
 
-def _create_mcp_server() -> MCPServerStreamableHTTP | None:
+def _create_mcp_server() -> MCPToolset | None:
     settings = get_settings()
     if not settings.prometheus_mcp_url:
         logger.info("Prometheus MCP not configured — metrics tools disabled")
         return None
-    return MCPServerStreamableHTTP(
-        url=settings.prometheus_mcp_url,
+    return MCPToolset(
+        settings.prometheus_mcp_url,
         process_tool_call=_instrument_process_tool_call,
     )
 
@@ -71,7 +68,7 @@ _MCP_MAX_RETRIES = 3
 _MCP_RETRY_BACKOFF = 5  # seconds between retries
 
 
-async def start_mcp() -> MCPServerStreamableHTTP | None:
+async def start_mcp() -> MCPToolset | None:
     """Connect to the Prometheus MCP server. Called during FastAPI lifespan startup.
 
     Retries up to 3 times with backoff.

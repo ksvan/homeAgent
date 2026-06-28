@@ -46,15 +46,15 @@ async def _try_discover_devices(server: object, household_id: str) -> None:
     Call get_home_structure to populate the household profile with zones, devices,
     and moods.  Fails silently if the tool isn't available.
     """
-    from pydantic_ai.mcp import MCPServerStreamableHTTP
+    from pydantic_ai.mcp import MCPToolset
 
     from app.memory.profiles import upsert_household_profile
 
-    if not isinstance(server, MCPServerStreamableHTTP):
+    if not isinstance(server, MCPToolset):
         return
 
     try:
-        result = await server.direct_call_tool("get_home_structure", {}, None)
+        result = await server.direct_call_tool("get_home_structure", {})
         if result:
             upsert_household_profile(household_id, {"homey_home_structure": str(result)[:4000]})
             logger.info("Discovered Homey home structure")

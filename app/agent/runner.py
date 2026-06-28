@@ -233,9 +233,9 @@ async def agent_run(
                         except Exception:
                             args = {}
                         tool_calls.append({"tool": part.tool_name, "args": args})
-        usage = result.usage()
-        input_tokens = usage.request_tokens or 0
-        output_tokens = usage.response_tokens or 0
+        usage = result.usage
+        input_tokens = usage.input_tokens or 0
+        output_tokens = usage.output_tokens or 0
 
     # Strip binary content before any persistence or exposure to callers
     new_messages = _strip_binary_from_messages(raw_new_messages)

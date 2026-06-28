@@ -128,13 +128,13 @@ async def _sync_homey(household_id: str) -> None:
         logger.debug("Homey MCP not available — skipping world model Homey sync")
         return
 
-    from pydantic_ai.mcp import MCPServerStreamableHTTP
+    from pydantic_ai.mcp import MCPToolset
 
-    if not isinstance(server, MCPServerStreamableHTTP):
+    if not isinstance(server, MCPToolset):
         return
 
     try:
-        result = await server.direct_call_tool("get_home_structure", {}, None)
+        result = await server.direct_call_tool("get_home_structure", {})
     except Exception:
         logger.warning("Could not call get_home_structure for world model sync", exc_info=True)
         return
