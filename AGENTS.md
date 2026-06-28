@@ -92,6 +92,8 @@ memory.
 - If a SQLModel schema changes, add or update an Alembic migration.
 - If runtime behavior changes, update the most relevant doc.
 - If setup or user-visible behavior changes, review `README.md` and `.env.example`.
+- If user-visible behavior, operations, setup, dependencies, architecture, or
+  notable fixes change, add an entry to `CHANGELOG.md` under `[Unreleased]`.
 - If prompt behavior changes, keep files in `prompts/` compact.
 - Avoid unrelated refactors while implementing a feature or fix.
 
