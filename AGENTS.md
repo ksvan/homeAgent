@@ -95,6 +95,26 @@ memory.
 - If prompt behavior changes, keep files in `prompts/` compact.
 - Avoid unrelated refactors while implementing a feature or fix.
 
+## Test Expectations
+
+New features and behavior changes should include focused tests in the same
+change. Default to unit tests first; broaden to integration tests only when the
+behavior crosses persistence, scheduler, webhook, or external-service boundaries
+that unit tests cannot exercise honestly.
+
+When adding or changing behavior:
+
+- add or update at least one focused unit test for the main decision path
+- cover edge cases for policy, parsing, state transitions, and persistence
+  helpers when those are touched
+- keep tests deterministic and offline unless explicitly marked integration
+- do not rely on manual testing as the only verification for new behavior
+- if tests are not added, state why in the final response and name the residual
+  risk
+
+Bug fixes should include a regression test unless the bug is purely docs,
+configuration, formatting, or a test would require disproportionate scaffolding.
+
 ## Verification
 
 Use the smallest relevant check first. Before a commit, run the CI-equivalent

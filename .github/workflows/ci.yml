@@ -31,4 +31,7 @@ jobs:
         run: uv run mypy app/
 
       - name: Unit tests
-        run: uv run pytest tests/unit/ -v --tb=short
+        run: uv run pytest tests/unit/ -v --tb=short --cov=app --cov-report=term-missing --cov-fail-under=15
+
+      - name: Integration tests
+        run: uv run pytest tests/integration/ -v --tb=short
