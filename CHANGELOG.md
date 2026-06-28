@@ -6,6 +6,50 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 
 ---
 
+## [Unreleased]
+
+### Added
+
+- **Pull-based auto-update script** — `scripts/auto-update.sh` lets the mac
+  mini update itself on a schedule (cron or launchd) without a push from the
+  dev machine. Fetches the latest SHA on `main` from the GitHub API, verifies
+  the `lint-and-test` CI run completed with `success`, then runs
+  `git pull --ff-only` and `docker compose up -d --build`. Reads
+  `GITHUB_TOKEN` from the existing `.env` file; supports `--dry-run`.
+  `scripts/auto-update.plist.example` provides a ready-made launchd template
+  for running the script every 15 minutes on macOS.
+- **CI coverage gate** — `pytest-cov` now runs after unit tests and fails the
+  build if total coverage drops below 15% (current baseline ~19%). Coverage
+  report is printed in CI output for every run.
+- **Integration tests in CI** — `tests/integration/` now runs as a required
+  CI step alongside unit tests so world-repository behaviour is gated on every
+  push.
+- **Unit tests for `flights/diff.py`** — 49 parametrized tests covering every
+  branch of `compute_changes()` and `should_notify()`: first snapshot,
+  cancellation, diversion, delay threshold/severity/resolution, gate
+  assigned/changed, terminal change, boarding, baggage, multiple simultaneous
+  changes, custom labels, and quiet-hours policy.
+- **Unit tests for `agent/context.py`** — 20 tests covering
+  `assemble_context()` (all 8 external calls verified, edge cases for empty
+  profiles, no summary, no memories) and `_build_current_user_section()` via
+  in-memory DB (user not found, admin vs member, linked/unlinked world member).
+- **Unit tests for email and scheduler** — `test_email_throttle.py`,
+  `test_email_extractor.py`, and `test_scheduler_jobs.py` add coverage for the
+  email intake throttle, email content extraction, and scheduler job dispatch.
+- **Mypy remediation plan** — `docs/mypy-remediation.md` documents the current
+  196-error inventory and a four-phase plan for reaching zero errors and
+  re-enabling the mypy CI gate.
+
+### Changed
+
+- **ruff format check added to CI** — `ruff format --check app/` now runs
+  after lint, before tests. Codebase was bulk-reformatted to bring it into
+  compliance.
+- **AGENTS.md test expectations** — codified rule that new features must
+  include focused unit tests and bug fixes must include regression tests.
+
+---
+
 ## [0.14.4] - 2026-06-27
 
 ### Added
