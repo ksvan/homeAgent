@@ -1,0 +1,73 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN"
+  "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!--
+  auto-update.plist.example — launchd service for HomeAgent auto-update
+  -----------------------------------------------------------------------
+  Runs auto-update.sh every 15 minutes via launchd (macOS-native scheduler).
+  Use this instead of crontab if you prefer launchd or need better control
+  over environment variables.
+
+  Setup:
+    1. Copy this file and fill in your username and paths:
+         cp scripts/auto-update.plist.example ~/Library/LaunchAgents/com.homeagent.auto-update.plist
+
+    2. Replace <YOUR_USERNAME> and adjust APP_DIR if your path differs.
+
+    3. Create the logs directory:
+         mkdir -p ~/homeAgent/logs
+
+    4. Load the service:
+         launchctl load ~/Library/LaunchAgents/com.homeagent.auto-update.plist
+
+    5. Verify it loaded:
+         launchctl list | grep homeagent
+
+  To unload/stop:
+    launchctl unload ~/Library/LaunchAgents/com.homeagent.auto-update.plist
+
+  To reload after editing:
+    launchctl unload ~/Library/LaunchAgents/com.homeagent.auto-update.plist
+    launchctl load ~/Library/LaunchAgents/com.homeagent.auto-update.plist
+
+  Logs are written to the file specified in StandardOutPath/StandardErrorPath
+  as well as inside auto-update.sh itself (LOG_FILE defaults to logs/auto-update.log).
+-->
+<plist version="1.0">
+<dict>
+    <key>Label</key>
+    <string>com.homeagent.auto-update</string>
+
+    <key>ProgramArguments</key>
+    <array>
+        <string>/Users/<YOUR_USERNAME>/homeAgent/scripts/auto-update.sh</string>
+    </array>
+
+    <!-- Run every 15 minutes -->
+    <key>StartInterval</key>
+    <integer>900</integer>
+
+    <!-- Keep stdout/stderr in a file for easy inspection -->
+    <key>StandardOutPath</key>
+    <string>/Users/<YOUR_USERNAME>/homeAgent/logs/auto-update.log</string>
+    <key>StandardErrorPath</key>
+    <string>/Users/<YOUR_USERNAME>/homeAgent/logs/auto-update.log</string>
+
+    <!-- Ensure PATH includes Homebrew and OrbStack/Docker binaries -->
+    <key>EnvironmentVariables</key>
+    <dict>
+        <key>PATH</key>
+        <string>/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin:/Users/<YOUR_USERNAME>/.orbstack/bin:/Users/<YOUR_USERNAME>/.docker/bin</string>
+        <key>APP_DIR</key>
+        <string>/Users/<YOUR_USERNAME>/homeAgent</string>
+    </dict>
+
+    <!-- Do not restart on failure — the next scheduled run will retry -->
+    <key>KeepAlive</key>
+    <false/>
+
+    <!-- Run immediately after load, then on schedule -->
+    <key>RunAtLoad</key>
+    <false/>
+</dict>
+</plist>
