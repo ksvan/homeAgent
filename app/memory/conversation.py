@@ -247,7 +247,10 @@ async def maybe_summarize_conversation(user_id: str) -> None:
         prompt = conv_text
 
     try:
-        result = await _get_summarizer().run(prompt)
+        from app.agent.llm_router import LLMRouter, TaskType
+
+        model_settings = LLMRouter().get_model_settings(TaskType.SUMMARIZATION)
+        result = await _get_summarizer().run(prompt, model_settings=model_settings)
         summary_text = result.output
     except Exception:
         logger.warning("Conversation summarization failed for user %s", user_id[:8], exc_info=True)

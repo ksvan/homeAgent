@@ -10,6 +10,20 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 
 ### Added
 
+- **Per-task-type reasoning/thinking effort config** — new `THINKING_CONVERSATION`,
+  `THINKING_MEMORY_EXTRACTION`, `THINKING_SUMMARIZATION`, and
+  `THINKING_WORLD_MODEL_EXTRACTION` env vars control pydantic-ai's
+  provider-agnostic `ModelSettings.thinking` (`true`/`false` or
+  `minimal`/`low`/`medium`/`high`/`xhigh`) independently for each of the
+  four places the agent actually calls an LLM: the main conversation agent,
+  auto-memory extraction, conversation summarization, and world-model
+  extraction. Previously `.env` only controlled which model each task used,
+  not how hard it should think. `LLMRouter.get_thinking()` /
+  `get_model_settings()` in `app/agent/llm_router.py` centralize the
+  parsing and per-task-type lookup; unset or unrecognized values fail
+  closed to "provider default" rather than erroring. Tests:
+  `test_thinking_settings.py`, `test_background_task_thinking.py`, plus
+  additions to `test_model_settings_caching.py`.
 - **Personalization questionnaire design** — `docs/personalization-questionnaire-design.md`
   adds a 40-question worksheet for tuning HomeAgent through profiles, world-model
   facts, episodic memory, and compact prompt-harness guidance.

@@ -54,6 +54,16 @@ class Settings(BaseSettings):
     model_embedding: str = "text-embedding-3-small"
 
     # ------------------------------------------------------------------
+    # Reasoning/thinking effort per task type (see app/agent/llm_router.py
+    # parse_thinking_level()). Empty string = provider default (unset).
+    # Accepts: true/false, or minimal/low/medium/high/xhigh.
+    # ------------------------------------------------------------------
+    thinking_conversation: str = ""
+    thinking_memory_extraction: str = ""
+    thinking_summarization: str = ""
+    thinking_world_model_extraction: str = ""
+
+    # ------------------------------------------------------------------
     # Token limits
     # ------------------------------------------------------------------
     max_tokens_conversation_input: int = 16_000

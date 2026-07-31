@@ -125,7 +125,10 @@ async def extract_and_propose_world_updates(
         )
 
     try:
-        result = await _get_extractor().run(prompt)
+        from app.agent.llm_router import LLMRouter, TaskType
+
+        model_settings = LLMRouter().get_model_settings(TaskType.WORLD_MODEL_EXTRACTION)
+        result = await _get_extractor().run(prompt, model_settings=model_settings)
         proposals = result.output.proposals
     except Exception:
         logger.warning("World-model extraction failed for run %s", run_id[:8], exc_info=True)

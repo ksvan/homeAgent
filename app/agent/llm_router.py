@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from enum import Enum
+from typing import TYPE_CHECKING, cast
 
 from pydantic_ai.models import Model
 from pydantic_ai.models.anthropic import AnthropicModel
@@ -9,6 +10,9 @@ from pydantic_ai.providers.anthropic import AnthropicProvider
 from pydantic_ai.providers.openai import OpenAIProvider
 
 from app.config import Settings, get_settings
+
+if TYPE_CHECKING:
+    from pydantic_ai.settings import ModelSettings
 
 
 class TaskType(str, Enum):
@@ -26,6 +30,40 @@ _BACKGROUND_TASK_TYPES = (
     TaskType.SUMMARIZATION,
     TaskType.WORLD_MODEL_EXTRACTION,
 )
+
+_THINKING_LEVELS = frozenset({"minimal", "low", "medium", "high", "xhigh"})
+
+# Task types that actually have an agent.run() call site today (see
+# app/agent/agent.py, app/memory/extraction.py, app/memory/conversation.py,
+# app/world/extraction.py) — the only ones a per-task thinking setting can
+# affect. HOME_CONTROL/PLANNING/EMBEDDING have no corresponding settings.
+_THINKING_SETTINGS_FIELD: dict[TaskType, str] = {
+    TaskType.CONVERSATION: "thinking_conversation",
+    TaskType.MEMORY_EXTRACTION: "thinking_memory_extraction",
+    TaskType.SUMMARIZATION: "thinking_summarization",
+    TaskType.WORLD_MODEL_EXTRACTION: "thinking_world_model_extraction",
+}
+
+
+def parse_thinking_level(raw: str) -> bool | str | None:
+    """Parse a THINKING_* env value into pydantic-ai's ModelSettings.thinking shape.
+
+    Empty/unset -> None (provider default, key omitted entirely).
+    true/false (any case) -> bool.
+    minimal/low/medium/high/xhigh -> that literal string.
+    Anything else -> None (treated as unset; callers should not silently
+    apply a value that failed to parse).
+    """
+    value = raw.strip().lower()
+    if not value:
+        return None
+    if value in ("true", "1", "yes", "on"):
+        return True
+    if value in ("false", "0", "no", "off"):
+        return False
+    if value in _THINKING_LEVELS:
+        return value
+    return None
 
 
 def provider_for_model(model_name: str) -> str:
@@ -97,3 +135,28 @@ class LLMRouter:
                 "No LLM provider configured. Set ANTHROPIC_API_KEY or OPENAI_API_KEY in .env"
             )
         return chain
+
+    def get_thinking(self, task_type: TaskType) -> bool | str | None:
+        """Configured reasoning/thinking level for this task type, if any.
+
+        Returns None when unset or unparseable — callers should omit the
+        `thinking` key entirely in that case rather than pass None through
+        to pydantic-ai (which is itself a valid-but-different setting).
+        """
+        field = _THINKING_SETTINGS_FIELD.get(task_type)
+        if field is None:
+            return None
+        raw = getattr(self._s, field, "")
+        return parse_thinking_level(raw)
+
+    def get_model_settings(self, task_type: TaskType) -> "ModelSettings | None":
+        """model_settings override for task types with no other per-call
+        settings to merge (the three background extraction/summarization
+        agents). The conversation agent builds its own richer settings in
+        app/agent/agent.py._build_model_settings() and calls get_thinking()
+        directly instead.
+        """
+        thinking = self.get_thinking(task_type)
+        if thinking is None:
+            return None
+        return cast("ModelSettings", {"thinking": thinking})

@@ -307,4 +307,9 @@ def _build_model_settings(settings: "Settings") -> "ModelSettings":
         # cache-write premium against our necessarily-dynamic prefix with no
         # offsetting reads. See docs/prompt-caching-design.md.
         raw["openai_prompt_cache_options"] = {"mode": "explicit"}
+
+    thinking = LLMRouter(settings).get_thinking(TaskType.CONVERSATION)
+    if thinking is not None:
+        raw["thinking"] = thinking
+
     return cast("ModelSettings", raw)

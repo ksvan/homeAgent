@@ -1,10 +1,14 @@
-"""Tests for app.agent.agent._build_model_settings — prompt caching config.
+"""Tests for app.agent.agent._build_model_settings — caching + thinking config.
 
-See docs/prompt-caching-design.md for the rationale: Anthropic gets real
-explicit cache_control breakpoints; OpenAI/GPT-5.6 gets a deliberate
+See docs/prompt-caching-design.md for the caching rationale: Anthropic gets
+real explicit cache_control breakpoints; OpenAI/GPT-5.6 gets a deliberate
 mode="explicit" with no breakpoints placed, which disables implicit-mode
 caching (pydantic-ai has no system-message-level breakpoint hook for it).
+
+Also covers the THINKING_CONVERSATION setting (per-task-type reasoning
+level — see app/agent/llm_router.py get_thinking()).
 """
+
 from __future__ import annotations
 
 from app.agent.agent import _build_model_settings
@@ -57,3 +61,28 @@ def test_max_tokens_always_present() -> None:
         settings = _settings(feature_prompt_caching=flag, max_tokens_per_run=1234)
         result = _build_model_settings(settings)
         assert result["max_tokens"] == 1234  # type: ignore[typeddict-item]
+
+
+def test_thinking_omitted_when_unset() -> None:
+    settings = _settings()
+    result = _build_model_settings(settings)
+    assert "thinking" not in result
+
+
+def test_thinking_included_when_configured() -> None:
+    settings = _settings(thinking_conversation="xhigh")
+    result = _build_model_settings(settings)
+    assert result["thinking"] == "xhigh"  # type: ignore[typeddict-item]
+
+
+def test_thinking_bool_setting_passed_through() -> None:
+    settings = _settings(thinking_conversation="false")
+    result = _build_model_settings(settings)
+    assert result["thinking"] is False  # type: ignore[typeddict-item]
+
+
+def test_thinking_independent_of_caching_flag() -> None:
+    settings = _settings(thinking_conversation="high", feature_prompt_caching=False)
+    result = _build_model_settings(settings)
+    assert result["thinking"] == "high"  # type: ignore[typeddict-item]
+    assert "anthropic_cache_instructions" not in result

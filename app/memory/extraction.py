@@ -102,7 +102,10 @@ async def extract_and_store_memories(
         return
 
     try:
-        result = await _get_extractor().run(text)
+        from app.agent.llm_router import LLMRouter, TaskType
+
+        model_settings = LLMRouter().get_model_settings(TaskType.MEMORY_EXTRACTION)
+        result = await _get_extractor().run(text, model_settings=model_settings)
         facts = result.output.facts
     except Exception:
         logger.warning("Memory extraction failed for run %s", run_id[:8], exc_info=True)
