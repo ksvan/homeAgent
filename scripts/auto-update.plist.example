@@ -60,6 +60,8 @@
         <string>/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin:/Users/<YOUR_USERNAME>/.orbstack/bin:/Users/<YOUR_USERNAME>/.docker/bin</string>
         <key>APP_DIR</key>
         <string>/Users/<YOUR_USERNAME>/homeAgent</string>
+        <key>REPO</key>
+        <string>ksvan/homeAgent</string>
     </dict>
 
     <!-- Do not restart on failure — the next scheduled run will retry -->

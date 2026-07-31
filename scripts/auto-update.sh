@@ -26,10 +26,21 @@ set -euo pipefail
 # Configuration
 # ---------------------------------------------------------------------------
 
-APP_DIR="${APP_DIR:-$HOME/homeAgent}"
+_SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+APP_DIR="${APP_DIR:-$(dirname "$_SCRIPT_DIR")}"
+
 BRANCH="main"
+# Set REPO to skip git-remote derivation (recommended for launchd/cron):
+#   REPO=ksvan/homeAgent
+REPO="${REPO:-}"
 LOG_FILE="${LOG_FILE:-$APP_DIR/logs/auto-update.log}"
 DRY_RUN=false
+
+# Validate APP_DIR early so the error is obvious
+if [ ! -d "$APP_DIR/.git" ]; then
+    echo "[auto-update] ERROR: APP_DIR=$APP_DIR is not a git repository"
+    exit 1
+fi
 
 if [ "${1:-}" = "--dry-run" ]; then
     DRY_RUN=true
@@ -60,13 +71,16 @@ if ! docker compose version &>/dev/null; then
 fi
 
 # ---------------------------------------------------------------------------
-# Load GITHUB_TOKEN from .env if not already set
+# Load GITHUB_TOKEN and REPO from .env if not already set
 # ---------------------------------------------------------------------------
 
-if [ -z "${GITHUB_TOKEN:-}" ]; then
-    ENV_FILE="$APP_DIR/.env"
-    if [ -f "$ENV_FILE" ]; then
+ENV_FILE="$APP_DIR/.env"
+if [ -f "$ENV_FILE" ]; then
+    if [ -z "${GITHUB_TOKEN:-}" ]; then
         GITHUB_TOKEN=$(grep -E '^GITHUB_TOKEN=' "$ENV_FILE" | cut -d= -f2- | tr -d '"' | tr -d "'" | head -n1 || true)
+    fi
+    if [ -z "${REPO:-}" ]; then
+        REPO=$(grep -E '^REPO=' "$ENV_FILE" | cut -d= -f2- | tr -d '"' | tr -d "'" | head -n1 || true)
     fi
 fi
 
@@ -76,22 +90,22 @@ if [ -z "${GITHUB_TOKEN:-}" ]; then
 fi
 
 # ---------------------------------------------------------------------------
-# Derive GitHub repo slug from git remote
+# Derive GitHub repo slug (or use REPO env var set in plist/cron)
 # ---------------------------------------------------------------------------
 
-REMOTE_URL=$(git -C "$APP_DIR" remote get-url origin 2>/dev/null || true)
-if [ -z "$REMOTE_URL" ]; then
-    log "ERROR: could not read git remote origin from $APP_DIR"
-    exit 1
-fi
-
-# Support both https://github.com/owner/repo.git and git@github.com:owner/repo.git
-REPO=$(echo "$REMOTE_URL" \
-    | sed 's|.*github\.com[:/]\(.*\)\.git$|\1|; s|.*github\.com[:/]\(.*\)$|\1|')
-
 if [ -z "$REPO" ]; then
-    log "ERROR: could not parse GitHub owner/repo from remote: $REMOTE_URL"
-    exit 1
+    REMOTE_URL=$(git -C "$APP_DIR" remote get-url origin 2>/dev/null || true)
+    if [ -z "$REMOTE_URL" ]; then
+        log "ERROR: could not read git remote origin from $APP_DIR — set REPO=owner/repo to skip this"
+        exit 1
+    fi
+    # Support https://github.com/owner/repo.git and git@github.com:owner/repo.git
+    REPO=$(echo "$REMOTE_URL" \
+        | sed 's|.*github\.com[:/]\(.*\)\.git$|\1|; s|.*github\.com[:/]\(.*\)$|\1|')
+    if [ -z "$REPO" ]; then
+        log "ERROR: could not parse GitHub owner/repo from remote: $REMOTE_URL"
+        exit 1
+    fi
 fi
 
 log "Repo: $REPO  Branch: $BRANCH"
