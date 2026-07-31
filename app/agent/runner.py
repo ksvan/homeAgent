@@ -49,9 +49,7 @@ _USER_FACING_ERRORS: dict[str, str] = {
     "rate_limited": (
         "Sorry, the AI service is rate-limited right now. Please try again in a minute or two."
     ),
-    "unavailable": (
-        "Sorry, the AI service is temporarily unavailable. Please try again shortly."
-    ),
+    "unavailable": ("Sorry, the AI service is temporarily unavailable. Please try again shortly."),
     "unknown": "Sorry, something went wrong. Please try again in a moment.",
 }
 

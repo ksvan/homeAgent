@@ -111,9 +111,7 @@ def _aggregate_run_stats(runs: "Sequence[AgentRunLog]") -> dict[str, Any]:
 
     # "input" from the API is the uncached remainder only (Anthropic) — total
     # prompt size is input + cache_read + cache_write.
-    total_input_with_cache = (
-        total_input_tokens + total_cache_read_tokens + total_cache_write_tokens
-    )
+    total_input_with_cache = total_input_tokens + total_cache_read_tokens + total_cache_write_tokens
     cached_input_share = (
         round(total_cache_read_tokens / total_input_with_cache, 4)
         if total_input_with_cache
