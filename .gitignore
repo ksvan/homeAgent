@@ -95,6 +95,11 @@ security_best_practices_report.md
 homeAgent-threat-model.md
 
 # ------------------------------------------------------------
+# Personal data — questionnaire answers, never commit
+# ------------------------------------------------------------
+docs/personalization-answers.md
+
+# ------------------------------------------------------------
 # Secrets / certs / backups
 # ------------------------------------------------------------
 *.pem
