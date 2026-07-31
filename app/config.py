@@ -47,7 +47,7 @@ class Settings(BaseSettings):
     # ------------------------------------------------------------------
     # Model selection
     # ------------------------------------------------------------------
-    model_primary: str = "claude-sonnet-4-6"
+    model_primary: str = "claude-sonnet-5"
     model_background: str = "claude-haiku-4-5-20251001"
     model_fallback: str = "gpt-4o"
     model_background_fallback: str = "gpt-4o-mini"
@@ -146,6 +146,18 @@ class Settings(BaseSettings):
     # ------------------------------------------------------------------
     max_tokens_per_run: int = 4096
     token_cost_warn_threshold: int = 3000  # input tokens; emit warning event if exceeded
+
+    # ------------------------------------------------------------------
+    # Prompt caching (see docs/prompt-caching-design.md)
+    # Anthropic: places explicit cache_control breakpoints after the static
+    # instructions block and after tool definitions.
+    # OpenAI: deliberately disabled (mode="explicit" with no breakpoints) —
+    # pydantic-ai has no system-message-level breakpoint hook for GPT-5.6, so
+    # leaving implicit mode on would pay the cache-write premium with no
+    # offsetting reads. See the design doc's decision-gate resolution.
+    # ------------------------------------------------------------------
+    feature_prompt_caching: bool = True
+    static_prompt_cache_version: str = "1"
 
     # ------------------------------------------------------------------
     # Rate limiting / alerting

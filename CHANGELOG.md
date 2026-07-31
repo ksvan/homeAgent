@@ -10,6 +10,9 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 
 ### Added
 
+- **Personalization questionnaire design** — `docs/personalization-questionnaire-design.md`
+  adds a 40-question worksheet for tuning HomeAgent through profiles, world-model
+  facts, episodic memory, and compact prompt-harness guidance.
 - **Pull-based auto-update script** — `scripts/auto-update.sh` lets the mac
   mini update itself on a schedule (cron or launchd) without a push from the
   dev machine. Fetches the latest SHA on `main` from the GitHub API, verifies
@@ -39,6 +42,53 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 - **Mypy remediation plan** — `docs/mypy-remediation.md` documents the current
   196-error inventory and a four-phase plan for reaching zero errors and
   re-enabling the mypy CI gate.
+- **Prompt caching implemented (Anthropic real, OpenAI deliberately off)** —
+  `prompts/persona.md` split into a static tone/behavior body (no per-call
+  variables) plus a new `prompts/identity.md` for the one part that legitimately
+  varies per call (agent/household name, current speaker). The static body now
+  loads into `Agent(instructions=...)` instead of being re-rendered into the
+  system prompt every call, so it forms a stable prefix. `run_conversation()`
+  sets `anthropic_cache_instructions`/`anthropic_cache_tool_definitions` ("5m")
+  so Anthropic actually caches it. OpenAI/GPT-5.6 is set to
+  `openai_prompt_cache_options={"mode": "explicit"}` with no breakpoints
+  placed — deliberately disabling implicit-mode caching, since pydantic-ai
+  has no hook to cache the system message specifically and implicit mode
+  would otherwise pay the cache-write premium against a prefix that can
+  never be re-hit (our system content is always call-dynamic). New
+  `FEATURE_PROMPT_CACHING` flag reverts both providers to the old plain
+  `max_tokens`-only settings if needed. `AgentRunLog.tokens_used` and
+  `/admin/stats` now track `cache_read`/`cache_write` tokens, a
+  provider-correct total-input figure (Anthropic's `input_tokens` is the
+  uncached remainder only), a weighted cached-input share per model, and
+  latency split by cache state. See `docs/prompt-caching-design.md` for the
+  full design and the reasoning behind the OpenAI decision. Tests:
+  `test_prompts_static_split.py`, `test_agent_prompt_split.py`,
+  `test_model_settings_caching.py`, `test_write_run_log.py`,
+  `test_admin_stats_aggregation.py`, plus new cache-token assertions in
+  `test_agent_runner_failover.py`.
+- **LLM provider failover across API failures** — `agent_run()` now tries
+  each model in `LLMRouter.get_model_chain()` (primary, then fallback) in
+  order instead of picking one model at startup. Auth failures (401/403)
+  skip straight to the next provider; rate limits and 5xx retry the same
+  provider with backoff first. Tests: `tests/unit/test_llm_router.py`,
+  `tests/unit/test_agent_runner_failover.py`.
+
+### Fixed
+
+- **Provider detection now derived from model name everywhere** — previously
+  `app/agent/llm_router.py` picked the provider class from the API key
+  prefix (`sk-ant-...`) while key *resolution* picked it from the model name
+  prefix (`claude-*`), so a mismatched key/model-name pairing could silently
+  instantiate the wrong provider. Both now go through a single
+  `provider_for_model()` helper.
+- **Stale/invalid model IDs** — `model_primary` default and `.env.example`
+  referenced `claude-sonnet-4-6` / `claude-sonnet-4-5`, neither a real
+  current Anthropic model ID. Updated to `claude-sonnet-5`.
+- **Unclassified LLM failures returned a generic error** — `agent_run()` now
+  distinguishes auth/config errors, rate limiting, and provider outages, and
+  returns a more specific message instead of "Sorry, something went wrong"
+  for all of them; `run.error` events now carry a `reason` and the model that
+  failed.
 
 ### Changed
 
@@ -47,6 +97,11 @@ Versioning follows [Semantic Versioning](https://semver.org/).
   compliance.
 - **AGENTS.md test expectations** — codified rule that new features must
   include focused unit tests and bug fixes must include regression tests.
+- **pydantic-ai upgraded 2.0.0 → 2.21.0** (openai SDK 2.44.0 → 2.51.0 along
+  with it) — needed to check whether GPT-5.6 explicit prompt-cache
+  breakpoints were reachable (they're not, for the system message
+  specifically — see the prompt caching entry above). No regressions found;
+  full unit + integration suite, ruff, and mypy all pass unchanged.
 
 ---
 

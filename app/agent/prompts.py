@@ -51,6 +51,7 @@ def _read_file(path: str) -> str:
 def clear_prompt_cache() -> None:
     """Bust the file cache — call this on admin /reload."""
     _read_file.cache_clear()
+    load_static_prompt_body.cache_clear()
 
 
 def load_persona(variables: dict[str, str]) -> str:
@@ -66,3 +67,34 @@ def load_instructions(variables: dict[str, str]) -> str:
 def load_home_context(variables: dict[str, str]) -> str:
     path = str(get_settings().prompts_path() / "home_context.md")
     return _render(_read_file(path), variables)
+
+
+def render_identity_block(agent_name: str, household_name: str, user_name: str) -> str:
+    """The one part of "persona" that legitimately varies per call.
+
+    Kept separate from load_static_prompt_body() so persona.md's tone/style
+    content has no per-call substitutions and can form a stable, cacheable
+    prefix (see docs/prompt-caching-design.md).
+    """
+    path = str(get_settings().prompts_path() / "identity.md")
+    variables = {
+        "agent_name": agent_name,
+        "household_name": household_name,
+        "user_name": user_name,
+    }
+    return _render(_read_file(path), variables)
+
+
+@lru_cache(maxsize=1)
+def load_static_prompt_body() -> str:
+    """Persona + instructions with no per-call template variables.
+
+    Passed to `Agent(instructions=...)` — pydantic-ai keeps this out of
+    persisted message history and it's the block Anthropic's
+    `anthropic_cache_instructions` setting places its cache breakpoint
+    after. Cleared by clear_prompt_cache() on admin /reload.
+    """
+    persona = load_persona({})
+    instructions = load_instructions({})
+    parts = [p for p in (persona, instructions) if p]
+    return "\n\n---\n\n".join(parts)

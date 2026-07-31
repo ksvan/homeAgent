@@ -14,6 +14,7 @@ from sqlmodel import Session, SQLModel, create_engine
 
 # Import all model modules so their tables register with SQLModel.metadata
 # before any fixture calls create_all().
+import app.models.cache  # noqa: F401
 import app.models.memory  # noqa: F401
 import app.models.scheduled_prompts  # noqa: F401
 import app.models.tasks  # noqa: F401

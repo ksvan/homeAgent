@@ -7,13 +7,17 @@ from typing import TYPE_CHECKING, cast
 
 from pydantic_ai import Agent, AgentRunResult, RunContext
 from pydantic_ai.messages import ModelMessage
+from pydantic_ai.models import Model
 from pydantic_ai.toolsets import AbstractToolset
 
 if TYPE_CHECKING:
+    from pydantic_ai.settings import ModelSettings
+
     from app.channels.base import MediaAttachment
+    from app.config import Settings
 
 from app.agent.llm_router import LLMRouter, TaskType
-from app.agent.prompts import load_instructions, load_persona
+from app.agent.prompts import load_static_prompt_body, render_identity_block
 from app.config import get_settings
 
 logger = logging.getLogger(__name__)
@@ -75,6 +79,7 @@ def _make_conversation_agent() -> Agent[AgentDeps, str]:
         output_type=str,
         toolsets=toolsets or None,
         retries=3,
+        instructions=load_static_prompt_body() or "You are a helpful household assistant.",
     )
 
     @a.system_prompt
@@ -82,49 +87,42 @@ def _make_conversation_agent() -> Agent[AgentDeps, str]:
         import json as _json
 
         d = ctx.deps
-        vars_: dict[str, str] = {
-            "agent_name": d.agent_name,
-            "household_name": d.household_name,
-            "user_name": d.user_name,
-            "current_date": d.current_date,
-            "current_time": d.current_time,
-            "timezone": d.timezone,
-        }
-        persona = load_persona(vars_)
-        instructions = load_instructions(vars_)
 
-        parts = [p for p in (persona, instructions) if p]
-        base = "\n\n---\n\n".join(parts) if parts else "You are a helpful household assistant."
-
+        # Dynamic suffix only — the static persona/instructions body lives in
+        # Agent(instructions=...) above so it forms a stable, cacheable prefix
+        # (see docs/prompt-caching-design.md). Ordered most-stable →
+        # most-volatile: identity, time, profiles, world model, skills index,
+        # active task, conversation summary, relevant memories.
         from app.agent.skills import get_skill_registry
 
-        extra_sections: list[str] = []
-        if d.user_profile_text:
-            extra_sections.append(d.user_profile_text)
-        if d.household_profile_text:
-            extra_sections.append(d.household_profile_text)
-        if d.current_user_text:
-            extra_sections.append(d.current_user_text)
-        if d.world_model_text:
-            extra_sections.append(d.world_model_text)
-        if d.active_task_text:
-            extra_sections.append(d.active_task_text)
-        if d.conversation_summary:
-            extra_sections.append(f"## Conversation Summary\n{d.conversation_summary}")
-        if d.relevant_memories:
-            mem_block = "\n".join(f"- {m}" for m in d.relevant_memories)
-            extra_sections.append(f"## Relevant Memories\n{mem_block}")
-        skills_index = get_skill_registry().skills_index_text()
-        if skills_index:
-            extra_sections.append(skills_index)
-
+        identity = render_identity_block(d.agent_name, d.household_name, d.user_name)
         time_block = (
             "<time_context>\n"
             + _json.dumps({"current_time": d.current_dt_iso, "timezone": d.timezone}, indent=2)
             + "\n</time_context>"
         )
-        suffix = ("\n\n---\n\n" + "\n\n".join(extra_sections)) if extra_sections else ""
-        return time_block + "\n\n" + base + suffix
+
+        sections: list[str] = [s for s in (identity, time_block) if s]
+        if d.user_profile_text:
+            sections.append(d.user_profile_text)
+        if d.household_profile_text:
+            sections.append(d.household_profile_text)
+        if d.current_user_text:
+            sections.append(d.current_user_text)
+        if d.world_model_text:
+            sections.append(d.world_model_text)
+        skills_index = get_skill_registry().skills_index_text()
+        if skills_index:
+            sections.append(skills_index)
+        if d.active_task_text:
+            sections.append(d.active_task_text)
+        if d.conversation_summary:
+            sections.append(f"## Conversation Summary\n{d.conversation_summary}")
+        if d.relevant_memories:
+            mem_block = "\n".join(f"- {m}" for m in d.relevant_memories)
+            sections.append(f"## Relevant Memories\n{mem_block}")
+
+        return "\n\n---\n\n".join(sections)
 
     from app.agent.tools.actions import register_action_tools
     from app.agent.tools.calendar import register_calendar_tools
@@ -207,12 +205,18 @@ async def run_conversation(
     run_id: str = "",
     control_task_id: str = "",
     media: "list[MediaAttachment] | None" = None,
+    model: Model | None = None,
 ) -> AgentRunResult[str]:
     """
     Run the conversation agent and return the full AgentRunResult.
 
     Callers should use result.output for the response text, and
     result.new_messages() to inspect tool calls made during the run.
+
+    Args:
+        model: Optional model override for this run only (e.g. a fallback
+               provider after the default model's API call failed). Leaves
+               the agent's tools/toolsets/system prompt untouched.
     """
     import datetime as _dt
 
@@ -267,7 +271,6 @@ async def run_conversation(
     )
 
     from pydantic_ai import BinaryContent
-    from pydantic_ai.settings import ModelSettings
 
     if media:
         media_parts: list[str | BinaryContent] = [text] + [
@@ -282,5 +285,26 @@ async def run_conversation(
         user_prompt,
         deps=deps,
         message_history=message_history or [],
-        model_settings=ModelSettings(max_tokens=settings.max_tokens_per_run),
+        model_settings=_build_model_settings(settings),
+        model=model,
     )
+
+
+def _build_model_settings(settings: "Settings") -> "ModelSettings":
+    """Build the model_settings dict passed to agent.run().
+
+    Cross-provider by construction: extra provider-specific keys are ignored
+    by whichever provider isn't handling the call (primary or fallback — see
+    app/agent/llm_router.py get_model_chain()). See
+    docs/prompt-caching-design.md for the caching rationale.
+    """
+    raw: dict[str, object] = {"max_tokens": settings.max_tokens_per_run}
+    if settings.feature_prompt_caching:
+        raw["anthropic_cache_instructions"] = "5m"
+        raw["anthropic_cache_tool_definitions"] = "5m"
+        # OpenAI/GPT-5.6: deliberately off, not "unset" — implicit mode is the
+        # server-side default when this field is absent, and it would pay the
+        # cache-write premium against our necessarily-dynamic prefix with no
+        # offsetting reads. See docs/prompt-caching-design.md.
+        raw["openai_prompt_cache_options"] = {"mode": "explicit"}
+    return cast("ModelSettings", raw)

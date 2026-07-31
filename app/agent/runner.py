@@ -35,7 +35,25 @@ logger = logging.getLogger(__name__)
 # same user never run concurrently and context always sees consistent history.
 _user_run_locks: dict[str, asyncio.Lock] = {}
 
+# Status codes worth retrying against the SAME provider (transient).
 _RETRYABLE_STATUS: frozenset[int] = frozenset({429, 500, 502, 503, 504, 529})
+# Status codes that mean the provider itself rejected the request — retrying
+# the same provider is pointless; move straight to the next one in the chain.
+_AUTH_ERROR_STATUS: frozenset[int] = frozenset({401, 403})
+
+_USER_FACING_ERRORS: dict[str, str] = {
+    "auth": (
+        "Sorry, I can't reach the AI service right now — there's a problem "
+        "with the configured API key. Please let an admin know."
+    ),
+    "rate_limited": (
+        "Sorry, the AI service is rate-limited right now. Please try again in a minute or two."
+    ),
+    "unavailable": (
+        "Sorry, the AI service is temporarily unavailable. Please try again shortly."
+    ),
+    "unknown": "Sorry, something went wrong. Please try again in a moment.",
+}
 
 
 def get_user_run_lock(user_id: str) -> asyncio.Lock:
@@ -53,6 +71,8 @@ class RunOutcome:
     run_id: str
     input_tokens: int = 0
     output_tokens: int = 0
+    cache_read_tokens: int = 0
+    cache_write_tokens: int = 0
     tool_calls: list[dict[str, object]] = field(default_factory=list)
     # Stripped new messages (binary replaced with text labels) — callers can
     # use these for snapshot updates, further processing, etc.
@@ -131,11 +151,13 @@ async def agent_run(
         except Exception:
             logger.warning("agent_run: could not resolve user/household names", exc_info=True)
 
-    # --- Model name for logging (best-effort) ---
+    # --- Candidate models for this run: primary, then fallback provider ---
     try:
-        model_name = str(LLMRouter(settings).get_model(TaskType.CONVERSATION))
+        model_chain = LLMRouter(settings).get_model_chain(TaskType.CONVERSATION)
     except Exception:
-        model_name = "unknown"
+        logger.exception("agent_run: no LLM provider configured")
+        model_chain = []
+    model_name = str(model_chain[0]) if model_chain else "unknown"
 
     # --- Assemble full context (profile, world model, memories, history) ---
     ctx: AgentContext = assemble_context(user_id, household_id, text)
@@ -154,63 +176,111 @@ async def agent_run(
         run_id=run_id,
     )
 
-    # --- Run with optional retry on transient errors ---
+    # --- Run with retry on transient errors, and failover across providers ---
     t_start = time.monotonic()
     result = None
     success = False
     response = ""
+    # No provider configured at all is a config problem, same bucket as auth.
+    failure_kind = "auth" if not model_chain else "unknown"
+    failed_model_name = model_name
 
-    for attempt in range(retries + 1):
-        try:
-            result = await run_conversation(
-                text,
-                user_name=user_name,
-                household_name=household_name,
-                message_history=ctx.recent_messages,
-                user_profile_text=ctx.user_profile_text,
-                household_profile_text=ctx.household_profile_text,
-                world_model_text=ctx.world_model_text,
-                current_user_text=ctx.current_user_text,
-                active_task_text=ctx.active_task_text,
-                conversation_summary=ctx.conversation_summary,
-                relevant_memories=ctx.relevant_memories,
-                user_id=user_id,
-                household_id=household_id,
-                channel_user_id=channel_user_id,
-                run_id=run_id,
-                control_task_id=control_task_id or "",
-                media=media or [],
-            )
-            response = str(result.output)
-            success = True
-            break
-        except (ModelHTTPError, asyncio.TimeoutError) as exc:
-            is_retryable = (
-                isinstance(exc, ModelHTTPError) and exc.status_code in _RETRYABLE_STATUS
-            ) or isinstance(exc, asyncio.TimeoutError)
-            if is_retryable and attempt < retries:
-                wait = min(5 * (2**attempt) + random.uniform(0, 2), 30)
-                logger.warning(
-                    "agent_run: retryable error attempt=%d trigger=%s (%s) — retrying in %.1fs",
-                    attempt + 1,
-                    trigger,
-                    type(exc).__name__,
-                    wait,
+    for model_idx, candidate_model in enumerate(model_chain):
+        is_last_model = model_idx == len(model_chain) - 1
+        candidate_name = str(candidate_model)
+
+        for attempt in range(retries + 1):
+            try:
+                result = await run_conversation(
+                    text,
+                    user_name=user_name,
+                    household_name=household_name,
+                    message_history=ctx.recent_messages,
+                    user_profile_text=ctx.user_profile_text,
+                    household_profile_text=ctx.household_profile_text,
+                    world_model_text=ctx.world_model_text,
+                    current_user_text=ctx.current_user_text,
+                    active_task_text=ctx.active_task_text,
+                    conversation_summary=ctx.conversation_summary,
+                    relevant_memories=ctx.relevant_memories,
+                    user_id=user_id,
+                    household_id=household_id,
+                    channel_user_id=channel_user_id,
+                    run_id=run_id,
+                    control_task_id=control_task_id or "",
+                    media=media or [],
+                    model=candidate_model,
                 )
-                if on_retry:
-                    try:
-                        await on_retry(attempt)
-                    except Exception:
-                        pass
-                await asyncio.sleep(wait)
-                continue
-            logger.exception("agent_run: run failed trigger=%s attempt=%d", trigger, attempt)
-            response = "Sorry, something went wrong. Please try again in a moment."
+                response = str(result.output)
+                success = True
+                model_name = candidate_name
+                break
+            except (ModelHTTPError, asyncio.TimeoutError) as exc:
+                status = exc.status_code if isinstance(exc, ModelHTTPError) else None
+                is_auth_error = status in _AUTH_ERROR_STATUS
+                is_retryable = status in _RETRYABLE_STATUS or isinstance(exc, asyncio.TimeoutError)
+
+                if is_auth_error:
+                    failure_kind = "auth"
+                    logger.error(
+                        "agent_run: provider rejected credentials model=%s status=%s trigger=%s",
+                        candidate_name,
+                        status,
+                        trigger,
+                    )
+                    break  # no point retrying the same provider — try the next one
+
+                if is_retryable and attempt < retries:
+                    failure_kind = "rate_limited" if status == 429 else "unavailable"
+                    wait = min(5 * (2**attempt) + random.uniform(0, 2), 30)
+                    logger.warning(
+                        "agent_run: retryable error attempt=%d model=%s trigger=%s "
+                        "(%s) — retrying in %.1fs",
+                        attempt + 1,
+                        candidate_name,
+                        trigger,
+                        type(exc).__name__,
+                        wait,
+                    )
+                    if on_retry:
+                        try:
+                            await on_retry(attempt)
+                        except Exception:
+                            pass
+                    await asyncio.sleep(wait)
+                    continue
+
+                failure_kind = "rate_limited" if status == 429 else "unavailable"
+                logger.exception(
+                    "agent_run: run failed model=%s trigger=%s attempt=%d",
+                    candidate_name,
+                    trigger,
+                    attempt,
+                )
+                break
+            except Exception:
+                failure_kind = "unknown"
+                logger.exception(
+                    "agent_run: run failed model=%s trigger=%s attempt=%d",
+                    candidate_name,
+                    trigger,
+                    attempt,
+                )
+                break
+
+        if success:
             break
-        except Exception:
-            logger.exception("agent_run: run failed trigger=%s attempt=%d", trigger, attempt)
-            response = "Sorry, something went wrong. Please try again in a moment."
-            break
+        failed_model_name = candidate_name
+        if not is_last_model:
+            logger.warning(
+                "agent_run: model=%s failed (%s) — failing over to next provider",
+                candidate_name,
+                failure_kind,
+            )
+
+    if not success:
+        model_name = failed_model_name
+        response = _USER_FACING_ERRORS.get(failure_kind, _USER_FACING_ERRORS["unknown"])
 
     duration_ms = int((time.monotonic() - t_start) * 1000)
 
@@ -219,6 +289,8 @@ async def agent_run(
     tool_calls: list[dict[str, object]] = []
     input_tokens = 0
     output_tokens = 0
+    cache_read_tokens = 0
+    cache_write_tokens = 0
 
     if result is not None:
         from pydantic_ai.messages import ModelResponse, ToolCallPart
@@ -236,6 +308,8 @@ async def agent_run(
         usage = result.usage
         input_tokens = usage.input_tokens or 0
         output_tokens = usage.output_tokens or 0
+        cache_read_tokens = usage.cache_read_tokens or 0
+        cache_write_tokens = usage.cache_write_tokens or 0
 
     # Strip binary content before any persistence or exposure to callers
     new_messages = _strip_binary_from_messages(raw_new_messages)
@@ -252,6 +326,8 @@ async def agent_run(
                 "duration_ms": duration_ms,
                 "input_tokens": input_tokens,
                 "output_tokens": output_tokens,
+                "cache_read_tokens": cache_read_tokens,
+                "cache_write_tokens": cache_write_tokens,
                 "tool_count": len(tool_calls),
                 "tools": [str(t["tool"]) for t in tool_calls],
             },
@@ -260,7 +336,13 @@ async def agent_run(
     else:
         emit(
             "run.error",
-            {"trigger": trigger, "error": "Agent run failed", "duration_ms": duration_ms},
+            {
+                "trigger": trigger,
+                "error": "Agent run failed",
+                "reason": failure_kind,
+                "model": failed_model_name,
+                "duration_ms": duration_ms,
+            },
             run_id=run_id,
         )
 
@@ -275,6 +357,8 @@ async def agent_run(
         duration_ms=duration_ms,
         input_tokens=input_tokens,
         output_tokens=output_tokens,
+        cache_read_tokens=cache_read_tokens,
+        cache_write_tokens=cache_write_tokens,
     )
 
     # --- Optionally persist conversation turn for future LLM context ---
@@ -305,6 +389,8 @@ async def agent_run(
         run_id=run_id,
         input_tokens=input_tokens,
         output_tokens=output_tokens,
+        cache_read_tokens=cache_read_tokens,
+        cache_write_tokens=cache_write_tokens,
         tool_calls=tool_calls,
         new_messages=new_messages,
     )
@@ -322,19 +408,12 @@ def _estimate_context_chars(ctx: object) -> int:
     if not isinstance(ctx, AgentContext):
         return 0
 
-    from app.agent.prompts import load_instructions, load_persona
+    from app.agent.prompts import load_static_prompt_body, render_identity_block
     from app.config import get_settings
 
     settings = get_settings()
-    prompt_vars: dict[str, str] = {
-        "agent_name": settings.agent_name,
-        "household_name": "",
-        "user_name": "",
-        "current_date": "",
-        "current_time": "",
-        "timezone": settings.household_timezone,
-    }
-    total = len(load_persona(prompt_vars)) + len(load_instructions(prompt_vars))
+    total = len(load_static_prompt_body())
+    total += len(render_identity_block(settings.agent_name, "", ""))
     total += len(ctx.user_profile_text)
     total += len(ctx.household_profile_text)
     total += len(ctx.world_model_text or "")
@@ -403,10 +482,13 @@ def _write_run_log(
     duration_ms: int,
     input_tokens: int,
     output_tokens: int,
+    cache_read_tokens: int = 0,
+    cache_write_tokens: int = 0,
 ) -> None:
     try:
         import json as _json
 
+        from app.config import get_settings
         from app.db import cache_session
         from app.models.cache import AgentRunLog
 
@@ -419,7 +501,15 @@ def _write_run_log(
                 output_summary=output_summary,
                 tools_called=_json.dumps(tools_called),
                 duration_ms=duration_ms,
-                tokens_used=_json.dumps({"input": input_tokens, "output": output_tokens}),
+                tokens_used=_json.dumps(
+                    {
+                        "input": input_tokens,
+                        "output": output_tokens,
+                        "cache_read": cache_read_tokens,
+                        "cache_write": cache_write_tokens,
+                        "static_prompt_cache_version": get_settings().static_prompt_cache_version,
+                    }
+                ),
             )
             session.add(log)
             session.commit()

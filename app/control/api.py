@@ -5,13 +5,16 @@ import json
 import logging
 import pathlib
 import time
-from typing import Any, AsyncGenerator
+from typing import TYPE_CHECKING, Any, AsyncGenerator, Sequence
 
 from fastapi import APIRouter, Depends
 from fastapi.responses import HTMLResponse, StreamingResponse
 from pydantic import BaseModel
 
 from app.control.auth import require_admin_auth
+
+if TYPE_CHECKING:
+    from app.models.cache import AgentRunLog
 
 _auth = [Depends(require_admin_auth)]
 
@@ -37,6 +40,120 @@ async def admin_page() -> HTMLResponse:
     )
 
 
+def _aggregate_run_stats(runs: "Sequence[AgentRunLog]") -> dict[str, Any]:
+    """Tool/token/cache/latency aggregation over a batch of AgentRunLog rows.
+
+    Split out from admin_stats() so it's directly testable without the
+    memory/users/psutil dependencies the rest of that endpoint pulls in.
+    See docs/prompt-caching-design.md § Instrumentation.
+    """
+    tool_counts: dict[str, int] = {}
+    total_input_tokens = 0
+    total_output_tokens = 0
+    total_cache_read_tokens = 0
+    total_cache_write_tokens = 0
+    model_counts: dict[str, int] = {}
+    model_token_stats: dict[str, dict[str, int]] = {}
+    durations: list[int] = []
+    # Cache-state buckets — an overall average latency masks the
+    # cache-read vs. cache-write vs. no-cache split.
+    durations_by_cache_state: dict[str, list[int]] = {
+        "cache_read": [],
+        "cache_write": [],
+        "no_cache": [],
+    }
+
+    for run in runs:
+        try:
+            tools = json.loads(run.tools_called)
+            for t in tools:
+                name = t.get("tool", "unknown")
+                tool_counts[name] = tool_counts.get(name, 0) + 1
+        except Exception:
+            pass
+
+        cache_read = 0
+        cache_write = 0
+        try:
+            tokens = json.loads(run.tokens_used)
+            input_tok = tokens.get("input", 0)
+            output_tok = tokens.get("output", 0)
+            cache_read = tokens.get("cache_read", 0)
+            cache_write = tokens.get("cache_write", 0)
+            total_input_tokens += input_tok
+            total_output_tokens += output_tok
+            total_cache_read_tokens += cache_read
+            total_cache_write_tokens += cache_write
+
+            model_stats = model_token_stats.setdefault(
+                run.model_used,
+                {"input": 0, "output": 0, "cache_read": 0, "cache_write": 0},
+            )
+            model_stats["input"] += input_tok
+            model_stats["output"] += output_tok
+            model_stats["cache_read"] += cache_read
+            model_stats["cache_write"] += cache_write
+        except Exception:
+            pass
+
+        model_counts[run.model_used] = model_counts.get(run.model_used, 0) + 1
+        if run.duration_ms:
+            durations.append(run.duration_ms)
+            if cache_read > 0:
+                durations_by_cache_state["cache_read"].append(run.duration_ms)
+            elif cache_write > 0:
+                durations_by_cache_state["cache_write"].append(run.duration_ms)
+            else:
+                durations_by_cache_state["no_cache"].append(run.duration_ms)
+
+    def _avg(values: list[int]) -> int:
+        return int(sum(values) / len(values)) if values else 0
+
+    # "input" from the API is the uncached remainder only (Anthropic) — total
+    # prompt size is input + cache_read + cache_write.
+    total_input_with_cache = (
+        total_input_tokens + total_cache_read_tokens + total_cache_write_tokens
+    )
+    cached_input_share = (
+        round(total_cache_read_tokens / total_input_with_cache, 4)
+        if total_input_with_cache
+        else 0.0
+    )
+    tokens_by_model: dict[str, dict[str, object]] = {}
+    for model, stats in model_token_stats.items():
+        model_total = stats["input"] + stats["cache_read"] + stats["cache_write"]
+        tokens_by_model[model] = {
+            **stats,
+            "total_input": model_total,
+            "cached_input_share": (
+                round(stats["cache_read"] / model_total, 4) if model_total else 0.0
+            ),
+        }
+
+    return {
+        "avg_duration_ms": _avg(durations),
+        "tool_counts": tool_counts,
+        "model_counts": model_counts,
+        "tokens_by_model": tokens_by_model,
+        "tokens": {
+            "input": total_input_tokens,
+            "output": total_output_tokens,
+            "cache_read": total_cache_read_tokens,
+            "cache_write": total_cache_write_tokens,
+            "total_input_with_cache": total_input_with_cache,
+            "cached_input_share": cached_input_share,
+        },
+        "latency_by_cache_state": {
+            "cache_read_avg_ms": _avg(durations_by_cache_state["cache_read"]),
+            "cache_read_count": len(durations_by_cache_state["cache_read"]),
+            "cache_write_avg_ms": _avg(durations_by_cache_state["cache_write"]),
+            "cache_write_count": len(durations_by_cache_state["cache_write"]),
+            "no_cache_avg_ms": _avg(durations_by_cache_state["no_cache"]),
+            "no_cache_count": len(durations_by_cache_state["no_cache"]),
+        },
+    }
+
+
 @router.get("/stats", dependencies=_auth)
 async def admin_stats() -> dict[str, Any]:
     import psutil
@@ -57,31 +174,7 @@ async def admin_stats() -> dict[str, Any]:
             select(AgentRunLog).order_by(col(AgentRunLog.created_at).desc()).limit(500)
         ).all()
 
-    tool_counts: dict[str, int] = {}
-    total_input_tokens = 0
-    total_output_tokens = 0
-    model_counts: dict[str, int] = {}
-    durations: list[int] = []
-
-    for run in runs:
-        try:
-            tools = json.loads(run.tools_called)
-            for t in tools:
-                name = t.get("tool", "unknown")
-                tool_counts[name] = tool_counts.get(name, 0) + 1
-        except Exception:
-            pass
-        try:
-            tokens = json.loads(run.tokens_used)
-            total_input_tokens += tokens.get("input", 0)
-            total_output_tokens += tokens.get("output", 0)
-        except Exception:
-            pass
-        model_counts[run.model_used] = model_counts.get(run.model_used, 0) + 1
-        if run.duration_ms:
-            durations.append(run.duration_ms)
-
-    avg_duration = int(sum(durations) / len(durations)) if durations else 0
+    run_stats = _aggregate_run_stats(runs)
 
     # Memory stats from memory.db
     from app.db import memory_session
@@ -128,14 +221,13 @@ async def admin_stats() -> dict[str, Any]:
         },
         "runs": {
             "total": len(runs),
-            "avg_duration_ms": avg_duration,
+            "avg_duration_ms": run_stats["avg_duration_ms"],
         },
-        "tools": tool_counts,
-        "tokens": {
-            "input": total_input_tokens,
-            "output": total_output_tokens,
-        },
-        "models": model_counts,
+        "tools": run_stats["tool_counts"],
+        "tokens": run_stats["tokens"],
+        "tokens_by_model": run_stats["tokens_by_model"],
+        "latency_by_cache_state": run_stats["latency_by_cache_state"],
+        "models": run_stats["model_counts"],
         "memory": {
             "episodic_total": episodic_total,
             "episodic_auto": episodic_auto,

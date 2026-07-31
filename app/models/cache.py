@@ -49,7 +49,7 @@ class AgentRunLog(SQLModel, table=True):
     tools_called: str = "[]"
     output_summary: str = ""
     duration_ms: int = 0
-    # JSON: {input: N, output: N}
+    # JSON: {input, output, cache_read, cache_write, static_prompt_cache_version}
     tokens_used: str = "{}"
     created_at: datetime = Field(default_factory=_now)
 

@@ -94,3 +94,9 @@ def test_features_property() -> None:
     s = _settings(feature_policy_gate=False)
     assert s.features.policy_gate is False
     assert s.features.cheap_background_models is True
+
+
+def test_prompt_caching_defaults() -> None:
+    s = _settings()
+    assert s.feature_prompt_caching is True
+    assert s.static_prompt_cache_version == "1"

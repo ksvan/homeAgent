@@ -25,53 +25,51 @@ The agent name is configurable through `AGENT_NAME`.
 
 ## System Prompt Structure
 
-The system prompt is assembled fresh for each run in [`app/agent/agent.py`](/Users/kristian/Documents/code/homeAgent/app/agent/agent.py).
+Split into a static part and a dynamic part in
+[`app/agent/agent.py`](/Users/kristian/Documents/code/homeAgent/app/agent/agent.py)
+(`_make_conversation_agent()`), so persona/instructions/tool schemas can form
+a stable, cacheable prefix on providers that support prompt caching — see
+`docs/prompt-caching-design.md`.
 
-Current structure:
+### 1. Static: `Agent(instructions=...)`
 
-### 1. Time Context Block
+`prompts/persona.md` + `prompts/instructions.md`, loaded once via
+`load_static_prompt_body()` and passed to the `Agent` constructor. No
+per-call template variables — this content is byte-identical across every
+call for every user/household. Not persisted into `message_history` (that's
+what pydantic-ai's `instructions` mechanism, as opposed to `system_prompt`,
+is for).
 
-A machine-readable block is prepended first:
+### 2. Dynamic: `@a.system_prompt`
 
-```text
-<time_context>
-{
-  "current_time": "2026-03-28T15:32:00+01:00",
-  "timezone": "Europe/Oslo"
-}
-</time_context>
-```
+Rebuilt fresh every run, ordered most-stable → most-volatile:
 
-This exists so the model always has an exact timestamp with offset, not just prose.
+1. **Identity block** — `prompts/identity.md`, rendered via
+   `render_identity_block(agent_name, household_name, user_name)`. The one
+   part of "persona" that legitimately varies per call.
+2. **Time context block**:
 
-### 2. Base Prompt Files
+   ```text
+   <time_context>
+   {
+     "current_time": "2026-03-28T15:32:00+01:00",
+     "timezone": "Europe/Oslo"
+   }
+   </time_context>
+   ```
 
-Two prompt files are loaded and concatenated:
+3. `## User Profile`
+4. `## Household Profile`
+5. Current user block
+6. `## Household Model` (structured world model from `users.db`, not free-text memory)
+7. Skills index
+8. Active task block
+9. `## Conversation Summary`
+10. `## Relevant Memories`
 
-- `prompts/persona.md`
-- `prompts/instructions.md`
+Each section is appended only when present.
 
-These are rendered with runtime variables such as:
-
-- `{agent_name}`
-- `{household_name}`
-- `{current_date}`
-- `{current_time}`
-- `{timezone}`
-
-### 3. Structured Dynamic Context
-
-The following sections are appended when present:
-
-- `## User Profile`
-- `## Household Profile`
-- `## Household Model`
-- `## Conversation Summary`
-- `## Relevant Memories`
-
-The `## Household Model` section is produced from the structured world model in `users.db`, not from free-text memory.
-
-### 4. Recent Conversation Turns
+### 3. Recent Conversation Turns
 
 Recent conversation turns are **not** appended into the system prompt text. They are passed separately as `message_history` into the PydanticAI run so the model still sees the actual recent turn sequence, including tool calls.
 
@@ -100,28 +98,33 @@ The editable prompt files live in `prompts/`:
 prompts/
 ├── persona.md
 ├── instructions.md
+├── identity.md
 └── home_context.md
 ```
 
 Current runtime behavior:
 
-- `persona.md` is loaded
-- `instructions.md` is loaded
+- `persona.md` — static, loaded into `Agent(instructions=...)`. No template
+  variables (tone/style/behavior content only).
+- `instructions.md` — static, loaded into `Agent(instructions=...)`. Already
+  variable-free (JSON examples in the file use `{{...}}` escaping, unescaped
+  once via `format_map({})` on load).
+- `identity.md` — dynamic, rendered fresh per call via
+  `render_identity_block()` into the `@a.system_prompt` suffix. Holds the
+  one part of "persona" that legitimately varies per call.
 - `home_context.md` exists, but is not currently injected by the conversation agent
 
 Prompt files are cached in-process and reloaded when the admin issues `/reload`.
 
 ### Template variables
 
-Files support runtime replacement via `str.format_map()`, with unknown placeholders left untouched. Variables currently supplied by the agent include:
+Files support runtime replacement via `str.format_map()`, with unknown placeholders left untouched. Only `identity.md` currently uses this — `persona.md`/`instructions.md` are loaded static (no variables to substitute):
 
-| Variable | Source |
-| --- | --- |
-| `{agent_name}` | `AGENT_NAME` setting |
-| `{household_name}` | household record |
-| `{current_date}` | system clock in household timezone |
-| `{current_time}` | system clock in household timezone |
-| `{timezone}` | configured household timezone |
+| Variable | Source | Used in |
+| --- | --- | --- |
+| `{agent_name}` | `AGENT_NAME` setting | `identity.md` |
+| `{household_name}` | household record | `identity.md` |
+| `{user_name}` | current speaker | `identity.md` |
 
 ---
 

@@ -60,6 +60,8 @@ class _RunOutcome:
     run_id: str = "test-run-id"
     input_tokens: int = 0
     output_tokens: int = 0
+    cache_read_tokens: int = 0
+    cache_write_tokens: int = 0
     tool_calls: list[object] = field(default_factory=list)
     new_messages: list[object] = field(default_factory=list)
 
