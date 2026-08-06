@@ -1,6 +1,6 @@
 # HomeAgent
 
-A locally-orchestrated personal AI agent for your household. Talks to your family via Telegram (and other channels), controls your smart home via Homey, remembers preferences over time, and handles everyday personal assistant tasks.
+A locally-orchestrated personal AI agent for your household. Talks to your family via Telegram, a browser-based web chat, and other channels, controls your smart home via Homey, remembers preferences over time, and handles everyday personal assistant tasks.
 
 Runs 24/7 in Docker on a Mac or Linux machine. Uses cloud LLMs (Claude, GPT-4o) for reasoning — conversations are sent to Anthropic/OpenAI APIs. All stored data (conversation history, memories, device state) stays local on your machine.
 
@@ -10,7 +10,7 @@ Developed by Claude, with assistance from me and Codex.
 
 ## What It Does
 
-- **Chat naturally** — talk to it like any LLM, through Telegram
+- **Chat naturally** — talk to it like any LLM, through Telegram or a browser on your home network
 - **Control your home** — "turn off the living room lights", "set the thermostat to 21 degrees"
 - **Remember your family** — learns preferences, routines, and context over time
 - **Household world model** — maintains structured knowledge about members, places, devices, routines, and facts
@@ -27,7 +27,7 @@ Developed by Claude, with assistance from me and Codex.
 See [docs/architecture.md](docs/architecture.md) for the full design.
 
 ```
-[Telegram]  [WhatsApp*]  [Events]  [Cron]
+[Telegram]  [Web Chat]  [WhatsApp*]  [Events]  [Cron]
       └──────────┬────────────┘
            [FastAPI Server]
                  │
@@ -38,10 +38,12 @@ See [docs/architecture.md](docs/architecture.md) for the full design.
    [Claude]  [GPT-4o]   [Tools]
                            │
                     ┌──────┴──────┐
-               [Homey MCP]   [Web / Other]
+               [Homey MCP]   [Other]
 ```
 
-*Future channel
+*Future channel. Web Chat is a separate FastAPI app on its own port
+(`WEB_CHAT_PORT`, default 9091), behind `FEATURE_WEB_CHAT` — see
+[docs/web-chat-channel-design.md](docs/web-chat-channel-design.md).
 
 ---
 
@@ -106,6 +108,8 @@ Key settings:
 | `HOMEY_HOME_ID` | Your Homey home ID |
 | `ALLOWED_TELEGRAM_IDS` | Comma-separated list of permitted Telegram user IDs |
 | `ADMIN_TELEGRAM_IDS` | Subset of above with admin privileges |
+| `FEATURE_WEB_CHAT` | Enable the browser-based web chat channel (default `false`) |
+| `WEB_CHAT_PORT` | Port for the web chat app when enabled (default `9091`) |
 | `APP_ENV` | `development` or `production` |
 
 ---
@@ -245,6 +249,26 @@ To inspect rules: `GET /admin/event-rules` (requires admin token).
 
 ---
 
+## Web Chat
+
+A browser-based chat UI for household members without Telegram installed on
+the current device (e.g. a shared kitchen tablet), or who just want to
+continue a Telegram conversation from a laptop — same agent, same
+conversation history, same policy gate. LAN-only, no password: pick your
+name from the household's existing user list.
+
+1. Set `FEATURE_WEB_CHAT=true` and (optionally) `WEB_CHAT_PORT` in `.env`.
+2. Restart the stack. The web chat app listens on its own port
+   (default `9091`), separate from the webhook port (8080) and admin
+   dashboard (9090).
+3. Open `http://<host>:9091/` on any device on the home network.
+
+See [docs/web-chat-channel-design.md](docs/web-chat-channel-design.md) for
+the full design, trust model, and what's still deferred (PIN, PWA
+packaging, proactive/scheduled messages over this channel).
+
+---
+
 ## Integrations
 
 - [Telegram setup guide](docs/integrations/telegram.md)
@@ -283,10 +307,12 @@ homeAgent/
 ├── AGENTS.md               # Shared coding-agent working guide
 ├── app/                    # Application source
 │   ├── agent/              # Pydantic AI agent, tools, context assembly
-│   ├── channels/           # Channel adapters (Telegram, future WhatsApp)
+│   ├── channels/           # Channel adapters + registry (Telegram, future WhatsApp)
+│   ├── webchat/            # Web chat channel: standalone FastAPI app, own port
 │   ├── control/            # Admin dashboard, SSE events, auth
 │   ├── memory/             # Memory layers: profiles, episodic, vector
 │   ├── models/             # SQLModel database models
+│   ├── policy/             # Policy gate + shared confirm/cancel execution
 │   ├── scheduler/          # APScheduler jobs and cron tasks
 │   ├── skills/             # File-based domain skills (weather, traffic, …)
 │   ├── tasks/              # Multi-step task orchestration

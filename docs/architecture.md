@@ -1,9 +1,9 @@
 # Architecture
 
 Status: current architecture reference
-Last code check: 2026-06-26
+Last code check: 2026-08-06
 Runtime entry points: `app/__main__.py`, `app/api/server.py`, `app/bot.py`,
-`app/agent/runner.py`
+`app/agent/runner.py`, `app/webchat/app.py`
 
 ## Overview
 
@@ -24,7 +24,7 @@ Visual diagrams: [architecture-diagrams.md](architecture-diagrams.md)
 ```text
 ┌──────────────────────────────────────────────────────────────┐
 │                        Channels                              │
-│   [Telegram]   [AgentMail Email]   [WhatsApp*]   [Voice*]   │
+│   [Telegram]  [AgentMail Email]  [Web Chat†]  [WhatsApp*]   │
 └─────────────────────────┬────────────────────────────────────┘
                           │ messages / callbacks / intake webhooks
 ┌─────────────────────────▼────────────────────────────────────┐
@@ -162,9 +162,28 @@ Channel (abstract)
 └── send_email_intake_prompt(user_id, prompt_text, token) -> None
 
 TelegramChannel(Channel)     <- implemented
+WebChannel(Channel)          <- implemented, behind FEATURE_WEB_CHAT
 WhatsAppChannel(Channel)     <- future
-WebChannel(Channel)          <- future
 ```
+
+`app/channels/registry.py` supports multiple simultaneously-registered channels
+keyed by name (`register_channel(name, channel)` / `get_channel(name)`), not
+just one global "the channel". `AgentDeps.channel` records which channel a
+given run's `channel_user_id` belongs to, so a mid-run policy-gate
+confirmation or verify-after-write follow-up (`app/policy/confirm.py`,
+`app/homey/verify.py`) replies on the channel the conversation actually came
+from instead of always going to Telegram. Proactive/scheduled sends
+(reminders, event rules, flight alerts) don't pass a channel name and keep
+resolving to Telegram — see
+[web-chat-channel-design.md](web-chat-channel-design.md) Decision #5 for why
+proactive routing across channels is still an open design question.
+
+The web chat channel runs as its own small FastAPI app/port
+(`app/webchat/app.py`, `settings.web_chat_port`, default 9091) — a third
+process alongside the main webhook app (8080) and the admin dashboard (9090),
+not mounted on either. See
+[web-chat-channel-design.md](web-chat-channel-design.md) "Serving pattern"
+for the rationale (independent lifecycle/auth/blast-radius from both).
 
 Email is deliberately different. AgentMail is an **untrusted intake channel**, not an interactive control channel. Inbound email is persisted, mapped to a known user by `ChannelMapping(channel="email")`, compacted into an intake summary, and then confirmed through Telegram before it can trigger the normal agent path.
 

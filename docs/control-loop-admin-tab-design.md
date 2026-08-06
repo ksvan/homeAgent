@@ -6,6 +6,11 @@ Last code check: 2026-06-26
 Runtime entry points: `app/control/api.py`, `app/control/dashboard.html`,
 `app/control/events.py`
 
+Note: `/admin/stats` also carries a `web_chat: {active_sessions}` key and the
+control-loop status strip has a "Web sessions" tile — that's the web chat
+channel's admin visibility (Phase 1c), unrelated to the control loop itself.
+See `docs/web-chat-channel-design.md`, not this doc, for that feature.
+
 ## Purpose
 
 This document proposes a new **Control Loop** tab in the admin UI.

@@ -10,6 +10,33 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 
 ### Added
 
+- **Web chat channel** — browser-based chat UI for household members without
+  Telegram on the current device, behind `FEATURE_WEB_CHAT` (default off).
+  Runs as its own standalone FastAPI app/port (`WEB_CHAT_PORT`, default
+  9091), separate from the webhook app (8080) and admin dashboard (9090).
+  LAN-only, no password: pick a household user from a login screen to get a
+  sliding-expiry session token (`WebChatSession` in `cache.db`), then chat
+  over a WebSocket with a tool-in-progress status indicator and inline
+  confirm/cancel buttons for policy-gated actions, wired to the existing
+  `PendingAction` confirmation flow. Same `assemble_context()` /
+  `agent_run()` / conversation history as Telegram — a user's web and
+  Telegram chats are the same conversation. Required generalizing
+  `app/channels/registry.py` to a real multi-channel registry (previously a
+  single global "the channel") and adding `AgentDeps.channel` /
+  `agent_run(channel=...)` so mid-run policy-gate confirmations and
+  verify-after-write follow-ups route to the channel a conversation actually
+  came from instead of always Telegram. Extracted the PendingAction
+  confirm/execute/cancel core (`app/policy/confirm.py`) out of
+  `TelegramChannel` so both channels share it instead of duplicating
+  ownership checks and MCP execution. New `app/webchat/` package
+  (`session.py`, `channel.py`, `dispatch.py`, `api.py`, `app.py`,
+  `static/chat.html`); admin dashboard gets a "Web sessions" stat tile. See
+  `docs/web-chat-channel-design.md` for the full design and what's still
+  deferred (PIN, PWA packaging, proactive messages over this channel,
+  `telegram_id`-optional users). Tests: `test_webchat_session.py`,
+  `test_webchat_channel.py`, `test_webchat_dispatch.py`,
+  `test_webchat_api.py`, `test_channel_registry.py`,
+  `test_policy_confirm.py`, plus additions to `test_bot_utils.py`.
 - **Per-task-type reasoning/thinking effort config** — new `THINKING_CONVERSATION`,
   `THINKING_MEMORY_EXTRACTION`, `THINKING_SUMMARIZATION`, and
   `THINKING_WORLD_MODEL_EXTRACTION` env vars control pydantic-ai's
