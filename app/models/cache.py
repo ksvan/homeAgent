@@ -67,6 +67,26 @@ class PendingAction(SQLModel, table=True):
     expires_at: datetime
 
 
+class OAuthState(SQLModel, table=True):
+    """Short-lived, one-time PKCE/state row for an in-progress OAuth connect
+    flow (see docs/oda-grocery-mcp-tool-design.md "New setting" / "Flow").
+
+    The callback handler must read + delete this row atomically, verify
+    `state` (the primary key) matches, and reuse `redirect_uri` exactly —
+    OAuth token exchange requires an identical redirect_uri to the one used
+    in the authorize request.
+    """
+
+    state: str = Field(primary_key=True)
+    provider: str
+    household_id: str = Field(index=True)
+    initiating_user_id: str
+    pkce_verifier: str
+    redirect_uri: str
+    created_at: datetime = Field(default_factory=_now)
+    expires_at: datetime
+
+
 class WebChatSession(SQLModel, table=True):
     """Opaque bearer token issued when a household member picks themselves
     from the web chat login screen. Sliding expiry — see

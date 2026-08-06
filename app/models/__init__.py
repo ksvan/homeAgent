@@ -1,7 +1,15 @@
 # Import all SQLModel table classes so Alembic can discover them via target_metadata.
-from app.models.cache import AgentRunLog, DeviceSnapshot, EventLog, PendingAction, WebChatSession
+from app.models.cache import (
+    AgentRunLog,
+    DeviceSnapshot,
+    EventLog,
+    OAuthState,
+    PendingAction,
+    WebChatSession,
+)
 from app.models.events import EventRule
 from app.models.flights import FlightEventRow, FlightStatusSnapshotRow, FlightWatchRow
+from app.models.integrations import IntegrationAccount
 from app.models.memory import (
     ConversationMessage,
     ConversationSummary,
@@ -62,6 +70,8 @@ __all__ = [
     "WorldFact",
     "WorldModelProposal",
     "EventRule",
+    "IntegrationAccount",
+    "OAuthState",
     "WineBottleRow",
     "WineSyncMeta",
     "FlightWatchRow",

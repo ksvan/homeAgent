@@ -30,6 +30,7 @@ dependencies = [
     "openpyxl",
     "agentmail",
     "svix",
+    "cryptography",
 ]
 
 [dependency-groups]

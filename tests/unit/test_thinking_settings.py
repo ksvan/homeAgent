@@ -19,6 +19,12 @@ def _settings(**overrides: object) -> Settings:
         "telegram_bot_token": "",
         "telegram_webhook_secret": "",
         "app_env": "test",
+        # Explicit "unset" — otherwise pydantic-settings loads whatever the
+        # developer's local .env has for these, breaking test isolation.
+        "thinking_conversation": "",
+        "thinking_memory_extraction": "",
+        "thinking_summarization": "",
+        "thinking_world_model_extraction": "",
     }
     defaults.update(overrides)
     return Settings(**defaults)  # type: ignore[arg-type]

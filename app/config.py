@@ -132,6 +132,15 @@ class Settings(BaseSettings):
     prometheus_mcp_url: str = ""  # e.g. http://192.168.1.x:9000/mcp
 
     # ------------------------------------------------------------------
+    # Oda grocery MCP  (https://oda.com/mcp — remote, OAuth 2.1 + PKCE + DCR)
+    # See docs/oda-grocery-mcp-tool-design.md
+    # ------------------------------------------------------------------
+    # Public HTTPS base this deployment is reachable at, used to build the
+    # OAuth redirect_uri (must be internet-reachable — Oda redirects here
+    # after consent). e.g. https://home.example.com
+    oda_oauth_public_base_url: str = ""
+
+    # ------------------------------------------------------------------
     # Tools MCP  (services/tools-mcp/ — sandboxed execution tools)
     # ------------------------------------------------------------------
     tools_mcp_url: str = ""  # e.g. http://tools:9001/mcp in Docker

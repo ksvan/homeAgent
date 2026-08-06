@@ -28,9 +28,11 @@ from app.models import (  # noqa: E402, F401  — imported for side effects (met
     Household,
     HouseholdMember,
     HouseholdProfile,
+    IntegrationAccount,
     MemberActivity,
     MemberGoal,
     MemberInterest,
+    OAuthState,
     PendingAction,
     Place,
     Relationship,
@@ -61,7 +63,7 @@ DATABASES: dict[str, set[str]] = {
         "household", "user", "channelmapping", "task", "actionpolicy",
         "householdmember", "memberinterest", "membergoal", "memberactivity",
         "place", "deviceentity", "calendarentity", "routineentity",
-        "relationship", "worldfact", "eventrule",
+        "relationship", "worldfact", "eventrule", "integrationaccount",
     },
     "memory": {
         "userprofile",
@@ -75,7 +77,7 @@ DATABASES: dict[str, set[str]] = {
         "winebottlerow", "winesyncmeta",
         "flightwatch", "flightstatussnapshot", "flightevent",
         "emailmessage", "emailattachment", "emailintakeconfirmation",
-        "webchatsession",
+        "webchatsession", "oauthstate",
     },
 }
 
