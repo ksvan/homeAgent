@@ -12,6 +12,7 @@ async def verify_after_write(
     tool_name: str,
     tool_args: dict[str, object],
     control_task_id: str | None = None,
+    channel: str = "telegram",
 ) -> None:
     """
     Wait a short delay, then read back the device state to confirm the write
@@ -72,7 +73,7 @@ async def verify_after_write(
     except Exception:
         # If the read-back fails, warn the user
         logger.warning("Verify read-back failed for %s/%s", device_id, capability, exc_info=True)
-        _notify_verify_failure(channel_user_id, device_id, capability)
+        _notify_verify_failure(channel_user_id, device_id, capability, channel=channel)
 
         # Emit failure result so the loop knows verification didn't complete
         try:
@@ -91,15 +92,17 @@ async def verify_after_write(
             pass
 
 
-def _notify_verify_failure(channel_user_id: str, device_id: str, capability: str) -> None:
+def _notify_verify_failure(
+    channel_user_id: str, device_id: str, capability: str, channel: str = "telegram"
+) -> None:
     """Best-effort: send the user a warning that state verification failed."""
     try:
         from app.channels.registry import get_channel
 
-        channel = get_channel()
-        if channel and channel_user_id:
+        chan = get_channel(channel)
+        if chan and channel_user_id:
             asyncio.ensure_future(
-                channel.send_message(
+                chan.send_message(
                     channel_user_id,
                     f"⚠️ Could not confirm that {device_id}/{capability} was updated "
                     "— please check the device directly.",

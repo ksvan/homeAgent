@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import asyncio
-import json
 import logging
 from collections.abc import Awaitable, Callable
 
@@ -178,89 +177,35 @@ class TelegramChannel(Channel):
     async def _execute_confirmed_action(
         self, query: CallbackQuery, token: str, telegram_id: int
     ) -> None:
-        from app.homey.mcp_client import get_mcp_server
-        from app.policy.pending import delete_pending_action, get_pending_action
+        from app.policy.confirm import execute_pending_action
 
-        action = get_pending_action(token)
-        if action is None:
-            await query.answer()
-            await query.edit_message_text("⚠️ This action has expired or was already handled.")
-            return
-
-        if not await self._action_belongs_to(telegram_id, action.user_id):
+        user_id = await self._resolve_user_id(telegram_id)
+        if user_id is None:
             await query.answer("This action doesn't belong to you.")
             return
 
-        # Delete first — any subsequent press on the same token gets "expired" immediately,
-        # preventing double-execution when the user presses while waiting for the response.
-        delete_pending_action(token)
         await query.answer("Executing…")
-
-        server = get_mcp_server()
-        if server is None:
-            await query.edit_message_text("⚠️ Homey is not connected — cannot execute.")
-            return
-
-        from app.memory.conversation import save_message_pair
-
-        try:
-            tool_args: dict[str, object] = json.loads(action.tool_args)
-            result = await server.direct_call_tool(action.tool_name, tool_args)
-
-            await query.edit_message_text(f"✅ Done: {result}")
-            logger.info("Confirmed action executed: %s (token=%s)", action.tool_name, token)
-
-            # Persist to conversation history so the agent doesn't re-prompt next message
-            save_message_pair(
-                action.user_id,
-                "[User confirmed action via Telegram button]",
-                f"The action '{action.tool_name}' was confirmed by the user"
-                " and executed successfully. No further confirmation is needed.",
-            )
-
-            # Schedule state verification
-            from app.homey.verify import verify_after_write
-
-            asyncio.ensure_future(
-                verify_after_write(
-                    action.household_id, str(telegram_id), action.tool_name, tool_args
-                )
-            )
-        except Exception:
-            logger.exception("Failed to execute confirmed action (token=%s)", token)
-            await query.edit_message_text(
-                "❌ Action failed — please check the device and try again."
-            )
-            # Persist failure so the agent doesn't keep re-prompting for the same action
-            save_message_pair(
-                action.user_id,
-                "[User confirmed action via Telegram button — action failed]",
-                f"The action '{action.tool_name}' was confirmed by the user but failed to execute."
-                " The user has been notified. Do not retry this action automatically.",
-            )
+        result = await execute_pending_action(token, user_id, str(telegram_id), channel="telegram")
+        icon = "✅" if result.ok else ("⚠️" if result.status == "expired" else "❌")
+        await query.edit_message_text(f"{icon} {result.message}")
 
     async def _cancel_pending_action(
         self, query: CallbackQuery, token: str, telegram_id: int
     ) -> None:
-        from app.policy.pending import delete_pending_action, get_pending_action
+        from app.policy.confirm import cancel_pending_action_for_user
 
-        action = get_pending_action(token)
-        if action is None:
-            await query.answer()
-            await query.edit_message_text("⚠️ This action has expired or was already handled.")
-            return
-
-        if not await self._action_belongs_to(telegram_id, action.user_id):
+        user_id = await self._resolve_user_id(telegram_id)
+        if user_id is None:
             await query.answer("This action doesn't belong to you.")
             return
 
-        await query.answer("Cancelled")
-        delete_pending_action(token)
-        await query.edit_message_text("❌ Action cancelled.")
-        logger.info("Pending action cancelled (token=%s)", token)
+        result = await cancel_pending_action_for_user(token, user_id)
+        await query.answer("Cancelled" if result.status == "cancelled" else None)
+        icon = "❌" if result.status == "cancelled" else "⚠️"
+        await query.edit_message_text(f"{icon} {result.message}")
 
-    async def _action_belongs_to(self, telegram_id: int, action_user_id: str) -> bool:
-        """Return True if the Telegram user owns the given PendingAction."""
+    async def _resolve_user_id(self, telegram_id: int) -> str | None:
+        """Return the internal User.id for a Telegram user, or None if unknown."""
         from sqlmodel import select
 
         from app.db import users_session
@@ -268,7 +213,12 @@ class TelegramChannel(Channel):
 
         with users_session() as session:
             user = session.exec(select(User).where(User.telegram_id == telegram_id)).first()
-        return user is not None and user.id == action_user_id
+        return user.id if user else None
+
+    async def _action_belongs_to(self, telegram_id: int, action_user_id: str) -> bool:
+        """Return True if the Telegram user owns the given PendingAction."""
+        user_id = await self._resolve_user_id(telegram_id)
+        return user_id is not None and user_id == action_user_id
 
     async def _execute_email_intake(
         self, query: CallbackQuery, token: str, telegram_id: int

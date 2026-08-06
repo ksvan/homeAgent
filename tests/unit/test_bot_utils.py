@@ -4,6 +4,7 @@ The rate limiter is a pure sliding-window function using monotonic time.
 Tests control time by monkeypatching `monotonic` in the bot module
 (imported there as `from time import monotonic`).
 """
+
 from __future__ import annotations
 
 import pytest
@@ -86,3 +87,25 @@ def test_limit_of_one_allows_first_blocks_second(monkeypatch: pytest.MonkeyPatch
     monkeypatch.setattr(bot_module, "monotonic", lambda: 0.0)
     assert _is_rate_limited(1001, limit_per_minute=1) is False
     assert _is_rate_limited(1001, limit_per_minute=1) is True
+
+
+def test_string_keys_work_the_same_as_int_keys(monkeypatch: pytest.MonkeyPatch) -> None:
+    """The limiter is keyed by int (Telegram) or str (web chat User.id) —
+    app.webchat.dispatch reuses this exact function against str keys."""
+    monkeypatch.setattr(bot_module, "monotonic", lambda: 0.0)
+    limit = 2
+    for _ in range(limit):
+        assert _is_rate_limited("user-abc", limit_per_minute=limit) is False
+    assert _is_rate_limited("user-abc", limit_per_minute=limit) is True
+
+
+def test_string_and_int_keys_are_independent_even_with_equal_repr(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(bot_module, "monotonic", lambda: 0.0)
+    limit = 1
+    assert _is_rate_limited(1001, limit_per_minute=limit) is False
+    # A str key that looks like the int key is still a distinct dict entry
+    assert _is_rate_limited("1001", limit_per_minute=limit) is False
+    assert _is_rate_limited(1001, limit_per_minute=limit) is True
+    assert _is_rate_limited("1001", limit_per_minute=limit) is True

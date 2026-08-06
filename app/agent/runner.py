@@ -83,6 +83,7 @@ async def agent_run(
     user_id: str,
     household_id: str,
     channel_user_id: str,
+    channel: str = "telegram",
     run_id: str | None = None,
     trigger: str = "user_message",
     user_name: str = "",
@@ -105,6 +106,9 @@ async def agent_run(
         user_id: Internal user UUID.
         household_id: Household UUID.
         channel_user_id: Channel-specific ID (e.g. str(telegram_id)).
+        channel: Which Channel adapter channel_user_id belongs to (e.g.
+                 "telegram", "web") — used to route mid-run confirmation
+                 prompts to the right place.
         run_id: Correlation ID — generated if not provided.
         trigger: Origin label used in events (user_message, task_resume,
                  scheduled_prompt, …).
@@ -204,6 +208,7 @@ async def agent_run(
                     user_id=user_id,
                     household_id=household_id,
                     channel_user_id=channel_user_id,
+                    channel=channel,
                     run_id=run_id,
                     control_task_id=control_task_id or "",
                     media=media or [],

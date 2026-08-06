@@ -25,8 +25,12 @@ from app.models.users import ChannelMapping, Household, User
 
 logger = logging.getLogger(__name__)
 
-# Per-user sliding-window rate limiter (in-memory; resets on restart)
-_user_call_times: dict[int, list[float]] = defaultdict(list)
+# Per-user sliding-window rate limiter (in-memory; resets on restart).
+# Keyed by whatever identifies a "user" for the calling channel — Telegram
+# uses int telegram_id, web chat (app/webchat/dispatch.py) reuses this same
+# limiter keyed by internal User.id (str), so the two channels never share
+# state but don't need two copies of the sliding-window algorithm either.
+_user_call_times: dict[int | str, list[float]] = defaultdict(list)
 
 _ONBOARDING_NUDGE = (
     "\n\n_Tip: send /me name Your Name to identify yourself so I can personalise responses._"
@@ -53,16 +57,16 @@ def _ensure_telegram_channel_mapping(session: "Session", user: "User") -> None:
         )
 
 
-def _is_rate_limited(telegram_id: int, limit_per_minute: int) -> bool:
-    """Return True if the user has exceeded limit_per_minute calls in 60 s."""
+def _is_rate_limited(key: int | str, limit_per_minute: int) -> bool:
+    """Return True if `key` has exceeded limit_per_minute calls in 60 s."""
     now = monotonic()
-    calls = _user_call_times[telegram_id]
-    _user_call_times[telegram_id] = [t for t in calls if now - t < 60.0]
-    if not _user_call_times[telegram_id]:
-        del _user_call_times[telegram_id]
-    if len(_user_call_times.get(telegram_id, [])) >= limit_per_minute:
+    calls = _user_call_times[key]
+    _user_call_times[key] = [t for t in calls if now - t < 60.0]
+    if not _user_call_times[key]:
+        del _user_call_times[key]
+    if len(_user_call_times.get(key, [])) >= limit_per_minute:
         return True
-    _user_call_times[telegram_id].append(now)
+    _user_call_times[key].append(now)
     return False
 
 

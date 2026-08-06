@@ -44,6 +44,10 @@ class AgentDeps:
     user_id: str = ""
     household_id: str = ""
     channel_user_id: str = ""
+    # which Channel adapter this run's channel_user_id belongs to (e.g.
+    # "telegram", "web") — used by the policy gate / verify-after-write to
+    # route mid-run confirmation prompts and follow-ups to the right place.
+    channel: str = "telegram"
     # control plane — run identifier threaded through tool callbacks
     run_id: str = ""
     # Phase 3b: control task for the current event-driven run (if any)
@@ -202,6 +206,7 @@ async def run_conversation(
     user_id: str = "",
     household_id: str = "",
     channel_user_id: str = "",
+    channel: str = "telegram",
     run_id: str = "",
     control_task_id: str = "",
     media: "list[MediaAttachment] | None" = None,
@@ -254,6 +259,7 @@ async def run_conversation(
         user_id=user_id,
         household_id=household_id,
         channel_user_id=channel_user_id,
+        channel=channel,
         run_id=run_id,
         control_task_id=control_task_id,
     )

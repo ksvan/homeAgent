@@ -128,6 +128,7 @@ async def _policy_process_tool_call(
                 from app.homey.verify import verify_after_write
 
                 _control_task_id: str | None = getattr(ctx.deps, "control_task_id", None) or None
+                _channel_name: str = getattr(ctx.deps, "channel", "telegram")
                 asyncio.ensure_future(
                     verify_after_write(
                         household_id,
@@ -135,6 +136,7 @@ async def _policy_process_tool_call(
                         tool_name,
                         tool_args,
                         control_task_id=_control_task_id,
+                        channel=_channel_name,
                     )
                 )
 
@@ -151,6 +153,7 @@ async def _policy_process_tool_call(
     household_id = str(getattr(ctx.deps, "household_id", ""))
     user_id = str(getattr(ctx.deps, "user_id", ""))
     channel_user_id = str(getattr(ctx.deps, "channel_user_id", ""))
+    channel_name = str(getattr(ctx.deps, "channel", "telegram"))
 
     if not household_id or not user_id:
         logger.warning(
@@ -169,7 +172,7 @@ async def _policy_process_tool_call(
         policy_name=decision.policy_name,
     )
 
-    channel = get_channel()
+    channel = get_channel(channel_name)
     if channel and channel_user_id:
         await channel.send_confirmation_prompt(
             channel_user_id,
