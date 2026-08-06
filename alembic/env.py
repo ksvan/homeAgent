@@ -41,6 +41,7 @@ from app.models import (  # noqa: E402, F401  — imported for side effects (met
     FlightStatusSnapshotRow,
     FlightWatchRow,
     UserProfile,
+    WebChatSession,
     WineBottleRow,
     WineSyncMeta,
     WorldFact,
@@ -74,6 +75,7 @@ DATABASES: dict[str, set[str]] = {
         "winebottlerow", "winesyncmeta",
         "flightwatch", "flightstatussnapshot", "flightevent",
         "emailmessage", "emailattachment", "emailintakeconfirmation",
+        "webchatsession",
     },
 }
 

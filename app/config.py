@@ -289,6 +289,18 @@ class Settings(BaseSettings):
     email_channel_retention_days: int = 90
 
     # ------------------------------------------------------------------
+    # Web chat channel  (requires FEATURE_WEB_CHAT=true)
+    # LAN-only household-facing chat UI, own port — see
+    # docs/web-chat-channel-design.md.
+    # ------------------------------------------------------------------
+    feature_web_chat: bool = False
+
+    web_chat_port: int = 9091
+    web_chat_host: str = "0.0.0.0"
+    # Sliding session expiry — extended on each authenticated request/message.
+    web_chat_session_ttl_days: int = 30
+
+    # ------------------------------------------------------------------
     # Competing action detection
     # ------------------------------------------------------------------
     competing_action_window_seconds: int = 60

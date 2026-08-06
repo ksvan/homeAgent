@@ -65,3 +65,16 @@ class PendingAction(SQLModel, table=True):
     policy_name: str
     created_at: datetime = Field(default_factory=_now)
     expires_at: datetime
+
+
+class WebChatSession(SQLModel, table=True):
+    """Opaque bearer token issued when a household member picks themselves
+    from the web chat login screen. Sliding expiry — see
+    docs/web-chat-channel-design.md "Identity & login"."""
+
+    token: str = Field(default_factory=_uuid, primary_key=True)
+    user_id: str = Field(index=True)
+    household_id: str = Field(index=True)
+    created_at: datetime = Field(default_factory=_now)
+    last_seen_at: datetime = Field(default_factory=_now)
+    expires_at: datetime

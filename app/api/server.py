@@ -105,6 +105,13 @@ async def _lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     app.state.telegram_channel = channel
     logger.info("Telegram webhook channel initialised")
 
+    if settings.feature_web_chat:
+        from app.channels.registry import register_channel
+        from app.webchat.api import get_web_channel
+
+        register_channel("web", get_web_channel())
+        logger.info("Web chat channel registered (serves on port %d)", settings.web_chat_port)
+
     # Start inbound event dispatcher (Phase 2 control loop)
     _dispatcher_task: asyncio.Task | None = None  # type: ignore[type-arg]
     if settings.event_dispatcher_enabled:

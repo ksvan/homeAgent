@@ -54,6 +54,7 @@ services:
     ports:
       - "8080:8080"   # webhook endpoint (cloudflared proxies this to the internet)
       - "${ADMIN_HOST:-127.0.0.1}:${ADMIN_PORT:-9090}:${ADMIN_PORT:-9090}"   # admin dashboard — set ADMIN_HOST=0.0.0.0 for LAN access
+      - "${WEB_CHAT_HOST:-0.0.0.0}:${WEB_CHAT_PORT:-9091}:${WEB_CHAT_PORT:-9091}"   # web chat — household-facing, LAN by default; only listens when FEATURE_WEB_CHAT=true
     mem_limit: 2g
     cpus: 2
     healthcheck:
