@@ -240,7 +240,19 @@ async def admin_stats() -> dict[str, Any]:
             "event_rules_enabled": len(rules_enabled),
             "control_tasks_active": ctrl_tasks_active,
         },
+        "web_chat": {"active_sessions": _web_chat_active_sessions()},
     }
+
+
+def _web_chat_active_sessions() -> int:
+    """Live WebSocket connection count for the web chat channel (0 if the
+    feature is off — the module is always importable, just unused)."""
+    try:
+        from app.webchat.api import get_web_channel
+
+        return get_web_channel().active_connection_count()
+    except Exception:
+        return 0
 
 
 @router.get("/stream", dependencies=_auth)

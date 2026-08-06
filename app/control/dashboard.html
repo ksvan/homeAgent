@@ -412,6 +412,10 @@ header { background: var(--surface); border-bottom: 1px solid var(--border); pad
       <div class="cl-card-val" id="cl-ctrl-tasks">—</div>
     </div>
     <div class="cl-card">
+      <div class="cl-card-label">Web sessions</div>
+      <div class="cl-card-val" id="cl-webchat">—</div>
+    </div>
+    <div class="cl-card">
       <div class="cl-card-label">In-flight runs</div>
       <div class="cl-card-val" id="cl-inflight-count">0</div>
     </div>
@@ -1956,6 +1960,12 @@ async function loadControlLoop() {
       if (rulesEl) rulesEl.textContent = (cl.event_rules_enabled || 0) + ' / ' + (cl.event_rules_total || 0);
       var ctrlEl = document.getElementById('cl-ctrl-tasks');
       if (ctrlEl) ctrlEl.textContent = cl.control_tasks_active != null ? cl.control_tasks_active : '—';
+      var wcEl = document.getElementById('cl-webchat');
+      if (wcEl) {
+        var wc = (d.web_chat || {}).active_sessions;
+        wcEl.textContent = wc != null ? wc : '—';
+        wcEl.className = 'cl-card-val' + (wc > 0 ? ' ok' : '');
+      }
       var sseEl = document.getElementById('cl-sse');
       if (sseEl) {
         var isConnected = document.getElementById('conn-label').className === 'ok';
