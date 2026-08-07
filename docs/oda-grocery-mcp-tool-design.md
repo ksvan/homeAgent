@@ -1,8 +1,9 @@
 # Oda Grocery MCP Tool — Design
 
-Status: Phases 1–2 (OAuth + storage foundation; admin Integrations page)
-implemented. Phases 3–5 (public callback + lifecycle wiring, MCP client +
-policy gate, agent behaviour + instructions.md) not started.
+Status: Phases 1–3 (OAuth + storage foundation; admin Integrations page;
+public callback) implemented, with one deliberate exception — see "Phase 3
+scope note" below. Phases 4–5 (MCP client + policy gate, agent behaviour +
+instructions.md) not started.
 Last code check: 2026-08-07
 Implemented runtime entry points: `app/models/integrations.py`
 (`IntegrationAccount`), `app/models/cache.py` (`OAuthState`),
@@ -12,12 +13,22 @@ Implemented runtime entry points: `app/models/integrations.py`
 `app/oda/oauth.py` (OAuth client: discovery, PKCE, DCR, token
 exchange/refresh/revoke), `app/control/api.py` (`/admin/integrations`
 list/connect/disconnect routes), `app/control/dashboard.html`
-("Integrations" tab), `alembic/versions/0015_users_db_integration_account.py`,
+("Integrations" tab), `app/api/integrations.py` (public
+`/integrations/{provider}/callback` route, registered in
+`app/api/server.py`'s `create_app()`),
+`alembic/versions/0015_users_db_integration_account.py`,
 `alembic/versions/0007_cache_db_oauth_state.py`,
 `alembic/versions/0008_cache_db_oauth_state_client.py`.
-Planned (not yet built): `app/oda/mcp_client.py` (MCP wiring), `app/api/server.py`
-(new public `/integrations/{provider}/callback` route),
+Planned (not yet built): `app/oda/mcp_client.py` (MCP wiring),
 `app/policy/default_policies.py` (Oda tool policies)
+
+**Phase 3 scope note**: the callback route completes the full OAuth
+mechanics (state validation, token exchange, `IntegrationAccount` creation)
+but does **not** yet call `start_mcp()` / `app.agent.agent.reload_agent()`
+on success — those depend on `app/oda/mcp_client.py`, which is Phase 4.
+This mirrors how Phase 2's disconnect route already deferred the same
+lifecycle hook-in. A `TODO(Phase 4)` comment marks the exact spot in
+`app/api/integrations.py`.
 
 ## Purpose
 
@@ -306,7 +317,10 @@ its own). This is the authoritative source for building
 `redirect_uri` — never inferred from the incoming request (which for a
 tunneled/proxied deployment may show internal host/port).
 
-**Flow:**
+**Flow — implemented** (`app/api/integrations.py`, registered in
+`app/api/server.py`'s `create_app()`; tests in
+`tests/unit/test_integrations_callback.py`, 8 cases, all Oda network calls
+mocked):
 
 1. Household member on the admin dashboard (LAN) clicks "Connect" on the
    Oda card → `POST /admin/integrations/oda/connect` (admin port). Handler
@@ -319,23 +333,29 @@ tunneled/proxied deployment may show internal host/port).
    their session — HomeAgent never sees the password) and approve the `mcp`
    scope.
 3. Oda redirects to `GET /integrations/oda/callback?code=...&state=...` on
-   the **public** app. The handler: looks up and atomically deletes the
-   `OAuthState` row by `state`, rejects if missing/expired, exchanges
+   the **public** app. The handler: consumes the `OAuthState` row by
+   `state` (atomic read+delete, `app.integrations.oauth_state.consume_state`
+   — consumed even on a denied/errored consent, so nothing dangles until
+   TTL expiry), rejects if missing/expired/provider-mismatched, exchanges
    `code` and `pkce_verifier` for tokens at `oda.com/o/token/` using the
-   **exact** stored `redirect_uri`, encrypts and upserts the `IntegrationAccount` row
-   (`household_id` from the state row), then:
-   - calls `app.oda.mcp_client.start_mcp()` (or restarts it if already
-     running from a prior connection),
-   - calls `app.agent.agent.reload_agent()` so the running agent picks up
-     the newly-registered Oda toolset without a process restart,
-   - shows a plain "Connected — you can close this tab" page.
+   **exact** stored `redirect_uri` and the state row's `client_id`/`client_secret`
+   from DCR, upserts the `IntegrationAccount` row (`household_id` and
+   `connected_by_user_id` from the state row), emits an
+   `integration.connected` control event, and shows a plain "Oda connected
+   — you can close this tab" page. Any failure at any step renders a
+   distinct, non-leaky error page (invalid link, denied consent, exchange
+   failure) rather than a stack trace.
+   - **Not yet wired**: `start_mcp()` / `reload_agent()` — see "Phase 3
+     scope note" at the top of this doc.
 
-Disconnect is the mirror image: `stop_mcp()` then `reload_agent()` before
-returning from `POST /admin/integrations/oda/disconnect`. At process
-startup, `start_mcp()` checks for an existing `IntegrationAccount` row the
-same way Homey/Prometheus check for a configured URL — no account, no
-toolset, agent built without Oda tools, exactly as today for an
-unconfigured Homey/Prometheus deployment.
+Disconnect (Phase 2) already does its half of the mirror image (best-effort
+revoke, delete the account) — its own `stop_mcp()`/`reload_agent()` hook-in
+is deferred the same way, for the same reason.
+
+At process startup (once Phase 4 exists), `start_mcp()` would check for an
+existing `IntegrationAccount` row the same way Homey/Prometheus check for a
+configured URL — no account, no toolset, agent built without Oda tools,
+exactly as today for an unconfigured Homey/Prometheus deployment.
 
 ## MCP client wiring (`app/oda/mcp_client.py`)
 
@@ -534,12 +554,22 @@ schemas, `feedback`'s rate limit.
    paths (unknown provider, missing `ODA_OAUTH_PUBLIC_BASE_URL`, disconnect
    when not connected) — without exercising the real DCR/authorize network
    call.
-5. Public `/integrations/{provider}/callback` route on `app/api/server.py`:
-   atomic state consume + validate, token exchange, `start_mcp()` +
-   `reload_agent()` on success. Disconnect route mirrors with
-   `stop_mcp()` + `reload_agent()`.
+5. **Done.** Public `/integrations/{provider}/callback` route
+   (`app/api/integrations.py`, registered in `app/api/server.py`): atomic
+   state consume + validate, token exchange, `IntegrationAccount` creation,
+   `integration.connected` control event. `start_mcp()` + `reload_agent()`
+   on success — and disconnect's mirrored `stop_mcp()` + `reload_agent()` —
+   deliberately deferred to Phase 6 below (`TODO(Phase 4)` comment marks the
+   spot). Covered by `tests/unit/test_integrations_callback.py` (8 cases).
+   Manually verified error paths against the real dev DB (invalid/unknown
+   state, unknown provider) by running the router standalone; the real
+   token-exchange call to oda.com was not exercised live.
 6. `app/oda/mcp_client.py` (MCP wiring + `OdaTokenAuth`, verified shape per
-   the spike above).
+   the spike above). Also close out the two deferred lifecycle TODOs from
+   steps 4–5 once this exists: `admin_connect_integration`'s success path
+   doesn't need one (the callback does), but the callback (step 5) and
+   `admin_disconnect_integration` (step 4) both need their
+   `start_mcp()`/`stop_mcp()` + `reload_agent()` calls added in.
 7. `default_policies.py` entries — reads/`feedback` auto-allow,
    `manipulate_cart`/`select_delivery_slot` require confirmation;
    `feature_oda` flag + `agent.py` registration gated on flag + account row.
