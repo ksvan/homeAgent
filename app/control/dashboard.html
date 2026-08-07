@@ -115,6 +115,15 @@ header { background: var(--surface); border-bottom: 1px solid var(--border); pad
 .summary-block { font-size: 13px; line-height: 1.5; padding: 8px 12px; background: var(--surface); border: 1px solid var(--border); border-radius: 6px; margin-bottom: 10px; }
 .summary-user { color: var(--dim); font-size: 11px; margin-bottom: 6px; }
 
+/* Integrations tab */
+.integration-card { background:var(--surface);border:1px solid var(--border);border-radius:6px;padding:12px 14px;margin-bottom:10px;font-size:13px; }
+.integration-card .ic-head { display:flex;align-items:center;gap:10px;margin-bottom:6px; }
+.integration-card .ic-name { font-weight:600; }
+.integration-card .ic-meta { color:var(--dim);font-size:11px;margin-bottom:8px; }
+.integration-card .ic-actions { display:flex;align-items:center;gap:8px; }
+.b-connected { background:#0d2614; color:var(--green); }
+.b-disconnected { background:#21262d; color:var(--dim); }
+
 /* Event rule form */
 .er-form { background: var(--surface); border: 1px solid var(--border); border-radius: 6px; padding: 14px 16px; margin-bottom: 12px; }
 .er-form h4 { font-size: 11px; text-transform: uppercase; letter-spacing: 0.08em; color: var(--dim); margin-bottom: 12px; }
@@ -182,6 +191,7 @@ header { background: var(--surface); border-bottom: 1px solid var(--border); pad
   <button class="tab" data-tab="tasks">Tasks</button>
   <button class="tab" data-tab="control">Control Loop</button>
   <button class="tab" data-tab="email">Email</button>
+  <button class="tab" data-tab="integrations">Integrations</button>
 </div>
 
 <div id="tab-live" class="tab-panel active">
@@ -601,6 +611,19 @@ header { background: var(--surface); border-bottom: 1px solid var(--border); pad
   </div>
 </div>
 
+<div id="tab-integrations" class="tab-panel">
+  <div class="details-body">
+    <div class="details-toolbar">
+      <button class="details-btn" id="refresh-integrations">&#8635; Refresh</button>
+      <span id="integrations-updated" style="font-size:11px;color:var(--dim)"></span>
+    </div>
+    <section class="details-section">
+      <h3>Connected Tools</h3>
+      <div id="integrations-list">Loading…</div>
+    </section>
+  </div>
+</div>
+
 <script>
 // Token management: strip ?token= from the address bar on first load so it
 // never enters browser history or bookmarks. Store in sessionStorage and use
@@ -955,6 +978,7 @@ document.querySelectorAll('.tab').forEach(btn => {
     if (btn.dataset.tab === 'tasks') loadTasks();
     if (btn.dataset.tab === 'control') loadControlLoop();
     if (btn.dataset.tab === 'email') loadEmailMessages();
+    if (btn.dataset.tab === 'integrations') loadIntegrations();
   });
 });
 
@@ -1505,6 +1529,76 @@ async function loadEmailMessages() {
 }
 document.getElementById('refresh-email').addEventListener('click', loadEmailMessages);
 document.getElementById('email-status-filter').addEventListener('change', loadEmailMessages);
+
+// Integrations tab
+async function loadIntegrations() {
+  var container = document.getElementById('integrations-list');
+  try {
+    var results = await Promise.all([
+      fetch('/admin/integrations', {headers: _authHeaders}),
+      fetch('/admin/users', {headers: _authHeaders}),
+    ]);
+    var intR = results[0], usersR = results[1];
+    if (!intR.ok) { container.innerHTML = '<div class="err">Error ' + intR.status + '</div>'; return; }
+    var d = await intR.json();
+    var usersD = usersR.ok ? await usersR.json() : {users: []};
+    var users = usersD.users || [];
+    var items = d.integrations || [];
+    document.getElementById('integrations-updated').textContent = 'updated ' + new Date().toLocaleTimeString();
+    container.innerHTML = items.length ? items.map(function(it) {
+      var statusBadge = it.connected
+        ? '<span class="badge b-connected">CONNECTED</span>'
+        : '<span class="badge b-disconnected">NOT CONNECTED</span>';
+      var meta = it.connected
+        ? 'Connected by ' + esc(it.connected_by || 'unknown') + (it.connected_at ? ' · ' + new Date(it.connected_at).toLocaleString() : '')
+        : 'Not connected';
+      var actions = it.connected
+        ? '<button class="details-btn" onclick="disconnectIntegration(\'' + esc(it.provider) + '\')">Disconnect</button>'
+        : '<select id="ic-user-' + esc(it.provider) + '" class="er-input" style="width:auto">'
+          + users.map(function(u) { return '<option value="' + esc(u.id) + '">' + esc(u.name) + '</option>'; }).join('')
+          + '</select>'
+          + '<button class="details-btn" onclick="connectIntegration(\'' + esc(it.provider) + '\')">Connect</button>';
+      return '<div class="integration-card">'
+        + '<div class="ic-head"><span class="ic-name">' + esc(it.display_name) + '</span>' + statusBadge + '</div>'
+        + '<div class="ic-meta">' + meta + '</div>'
+        + '<div class="ic-actions">' + actions + '</div>'
+        + '</div>';
+    }).join('') : '<div style="color:var(--dim)">No integrations available</div>';
+  } catch(e) {
+    container.innerHTML = '<div class="err">' + esc(String(e)) + '</div>';
+  }
+}
+
+async function connectIntegration(provider) {
+  var sel = document.getElementById('ic-user-' + provider);
+  var userId = sel ? sel.value : '';
+  if (!userId) { alert('No household member available to connect as.'); return; }
+  try {
+    var r = await fetch('/admin/integrations/' + provider + '/connect', {
+      method: 'POST',
+      headers: Object.assign({'Content-Type': 'application/json'}, _authHeaders),
+      body: JSON.stringify({user_id: userId}),
+    });
+    var d = await r.json();
+    if (d.error) { alert(d.error); return; }
+    if (d.authorize_url) { window.open(d.authorize_url, '_blank'); }
+  } catch(e) {
+    alert('Connect failed: ' + e);
+  }
+}
+
+async function disconnectIntegration(provider) {
+  if (!confirm('Disconnect ' + provider + '?')) return;
+  try {
+    await fetch('/admin/integrations/' + provider + '/disconnect', {
+      method: 'POST',
+      headers: _authHeaders,
+    });
+  } catch(e) {}
+  loadIntegrations();
+}
+
+document.getElementById('refresh-integrations').addEventListener('click', loadIntegrations);
 
 // Stream via fetch + ReadableStream (replaces EventSource which breaks in Safari)
 async function connectSSE() {

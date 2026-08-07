@@ -1,20 +1,22 @@
 # Oda Grocery MCP Tool — Design
 
-Status: Phase 1 (OAuth + storage foundation) implemented. Phases 2–5
-(admin Integrations page, public callback + lifecycle wiring, MCP client +
+Status: Phases 1–2 (OAuth + storage foundation; admin Integrations page)
+implemented. Phases 3–5 (public callback + lifecycle wiring, MCP client +
 policy gate, agent behaviour + instructions.md) not started.
-Last code check: 2026-08-06
+Last code check: 2026-08-07
 Implemented runtime entry points: `app/models/integrations.py`
 (`IntegrationAccount`), `app/models/cache.py` (`OAuthState`),
 `app/integrations/crypto.py` (Fernet key derivation), `app/integrations/accounts.py`
 (household-scoped account repository + single-flight refresh),
-`app/oda/oauth.py` (OAuth client: discovery, PKCE, DCR, token exchange/refresh),
-`alembic/versions/0015_users_db_integration_account.py`,
-`alembic/versions/0007_cache_db_oauth_state.py`.
-Planned (not yet built): `app/oda/mcp_client.py` (MCP wiring),
-`app/control/api.py` (new `/admin/integrations` routes), `app/api/server.py`
+`app/integrations/oauth_state.py` (one-time PKCE/state storage),
+`app/oda/oauth.py` (OAuth client: discovery, PKCE, DCR, token
+exchange/refresh/revoke), `app/control/api.py` (`/admin/integrations`
+list/connect/disconnect routes), `app/control/dashboard.html`
+("Integrations" tab), `alembic/versions/0015_users_db_integration_account.py`,
+`alembic/versions/0007_cache_db_oauth_state.py`,
+`alembic/versions/0008_cache_db_oauth_state_client.py`.
+Planned (not yet built): `app/oda/mcp_client.py` (MCP wiring), `app/api/server.py`
 (new public `/integrations/{provider}/callback` route),
-`app/control/dashboard.html` (new "Integrations" page/tab),
 `app/policy/default_policies.py` (Oda tool policies)
 
 ## Purpose
@@ -199,29 +201,46 @@ that as expected: catch the decryption error, drop the row, and surface
 "Oda disconnected — please reconnect" in the admin Integrations page rather
 than crashing `start_mcp()`.
 
-**New admin routes** (`app/control/api.py`, LAN-only port 9090, existing
-`dependencies=_auth`):
+**New admin routes — implemented** (`app/control/api.py`, LAN-only port
+9090, existing `dependencies=_auth`), covered by
+`tests/unit/test_control_api_integrations.py` (FastAPI `TestClient` against
+a real in-memory users.db/cache.db, all Oda network calls mocked):
 
-- `GET /admin/integrations` — list known providers, connection status
-  (connected/not, connected-by, token expiry), read-only.
-- `POST /admin/integrations/{provider}/connect` — generates PKCE
-  verifier/challenge + `state`, stashes them server-side (short TTL row in
-  `cache.db`, same pattern as `PendingAction`), returns the provider's
-  `authorize_url` for the admin browser to navigate to. Reconnecting after
-  an existing connection replaces the row (re-running `connect` while
-  already connected is allowed — treated as a refresh/re-auth, not an
-  error).
-- `POST /admin/integrations/{provider}/disconnect` — revokes (best-effort,
-  `revocation_endpoint`), deletes the `IntegrationAccount` row, stops the
-  MCP client, and reloads the agent (see "Connect/disconnect lifecycle"
-  below).
+- `GET /admin/integrations` — lists `_KNOWN_INTEGRATION_PROVIDERS` (just
+  `"oda"` today — a plain `dict[str, str]` of provider → display name, not a
+  full plugin registry, per "generalize minimally") with connection status
+  (connected/not, connected-by display name, connected-at, token expiry),
+  read-only.
+- `POST /admin/integrations/{provider}/connect` — runs metadata discovery
+  and dynamic client registration fresh on every call (see the `OAuthState`
+  schema note above for why), generates PKCE verifier/challenge + `state`,
+  stashes them via `app.integrations.oauth_state.save_state`, returns the
+  provider's `authorize_url` for the admin browser to navigate to.
+  Reconnecting after an existing connection is allowed — treated as a
+  refresh/re-auth, not an error. Requires a `user_id` in the request body
+  (which household member is connecting — audit trail only, matches the
+  existing `_EventRuleBody.user_id` convention elsewhere in this file)
+  rather than any notion of an "admin identity," since the admin API is a
+  single shared bearer secret with no per-admin-user concept.
+- `POST /admin/integrations/{provider}/disconnect` — best-effort revoke via
+  `app.oda.oauth.revoke_token` (the design doc's original plan; revocation
+  failure is logged and does **not** block deleting the local
+  `IntegrationAccount` row — the household should always be able to forget
+  a stored credential even if Oda's revoke endpoint is unreachable), then
+  deletes the row.
+
+  **Deferred**: does not yet call `stop_mcp()` / `app.agent.agent.reload_agent()`
+  — `app/oda/mcp_client.py` (Phase 4, per this doc's own phase numbering)
+  doesn't exist yet, so there's nothing to stop/reload. This is flagged
+  explicitly in the route's docstring so it isn't forgotten once Phase 4
+  lands; wiring it in then is a small addition, not a redesign.
 
 **`OAuthState` (`cache.db`)** — the stashed PKCE/state row, one-time and
 short-lived (10 min TTL, matching the human-timescale of an OAuth consent
 screen):
 
 ```text
-id: str (pk)                # the "state" value itself
+state: str (pk)              # the "state" value itself
 provider: str
 household_id: str
 initiating_user_id: str      # which admin session started this
@@ -229,17 +248,40 @@ pkce_verifier: str
 redirect_uri: str            # exact URI used in the authorize request; the
                               # callback must reuse the identical value —
                               # OAuth token exchange requires an exact match
+client_id: str                # from DCR — the callback needs the SAME
+client_secret: str            # registered client to complete token exchange
+created_at: datetime
 expires_at: datetime
 ```
 
-The callback handler consumes it atomically: read + delete in the same
-transaction, reject if missing/expired (replay or stale link), and verify
-the `state` from the query string matches the row's `id` before proceeding.
+**Deviation from the original design**: `client_id`/`client_secret` were
+added during Phase 2 implementation — the original schema above didn't
+account for dynamic client registration happening at `connect` time (before
+any `IntegrationAccount` row exists to store it in), so the callback would
+have had no way to know which registered client to complete the token
+exchange with. `client_secret` is Fernet-encrypted at rest via the same
+`app.integrations.crypto` helper `IntegrationAccount` uses, even though this
+row is short-lived — added via `alembic/versions/0008_cache_db_oauth_state_client.py`
+on top of Phase 1's `0007_cache_db_oauth_state.py` rather than editing that
+migration, per this repo's convention of always adding new migrations,
+never amending old ones.
 
-**New dashboard page**: a simple "Integrations" tab in
+The callback handler consumes it atomically: read + delete in the same
+step (`app.integrations.oauth_state.consume_state` — implemented, tested in
+`tests/unit/test_oauth_state.py`), reject if missing/expired (replay or
+stale link), and verify the `state` from the query string matches the row's
+primary key before proceeding.
+
+**New dashboard page — implemented**: an "Integrations" tab in
 `app/control/dashboard.html` listing providers as cards (name, status badge,
-Connect/Disconnect button) — same visual language as the existing
-tabs (World Model, Tasks, Scheduler, Event Rules).
+Connect/Disconnect button, a household-member picker for who's connecting)
+— same visual language as the existing tabs (proposal-card styling, `.badge`
+classes, `.details-btn` buttons). Verified manually against the real dev
+DB by running the admin router standalone (`GET /admin/integrations`,
+`GET /admin/users`, and the connect/disconnect error paths — the actual
+DCR/authorize network call was not exercised live, to avoid registering a
+throwaway OAuth client against Oda's real server outside of a real user
+flow).
 
 ### Why the callback can't live on the admin port
 
@@ -478,8 +520,20 @@ schemas, `feedback`'s rate limit.
    `datetime.utcnow()`, matching the existing convention in
    `app/policy/pending.py` rather than the timezone-aware `datetime.now(timezone.utc)`
    used elsewhere for write-only fields.
-4. Admin `/admin/integrations` routes + dashboard page (generic, Oda is the
-   first provider); `connect` writes `OAuthState`.
+4. **Done.** Admin `/admin/integrations` routes + dashboard page (generic,
+   Oda is the first provider); `connect` writes `OAuthState` (now including
+   `client_id`/`client_secret` from DCR — see the `OAuthState` deviation
+   note above). Added `app/oda/oauth.revoke_token` (RFC 7009) to support
+   `disconnect`, which wasn't in the original Phase 1 scope. Covered by
+   `tests/unit/test_oauth_state.py`,
+   `tests/unit/test_control_api_integrations.py`, and 5 new
+   `TestRevokeToken` cases in `tests/unit/test_oda_oauth.py` (39 tests
+   total for this phase). Manually verified against the real dev DB by
+   running `app.control.api`'s router standalone on a throwaway port — page
+   load, `GET /admin/integrations`, `GET /admin/users`, and all three error
+   paths (unknown provider, missing `ODA_OAUTH_PUBLIC_BASE_URL`, disconnect
+   when not connected) — without exercising the real DCR/authorize network
+   call.
 5. Public `/integrations/{provider}/callback` route on `app/api/server.py`:
    atomic state consume + validate, token exchange, `start_mcp()` +
    `reload_agent()` on success. Disconnect route mirrors with

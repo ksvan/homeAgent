@@ -75,6 +75,12 @@ class OAuthState(SQLModel, table=True):
     `state` (the primary key) matches, and reuse `redirect_uri` exactly —
     OAuth token exchange requires an identical redirect_uri to the one used
     in the authorize request.
+
+    `client_id`/`client_secret` come from dynamic client registration, which
+    happens once per connect attempt (see app.oda.oauth.register_client) —
+    stashed here so the callback can complete the token exchange with the
+    same registered client. `client_secret` is encrypted at rest like
+    IntegrationAccount's token fields, even though this row is short-lived.
     """
 
     state: str = Field(primary_key=True)
@@ -82,6 +88,8 @@ class OAuthState(SQLModel, table=True):
     household_id: str = Field(index=True)
     initiating_user_id: str
     pkce_verifier: str
+    client_id: str = ""
+    client_secret: str = ""  # Fernet-encrypted; empty for public (no-secret) clients
     redirect_uri: str
     created_at: datetime = Field(default_factory=_now)
     expires_at: datetime

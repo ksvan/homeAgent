@@ -182,6 +182,30 @@ async def refresh_access_token(
     return await _post_token(metadata.token_endpoint, data)
 
 
+async def revoke_token(
+    metadata: OAuthServerMetadata,
+    *,
+    client_id: str,
+    client_secret: str,
+    token: str,
+) -> None:
+    """Best-effort revocation (RFC 7009). No-op if the server didn't advertise
+    a revocation_endpoint. Callers should treat a raised OdaOAuthError as
+    non-fatal — a disconnect should still remove the local account even if
+    Oda's revoke call fails."""
+    if not metadata.revocation_endpoint or not token:
+        return
+    data = {"token": token, "client_id": client_id}
+    if client_secret:
+        data["client_secret"] = client_secret
+    async with httpx.AsyncClient(timeout=_HTTP_TIMEOUT) as client:
+        try:
+            resp = await client.post(metadata.revocation_endpoint, data=data)
+            resp.raise_for_status()
+        except httpx.HTTPError as exc:
+            raise OdaOAuthError(f"Oda token revocation failed: {exc}") from exc
+
+
 async def _post_token(token_endpoint: str, data: dict[str, str]) -> TokenResponse:
     async with httpx.AsyncClient(timeout=_HTTP_TIMEOUT) as client:
         try:

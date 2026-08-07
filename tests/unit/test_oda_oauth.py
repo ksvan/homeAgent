@@ -260,3 +260,51 @@ class TestRefreshAccessToken:
             await oauth.refresh_access_token(
                 _METADATA, client_id="abc123", client_secret="", refresh_token="old-rt"
             )
+
+
+class TestRevokeToken:
+    async def test_posts_token_and_client_id(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        fake = _patch_client(monkeypatch, [_FakeResponse({})])
+        await oauth.revoke_token(
+            _METADATA, client_id="abc123", client_secret="", token="refresh-token-value"
+        )
+        _method, url, kwargs = fake.calls[0]
+        assert url == _METADATA.revocation_endpoint
+        assert kwargs["data"]["token"] == "refresh-token-value"
+        assert kwargs["data"]["client_id"] == "abc123"
+        assert "client_secret" not in kwargs["data"]
+
+    async def test_includes_client_secret_when_present(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        fake = _patch_client(monkeypatch, [_FakeResponse({})])
+        await oauth.revoke_token(
+            _METADATA, client_id="abc123", client_secret="shh", token="refresh-token-value"
+        )
+        _method, _url, kwargs = fake.calls[0]
+        assert kwargs["data"]["client_secret"] == "shh"
+
+    async def test_noop_when_no_revocation_endpoint(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        fake = _patch_client(monkeypatch, [])
+        no_revoke = oauth.OAuthServerMetadata(
+            authorization_endpoint=_METADATA.authorization_endpoint,
+            token_endpoint=_METADATA.token_endpoint,
+            revocation_endpoint="",
+            registration_endpoint=_METADATA.registration_endpoint,
+        )
+        await oauth.revoke_token(
+            no_revoke, client_id="abc123", client_secret="", token="refresh-token-value"
+        )
+        assert fake.calls == []
+
+    async def test_noop_when_no_token(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        fake = _patch_client(monkeypatch, [])
+        await oauth.revoke_token(_METADATA, client_id="abc123", client_secret="", token="")
+        assert fake.calls == []
+
+    async def test_raises_on_http_error(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        _patch_client(monkeypatch, [_FakeResponse({}, status_code=500)])
+        with pytest.raises(oauth.OdaOAuthError):
+            await oauth.revoke_token(
+                _METADATA, client_id="abc123", client_secret="", token="refresh-token-value"
+            )

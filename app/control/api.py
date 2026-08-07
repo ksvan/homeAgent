@@ -1460,6 +1460,165 @@ async def admin_email_messages(
 
 
 # ---------------------------------------------------------------------------
+# Integrations (OAuth/settings-based external tools — Oda is the first)
+# See docs/oda-grocery-mcp-tool-design.md "New: admin Integrations page"
+# ---------------------------------------------------------------------------
+
+# provider -> display metadata. Add an entry here when a new provider's
+# connect/disconnect wiring is ready — the routes below already handle any
+# provider generically except for the Oda-specific redirect_uri construction.
+_KNOWN_INTEGRATION_PROVIDERS: dict[str, str] = {
+    "oda": "Oda",
+}
+
+
+def _user_display_name(user_id: str) -> str | None:
+    from sqlmodel import select
+
+    from app.db import users_session
+    from app.models.users import User
+
+    with users_session() as session:
+        user = session.exec(select(User).where(User.id == user_id)).first()
+    return user.name if user else None
+
+
+class _IntegrationConnectBody(BaseModel):
+    user_id: str  # which household member is connecting — audit trail only
+
+
+@router.get("/integrations", dependencies=_auth)
+async def admin_list_integrations() -> dict[str, Any]:
+    """List known integration providers and their connection status."""
+    from app.integrations.accounts import get_account
+
+    hid = _get_household_id()
+    integrations = []
+    for provider, display_name in _KNOWN_INTEGRATION_PROVIDERS.items():
+        account = get_account(hid, provider) if hid else None
+        integrations.append(
+            {
+                "provider": provider,
+                "display_name": display_name,
+                "connected": account is not None,
+                "connected_by": _user_display_name(account.connected_by_user_id)
+                if account
+                else None,
+                "connected_at": account.connected_at.isoformat() if account else None,
+                "expires_at": account.expires_at.isoformat() if account else None,
+            }
+        )
+    return {"integrations": integrations}
+
+
+@router.post("/integrations/{provider}/connect", dependencies=_auth)
+async def admin_connect_integration(provider: str, body: _IntegrationConnectBody) -> dict[str, Any]:
+    """Start an OAuth connect flow for the given provider.
+
+    Returns {"authorize_url": ...} for the admin's browser to navigate to.
+    Dynamic client registration happens fresh on every call — reconnecting
+    while already connected is a normal re-auth, not an error (see design
+    doc "New admin routes").
+    """
+    if provider not in _KNOWN_INTEGRATION_PROVIDERS:
+        return {"error": f"Unknown integration provider: {provider!r}"}
+
+    from app.config import get_settings
+
+    settings = get_settings()
+    if not settings.oda_oauth_public_base_url:
+        return {"error": "ODA_OAUTH_PUBLIC_BASE_URL is not configured"}
+
+    hid = _get_household_id()
+    if not hid:
+        return {"error": "No household found"}
+
+    from app.integrations.oauth_state import save_state
+    from app.oda import oauth as oda_oauth
+
+    redirect_uri = (
+        f"{settings.oda_oauth_public_base_url.rstrip('/')}/integrations/{provider}/callback"
+    )
+
+    try:
+        metadata = await oda_oauth.discover_metadata()
+        client_id, client_secret = await oda_oauth.register_client(metadata, redirect_uri)
+    except oda_oauth.OdaOAuthError as exc:
+        logger.warning("Oda connect failed during discovery/registration", exc_info=True)
+        return {"error": f"Could not start the Oda connection: {exc}"}
+
+    verifier, challenge = oda_oauth.generate_pkce_pair()
+    state = oda_oauth.generate_state()
+
+    save_state(
+        state=state,
+        provider=provider,
+        household_id=hid,
+        initiating_user_id=body.user_id,
+        pkce_verifier=verifier,
+        redirect_uri=redirect_uri,
+        client_id=client_id,
+        client_secret=client_secret,
+    )
+
+    authorize_url = oda_oauth.build_authorize_url(
+        metadata,
+        client_id=client_id,
+        redirect_uri=redirect_uri,
+        state=state,
+        code_challenge=challenge,
+    )
+    return {"authorize_url": authorize_url}
+
+
+@router.post("/integrations/{provider}/disconnect", dependencies=_auth)
+async def admin_disconnect_integration(provider: str) -> dict[str, Any]:
+    """Disconnect a provider: best-effort token revocation, then delete the
+    local account. Revocation failure does not block the local disconnect —
+    the household should always be able to forget a stored credential.
+
+    Does not yet stop/reload the MCP client (app.oda.mcp_client doesn't
+    exist until a later phase) — once it does, this route needs to call its
+    stop_mcp() + app.agent.agent.reload_agent() on success, per the design
+    doc's "Connect/disconnect lifecycle".
+    """
+    if provider not in _KNOWN_INTEGRATION_PROVIDERS:
+        return {"error": f"Unknown integration provider: {provider!r}"}
+
+    hid = _get_household_id()
+    if not hid:
+        return {"error": "No household found"}
+
+    from app.integrations.accounts import delete_account, get_account
+    from app.integrations.crypto import DecryptionError, decrypt
+    from app.oda import oauth as oda_oauth
+
+    account = get_account(hid, provider)
+    if account is None:
+        return {"disconnected": True}
+
+    try:
+        refresh_token_plain = decrypt(account.refresh_token)
+        client_secret_plain = decrypt(account.client_secret) if account.client_secret else ""
+        metadata = await oda_oauth.discover_metadata()
+        await oda_oauth.revoke_token(
+            metadata,
+            client_id=account.client_id,
+            client_secret=client_secret_plain,
+            token=refresh_token_plain,
+        )
+    except (oda_oauth.OdaOAuthError, DecryptionError):
+        logger.warning(
+            "Oda token revocation failed for household=%s — disconnecting locally anyway",
+            hid,
+            exc_info=True,
+        )
+
+    delete_account(hid, provider)
+    return {"disconnected": True}
+
+
+# ---------------------------------------------------------------------------
 # Embedded admin UI
 # ---------------------------------------------------------------------------
 
