@@ -152,7 +152,21 @@ def test_connect_unknown_provider_returns_error(client: TestClient) -> None:
     assert "Unknown integration provider" in resp.json()["error"]
 
 
-def test_connect_without_public_base_url_returns_error(client: TestClient) -> None:
+def test_connect_returns_error_when_feature_oda_disabled(client: TestClient) -> None:
+    # FEATURE_ODA defaults to false — this must be checked before anything
+    # else (public base URL, DCR, ...).
+    resp = client.post("/admin/integrations/oda/connect", headers=_AUTH, json={"user_id": "user-1"})
+    assert resp.json()["error"] == "Oda integration is disabled (FEATURE_ODA=false)"
+
+
+def test_connect_without_public_base_url_returns_error(
+    client: TestClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from app.config import get_settings
+
+    monkeypatch.setenv("FEATURE_ODA", "true")
+    get_settings.cache_clear()
+
     resp = client.post("/admin/integrations/oda/connect", headers=_AUTH, json={"user_id": "user-1"})
     assert resp.json()["error"] == "ODA_OAUTH_PUBLIC_BASE_URL is not configured"
 
@@ -162,6 +176,7 @@ def test_connect_success_returns_authorize_url_and_saves_state(
 ) -> None:
     from app.config import get_settings
 
+    monkeypatch.setenv("FEATURE_ODA", "true")
     monkeypatch.setenv("ODA_OAUTH_PUBLIC_BASE_URL", "https://home.example.com")
     get_settings.cache_clear()
 
@@ -198,6 +213,7 @@ def test_connect_discovery_failure_returns_error(
 ) -> None:
     from app.config import get_settings
 
+    monkeypatch.setenv("FEATURE_ODA", "true")
     monkeypatch.setenv("ODA_OAUTH_PUBLIC_BASE_URL", "https://home.example.com")
     get_settings.cache_clear()
 
@@ -300,3 +316,43 @@ def test_disconnect_still_deletes_account_when_revoke_fails(
     resp = client.post("/admin/integrations/oda/disconnect", headers=_AUTH)
     assert resp.json() == {"disconnected": True}
     assert get_account("hh-1", "oda") is None
+
+
+def test_disconnect_stops_mcp_and_reloads_agent(
+    client: TestClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from app.integrations.accounts import upsert_account
+
+    upsert_account(
+        household_id="hh-1",
+        provider="oda",
+        connected_by_user_id="user-1",
+        client_id="client-abc",
+        client_secret="",
+        access_token="at",
+        refresh_token="rt",
+        expires_at=datetime.now(timezone.utc) + timedelta(hours=1),
+    )
+
+    async def _fake_discover() -> OAuthServerMetadata:
+        return _METADATA
+
+    async def _fake_revoke(metadata: object, **kwargs: object) -> None:
+        return None
+
+    calls: list[str] = []
+
+    async def _fake_stop_mcp() -> None:
+        calls.append("stop_mcp")
+
+    def _fake_reload_agent() -> None:
+        calls.append("reload_agent")
+
+    monkeypatch.setattr("app.oda.oauth.discover_metadata", _fake_discover)
+    monkeypatch.setattr("app.oda.oauth.revoke_token", _fake_revoke)
+    monkeypatch.setattr("app.oda.mcp_client.stop_mcp", _fake_stop_mcp)
+    monkeypatch.setattr("app.agent.agent.reload_agent", _fake_reload_agent)
+
+    resp = client.post("/admin/integrations/oda/disconnect", headers=_AUTH)
+    assert resp.json() == {"disconnected": True}
+    assert calls == ["stop_mcp", "reload_agent"]

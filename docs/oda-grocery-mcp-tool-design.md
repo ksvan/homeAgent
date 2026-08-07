@@ -1,9 +1,9 @@
 # Oda Grocery MCP Tool — Design
 
-Status: Phases 1–3 (OAuth + storage foundation; admin Integrations page;
-public callback) implemented, with one deliberate exception — see "Phase 3
-scope note" below. Phases 4–5 (MCP client + policy gate, agent behaviour +
-instructions.md) not started.
+Status: Phases 1–4 (OAuth + storage foundation; admin Integrations page;
+public callback; MCP client + policy gate) implemented — including closing
+out both lifecycle TODOs Phases 2 and 3 deliberately deferred. Phase 5
+(agent behaviour / `instructions.md`) not started.
 Last code check: 2026-08-07
 Implemented runtime entry points: `app/models/integrations.py`
 (`IntegrationAccount`), `app/models/cache.py` (`OAuthState`),
@@ -11,24 +11,20 @@ Implemented runtime entry points: `app/models/integrations.py`
 (household-scoped account repository + single-flight refresh),
 `app/integrations/oauth_state.py` (one-time PKCE/state storage),
 `app/oda/oauth.py` (OAuth client: discovery, PKCE, DCR, token
-exchange/refresh/revoke), `app/control/api.py` (`/admin/integrations`
-list/connect/disconnect routes), `app/control/dashboard.html`
-("Integrations" tab), `app/api/integrations.py` (public
-`/integrations/{provider}/callback` route, registered in
-`app/api/server.py`'s `create_app()`),
+exchange/refresh/revoke), `app/oda/mcp_client.py` (MCP wiring:
+`OdaTokenAuth`, policy-gated `process_tool_call`, `start_mcp`/`stop_mcp`),
+`app/control/api.py` (`/admin/integrations` list/connect/disconnect routes,
+now also gated on `feature_oda` and wired to stop/reload the agent on
+disconnect), `app/control/dashboard.html` ("Integrations" tab),
+`app/api/integrations.py` (public `/integrations/{provider}/callback`
+route, now also starting/reloading the agent on success),
+`app/policy/default_policies.py` (21 Oda tool policies), `app/agent/agent.py`
+(Oda toolset assembly, two-gate: `feature_oda` + connected account),
 `alembic/versions/0015_users_db_integration_account.py`,
 `alembic/versions/0007_cache_db_oauth_state.py`,
 `alembic/versions/0008_cache_db_oauth_state_client.py`.
-Planned (not yet built): `app/oda/mcp_client.py` (MCP wiring),
-`app/policy/default_policies.py` (Oda tool policies)
-
-**Phase 3 scope note**: the callback route completes the full OAuth
-mechanics (state validation, token exchange, `IntegrationAccount` creation)
-but does **not** yet call `start_mcp()` / `app.agent.agent.reload_agent()`
-on success — those depend on `app/oda/mcp_client.py`, which is Phase 4.
-This mirrors how Phase 2's disconnect route already deferred the same
-lifecycle hook-in. A `TODO(Phase 4)` comment marks the exact spot in
-`app/api/integrations.py`.
+Planned (not yet built): `## Groceries (Oda)` in `prompts/instructions.md`
+(Phase 5).
 
 ## Purpose
 
@@ -237,14 +233,14 @@ a real in-memory users.db/cache.db, all Oda network calls mocked):
   `app.oda.oauth.revoke_token` (the design doc's original plan; revocation
   failure is logged and does **not** block deleting the local
   `IntegrationAccount` row — the household should always be able to forget
-  a stored credential even if Oda's revoke endpoint is unreachable), then
-  deletes the row.
-
-  **Deferred**: does not yet call `stop_mcp()` / `app.agent.agent.reload_agent()`
-  — `app/oda/mcp_client.py` (Phase 4, per this doc's own phase numbering)
-  doesn't exist yet, so there's nothing to stop/reload. This is flagged
-  explicitly in the route's docstring so it isn't forgotten once Phase 4
-  lands; wiring it in then is a small addition, not a redesign.
+  a stored credential even if Oda's revoke endpoint is unreachable), deletes
+  the row, then (Phase 4) calls `app.oda.mcp_client.stop_mcp()` and
+  `app.agent.agent.reload_agent()` so the Oda toolset actually disappears
+  from the running agent, not just the DB.
+  Also now gated on `feature_oda` at the top of `connect` (not disconnect —
+  disconnecting should always work regardless of flag state, tearing down
+  an MCP connection is always safe/idempotent even if one happens to be
+  running).
 
 **`OAuthState` (`cache.db`)** — the stashed PKCE/state row, one-time and
 short-lived (10 min TTL, matching the human-timescale of an OAuth consent
@@ -344,118 +340,134 @@ mocked):
    `integration.connected` control event, and shows a plain "Oda connected
    — you can close this tab" page. Any failure at any step renders a
    distinct, non-leaky error page (invalid link, denied consent, exchange
-   failure) rather than a stack trace.
-   - **Not yet wired**: `start_mcp()` / `reload_agent()` — see "Phase 3
-     scope note" at the top of this doc.
+   failure) rather than a stack trace. If `feature_oda` is on, also calls
+   `stop_mcp()` (tear down any stale connection from a previous reconnect)
+   then `start_mcp()` then `reload_agent()`, so the running agent picks up
+   the fresh Oda toolset immediately — no process restart needed.
 
-Disconnect (Phase 2) already does its half of the mirror image (best-effort
-revoke, delete the account) — its own `stop_mcp()`/`reload_agent()` hook-in
-is deferred the same way, for the same reason.
+Disconnect (Phase 2) does the mirror image: best-effort revoke, delete the
+account, then `stop_mcp()` + `reload_agent()` unconditionally (tearing down
+an MCP connection is always safe, regardless of `feature_oda`).
 
-At process startup (once Phase 4 exists), `start_mcp()` would check for an
-existing `IntegrationAccount` row the same way Homey/Prometheus check for a
-configured URL — no account, no toolset, agent built without Oda tools,
-exactly as today for an unconfigured Homey/Prometheus deployment.
+At process startup, `start_mcp()` checks for an existing `IntegrationAccount`
+row the same way Homey/Prometheus check for a configured URL — no account,
+no toolset, agent built without Oda tools, exactly as today for an
+unconfigured Homey/Prometheus deployment. Also gated on `feature_oda` in
+`app/api/server.py`'s lifespan — an operator can disable the tool without
+disconnecting the account.
 
-## MCP client wiring (`app/oda/mcp_client.py`)
+## MCP client wiring (`app/oda/mcp_client.py`) — implemented
 
 Mirrors `app/homey/mcp_client.py`'s shape (module singleton, `start_mcp()` /
-`stop_mcp()` with retry/backoff, `get_mcp_toolset()`), with one addition: a
-small `httpx.Auth` subclass (`OdaTokenAuth`) implementing
-`async_auth_flow()` that attaches `Authorization: Bearer <access_token>` to
-each request and, on a `401`, refreshes and retries once.
+`stop_mcp()` with retry/backoff), with three differences from the original
+plan below, discovered during implementation:
+
+- No `get_mcp_toolset()` with simple/advanced schema filtering — Oda has no
+  Homey-style meta-tool (`search_tools`/`use_tool`) pattern to filter down,
+  it exposes ~21 named tools directly, so `get_mcp_server()` is returned
+  as-is; the policy gate (not toolset filtering) is what controls risk.
+- No `verify_after_write` scheduling. Homey's policy gate polls device
+  state after a write because physical state can lag/fail silently; a
+  grocery cart's `manipulate_cart` response already reflects the new state
+  synchronously, so there's nothing to poll for.
+- The concurrency-safe refresh lock lives in
+  `app.integrations.accounts.get_valid_access_token` (built in Phase 1),
+  not inside `OdaTokenAuth` itself — `OdaTokenAuth.async_auth_flow()` just
+  calls that function before the first request attempt and again after a
+  `401`, described below.
+
+`OdaTokenAuth(httpx.Auth)` implements `async_auth_flow()`: attaches
+`Authorization: Bearer <token>` from `get_valid_access_token(household_id,
+"oda")` before the first attempt, and on a `401` response, calls it again
+(triggering the single-flight refresh) and retries once.
 
 **Verified against the installed `pydantic-ai==2.21.0`** (not just read from
 signatures): `MCPToolset`'s `_build_transport()` treats a URL-shaped client
 (`"https://oda.com/mcp"` qualifies) as needing an explicit HTTP transport
 whenever `auth` is set, and passes it straight through to FastMCP's
 `StreamableHttpTransport(url=..., auth=auth, ...)`. So
-`MCPToolset(settings.oda_mcp_url, auth=OdaTokenAuth(...), process_tool_call=...)`
-is the right shape — no spike risk here, confirmed against the pinned
-version rather than assumed.
+`MCPToolset(MCP_URL, auth=OdaTokenAuth(household_id), process_tool_call=...)`
+is the right shape — confirmed against the pinned version, not just assumed.
+Also confirmed empirically: `httpx.Auth.async_auth_flow`'s generator
+protocol (`response = yield request`, `yield request` again to retry) works
+exactly as documented — see `tests/unit/test_oda_mcp_client.py`'s
+`test_refreshes_and_retries_once_on_401`.
 
-**Concurrency-safe refresh**: Oda's token endpoint supports
-`refresh_token` grants, and a rotating-refresh-token provider can invalidate
-a token that a second concurrent request is mid-refresh with. Two household
-members can plausibly trigger overlapping Oda calls (e.g. two people asking
-about groceries within the same minute). `OdaTokenAuth` guards its refresh
-with a module-level `asyncio.Lock` (single process, single household row —
-no cross-process coordination needed, matching the rest of this design):
+If no `IntegrationAccount` row exists yet (never connected) — or no
+household exists at all — `start_mcp()` behaves like Homey/Prometheus with
+no URL configured: log and return `None`, Oda tools simply aren't
+registered. No crash, no retry storm. The actual successful-connection path
+(`MCPToolset.__aenter__` + `list_tools()` against a real/fake server) isn't
+unit-tested, matching the existing (also untested) state of
+`app.homey.mcp_client.start_mcp()`'s success path in this codebase.
 
-```python
-_refresh_lock = asyncio.Lock()
-
-async def _refresh(self) -> str:
-    async with _refresh_lock:
-        # Re-check expiry after acquiring the lock — another concurrent
-        # request may have already refreshed while we were waiting.
-        account = _load_account()
-        if account.expires_at > _now() + timedelta(seconds=60):
-            return account.access_token
-        new_tokens = await _exchange_refresh_token(account.refresh_token)
-        _persist_account(new_tokens)  # single UPDATE, still inside the lock
-        return new_tokens.access_token
-```
-
-If no `IntegrationAccount` row exists yet (never connected), `start_mcp()`
-behaves like Homey/Prometheus with no URL configured: log and return `None`,
-Oda tools simply aren't registered. No crash, no retry storm.
-
-## Policy gate additions (`app/policy/default_policies.py`)
+## Policy gate additions (`app/policy/default_policies.py`) — implemented
 
 `app/policy/gate.py`'s fallback only auto-allows tool names starting with
-`get_/list_/search_`. Most Oda read tools don't match that prefix
-(`similar_and_related_products`, `likely_to_buy`, `unique_for_you`,
-`order_tracking`; `recipe_search` and everything `get_*` do match). Rather
-than rely on the prefix heuristic, add explicit policies split by real
-side effect, not just "can it spend money":
+`get_/list_/search_`. Most Oda tools don't match that prefix — confirmed by
+listing them out: `similar_and_related_products`, `likely_to_buy`,
+`unique_for_you`, `order_tracking`, `recipe_search`, `manipulate_cart`,
+`select_delivery_slot`, and `feedback` all fail the prefix check
+(`recipe_search` *ends* with `_search`, it doesn't *start* with `search_` —
+an earlier draft of this doc claimed it matched; it doesn't). Rather than
+rely on the prefix heuristic, every single Oda tool gets an explicit entry,
+split by real side effect, not just "can it spend money":
 
-- **Auto-allow (low impact, `requires_confirm: False`)**: every read tool
-  (`get_cart`, `get_delivery_addresses`, `get_delivery_slots`,
-  `product_search`, `get_category`, `get_brand`,
-  `similar_and_related_products`, `likely_to_buy`, `unique_for_you`,
-  `recipe_search`, `get_liked_recipes`, `get_purchased_recipes`,
-  `get_product_lists`, `get_dinner_lists`, `get_product_list`, `get_orders`,
-  `get_order`, `order_tracking`) plus `feedback` — `feedback` only sends
-  commentary about the MCP tools themselves (per Oda's own tool
-  description, not store/delivery/complaints), so it has no household-visible
-  effect and gating it would just be friction for no safety benefit.
+- **Auto-allow (low impact, `requires_confirm: False`)** — all 19 read
+  tools plus `feedback` (`_ODA_AUTO_ALLOW_TOOLS` in
+  `default_policies.py`) — `feedback` only sends commentary about the MCP
+  tools themselves (per Oda's own tool description, not store/delivery/
+  complaints), so it has no household-visible effect and gating it would
+  just be friction for no safety benefit.
 - **Require confirmation (`requires_confirm: True`)**: `manipulate_cart` and
-  `select_delivery_slot`. No payment is at stake, but both mutate a real
-  shared household resource — a wrong `manipulate_cart` call (e.g.
-  misreading "remove the pasta" and clearing the whole cart) or booking the
-  wrong delivery slot costs real time and household friction to undo, even
-  though neither spends money. This matches the conservative default the
-  rest of the policy gate already applies to any unrecognized write tool,
-  and is a deliberately easy value to loosen later via the existing
-  `ActionPolicy` admin UI once real usage shows it's more annoying than
-  useful for routine adds.
+  `select_delivery_slot`, each with its own non-generic `confirm_message`
+  ("Update the shared Oda cart?" / "Book this Oda delivery slot?"). No
+  payment is at stake, but both mutate a real shared household resource —
+  a wrong `manipulate_cart` call (e.g. misreading "remove the pasta" and
+  clearing the whole cart) or booking the wrong delivery slot costs real
+  time and household friction to undo, even though neither spends money.
+  This matches the conservative default the rest of the policy gate already
+  applies to any unrecognized write tool, and is a deliberately easy value
+  to loosen later via the existing `ActionPolicy` admin UI once real usage
+  shows it's more annoying than useful for routine adds.
 
-```python
-[
-    {
-        "name": "Oda reads + feedback",
-        "tool_pattern": "<one per read tool, or several policies>",
-        "impact_level": "low",
-        "requires_confirm": False,
-    },
-    {
-        "name": "Oda cart/delivery writes",
-        "tool_pattern": "manipulate_cart",  # + a second entry for select_delivery_slot
-        "impact_level": "medium",
-        "requires_confirm": True,
-        "confirm_message": "Update the shared Oda cart?",  # per-tool message
-    },
-]
-```
+One implementation detail worth flagging: `gate.py`'s fallback confirm
+message for an unmatched/empty-`confirm_message` policy is hardcoded
+Homey-worded (`f"Execute '{tool_name}' on your Homey?"`). Giving every
+single Oda tool an explicit entry with a real `confirm_message` avoids ever
+hitting that fallback — `tests/unit/test_default_policies_oda.py` asserts
+neither Oda confirm message contains the word "homey", specifically to
+catch a future regression here.
 
-(`gate.py` uses `fnmatch`, not regex/alternation — the real entries need one
-`tool_pattern` per tool, not the single combined pattern shown above; noted
-here as intent, exact patterns are an implementation detail.)
+Covered by `tests/unit/test_default_policies_oda.py` (28 tests: raw
+`DEFAULT_POLICIES` content — every auto-allow tool has an entry, no
+duplicate names, the two write tools aren't also in the auto-allow list —
+plus behavioural checks through `evaluate_policy()` itself, seeded with the
+real `DEFAULT_POLICIES` list sorted the same way the production DB query
+orders it).
 
 If Oda later adds an order-placing tool, that must get its own
 `requires_confirm: True` policy before the tool is registered — flag this
 explicitly in the PR that eventually adds it.
+
+## Feature flag and agent wiring — implemented
+
+`feature_oda: bool = False` and `oda_tool_timeout_secs: int = 15` in
+`Settings` (`app/config.py`). Two-gate registration in
+`app/agent/agent.py`'s `_make_conversation_agent()`: the Oda toolset is
+attached only when `settings.feature_oda` is true **and**
+`app.oda.mcp_client.get_mcp_server()` returns a live connection (which is
+already `None` if the household never connected) — an operator can disable
+the tool without disconnecting the account. Covered by
+`tests/unit/test_agent_oda_toolset.py` (comparing toolset counts
+with/without a connected server present, since `Agent.toolsets` wraps
+everything in framework-internal objects and always includes its own
+function-toolset — absolute counts/identity checks aren't meaningful).
+
+`app/api/server.py`'s lifespan starts/stops the Oda MCP client alongside
+Homey/Prometheus/tools (start gated on `feature_oda`; stop unconditional,
+same reasoning as disconnect above), and logs its status in the existing
+`"MCP startup: homey=... prom=... tools=... oda=..."` line.
 
 ## Data placement
 
@@ -557,24 +569,35 @@ schemas, `feedback`'s rate limit.
 5. **Done.** Public `/integrations/{provider}/callback` route
    (`app/api/integrations.py`, registered in `app/api/server.py`): atomic
    state consume + validate, token exchange, `IntegrationAccount` creation,
-   `integration.connected` control event. `start_mcp()` + `reload_agent()`
-   on success — and disconnect's mirrored `stop_mcp()` + `reload_agent()` —
-   deliberately deferred to Phase 6 below (`TODO(Phase 4)` comment marks the
-   spot). Covered by `tests/unit/test_integrations_callback.py` (8 cases).
-   Manually verified error paths against the real dev DB (invalid/unknown
-   state, unknown provider) by running the router standalone; the real
-   token-exchange call to oda.com was not exercised live.
-6. `app/oda/mcp_client.py` (MCP wiring + `OdaTokenAuth`, verified shape per
-   the spike above). Also close out the two deferred lifecycle TODOs from
-   steps 4–5 once this exists: `admin_connect_integration`'s success path
-   doesn't need one (the callback does), but the callback (step 5) and
-   `admin_disconnect_integration` (step 4) both need their
-   `start_mcp()`/`stop_mcp()` + `reload_agent()` calls added in.
-7. `default_policies.py` entries — reads/`feedback` auto-allow,
-   `manipulate_cart`/`select_delivery_slot` require confirmation;
-   `feature_oda` flag + `agent.py` registration gated on flag + account row.
-8. Targeted tests: policy evaluation for Oda tool names (both the allow and
-   confirm sides), token-refresh `httpx.Auth` behavior under concurrent
-   callers, connect/callback state validation (expired, replayed, mismatched
-   `redirect_uri`), Fernet key derivation round-trip — no live calls to
-   oda.com in unit tests.
+   `integration.connected` control event. Covered by
+   `tests/unit/test_integrations_callback.py` (10 cases after step 6 added
+   two more for the lifecycle wiring). Manually verified error paths against
+   the real dev DB (invalid/unknown state, unknown provider) by running the
+   router standalone; the real token-exchange call to oda.com was not
+   exercised live.
+6. **Done.** `app/oda/mcp_client.py` (MCP wiring + `OdaTokenAuth`, verified
+   shape per the spike in step 3, confirmed empirically here too). Closed
+   out both deferred lifecycle TODOs: the callback (step 5) now calls
+   `stop_mcp()` + `start_mcp()` + `reload_agent()` on success when
+   `feature_oda` is on, and `admin_disconnect_integration` (step 4) now
+   calls `stop_mcp()` + `reload_agent()` unconditionally. Also retroactively
+   added a `feature_oda` check to `admin_connect_integration` (step 4 didn't
+   have one — the flag didn't exist yet), so a disabled deployment can't
+   start a connect flow that would just sit unusable. 13 new tests in
+   `tests/unit/test_oda_mcp_client.py` (OdaTokenAuth's auth flow —
+   attach/no-token/401-retry — `_resolve_household_id`, and the
+   policy-gated `process_tool_call`'s auto-allow/truncate/timeout/
+   confirm-required/incomplete-deps paths).
+7. **Done.** `default_policies.py` entries — reads/`feedback` auto-allow,
+   `manipulate_cart`/`select_delivery_slot` require confirmation with
+   distinct messages; `feature_oda` flag + `agent.py` registration gated on
+   flag + account row (`tests/unit/test_agent_oda_toolset.py`).
+8. **Done**, spread across each step above rather than as a separate pass:
+   policy evaluation for Oda tool names (`test_default_policies_oda.py`,
+   28 cases), token-refresh behavior (`test_oda_mcp_client.py`,
+   Phase 1's `test_integrations_accounts.py` for the single-flight lock
+   itself), connect/callback state validation
+   (`test_integrations_callback.py`), Fernet key derivation round-trip
+   (`test_integrations_crypto.py`, Phase 1). 110 Oda-related tests total
+   across Phases 1–4, all HTTP calls faked — no live calls to oda.com in
+   any unit test.

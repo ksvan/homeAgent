@@ -106,9 +106,16 @@ async def integration_callback(
 
     emit("integration.connected", {"provider": provider, "household_id": pending.household_id})
 
-    # TODO(Phase 4): once app/oda/mcp_client.py exists, call its start_mcp()
-    # (or restart if already running) then app.agent.agent.reload_agent()
-    # here so the running agent picks up the new Oda toolset without a
-    # process restart — see docs/oda-grocery-mcp-tool-design.md "Flow".
+    from app.config import get_settings
+
+    if get_settings().feature_oda:
+        # Restart (not just start) — a stale connection from before this
+        # reconnect, if any, would otherwise keep using the old tokens.
+        from app.agent.agent import reload_agent
+        from app.oda.mcp_client import start_mcp, stop_mcp
+
+        await stop_mcp()
+        await start_mcp()
+        reload_agent()  # rebuild agent singleton with the new Oda toolset
 
     return _result_page("Oda connected — you can close this tab.", ok=True)

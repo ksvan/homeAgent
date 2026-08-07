@@ -60,20 +60,28 @@ def _make_conversation_agent() -> Agent[AgentDeps, str]:
 
     # Attach MCP toolsets for any connected services
     from app.homey.mcp_client import get_mcp_toolset
+    from app.oda.mcp_client import get_mcp_server as get_oda_mcp
     from app.prometheus.mcp_client import get_mcp_server as get_prom_mcp
     from app.tools.mcp_client import get_mcp_server as get_tools_mcp
 
     homey_ts = get_mcp_toolset(advanced=False)
     prom_ts = get_prom_mcp()
     tools_ts = get_tools_mcp()
+    # Two-gate: feature_oda AND an actually-connected household account —
+    # get_oda_mcp() is already None if the household never connected, but
+    # the flag lets an operator disable the tool without disconnecting.
+    oda_ts = get_oda_mcp() if settings.feature_oda else None
     toolsets: list[AbstractToolset[AgentDeps]] = [
-        cast(AbstractToolset[AgentDeps], s) for s in (homey_ts, prom_ts, tools_ts) if s is not None
+        cast(AbstractToolset[AgentDeps], s)
+        for s in (homey_ts, prom_ts, tools_ts, oda_ts)
+        if s is not None
     ]
     logger.info(
-        "Building agent: homey=%s prom=%s tools=%s total_toolsets=%d",
+        "Building agent: homey=%s prom=%s tools=%s oda=%s total_toolsets=%d",
         "ok" if homey_ts is not None else "MISSING",
         "ok" if prom_ts is not None else "missing",
         "ok" if tools_ts is not None else "missing",
+        "ok" if oda_ts is not None else "missing",
         len(toolsets),
     )
 

@@ -27,6 +27,8 @@ async def _lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     from app.homey.mcp_client import start_mcp, stop_mcp
     from app.logging_setup import configure_logging
     from app.models.users import Household
+    from app.oda.mcp_client import start_mcp as start_oda_mcp
+    from app.oda.mcp_client import stop_mcp as stop_oda_mcp
     from app.policy.seeder import seed_policies
     from app.prometheus.mcp_client import start_mcp as start_prom_mcp
     from app.prometheus.mcp_client import stop_mcp as stop_prom_mcp
@@ -46,17 +48,21 @@ async def _lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     await start_mcp()
     await start_prom_mcp()
     await start_tools_mcp()
+    if settings.feature_oda:
+        await start_oda_mcp()
     reload_agent()  # rebuild agent singleton with all connected MCP toolsets
 
     from app.homey.mcp_client import get_mcp_server as _get_homey_mcp
+    from app.oda.mcp_client import get_mcp_server as _get_oda_mcp
     from app.prometheus.mcp_client import get_mcp_server as _get_prom_mcp
     from app.tools.mcp_client import get_mcp_server as _get_tools_mcp
 
     logger.info(
-        "MCP startup: homey=%s prom=%s tools=%s",
+        "MCP startup: homey=%s prom=%s tools=%s oda=%s",
         "ok" if _get_homey_mcp() else "MISSING",
         "ok" if _get_prom_mcp() else "missing",
         "ok" if _get_tools_mcp() else "missing",
+        "ok" if _get_oda_mcp() else ("disabled" if not settings.feature_oda else "missing"),
     )
 
     # Start APScheduler, restore pending jobs, register cleanup job
@@ -136,6 +142,7 @@ async def _lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     await stop_mcp()
     await stop_prom_mcp()
     await stop_tools_mcp()
+    await stop_oda_mcp()
     await stop_scheduler()
 
 

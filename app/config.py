@@ -135,10 +135,12 @@ class Settings(BaseSettings):
     # Oda grocery MCP  (https://oda.com/mcp — remote, OAuth 2.1 + PKCE + DCR)
     # See docs/oda-grocery-mcp-tool-design.md
     # ------------------------------------------------------------------
+    feature_oda: bool = False
     # Public HTTPS base this deployment is reachable at, used to build the
     # OAuth redirect_uri (must be internet-reachable — Oda redirects here
     # after consent). e.g. https://home.example.com
     oda_oauth_public_base_url: str = ""
+    oda_tool_timeout_secs: int = 15
 
     # ------------------------------------------------------------------
     # Tools MCP  (services/tools-mcp/ — sandboxed execution tools)

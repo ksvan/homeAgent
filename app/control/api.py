@@ -1526,6 +1526,8 @@ async def admin_connect_integration(provider: str, body: _IntegrationConnectBody
     from app.config import get_settings
 
     settings = get_settings()
+    if not settings.feature_oda:
+        return {"error": "Oda integration is disabled (FEATURE_ODA=false)"}
     if not settings.oda_oauth_public_base_url:
         return {"error": "ODA_OAUTH_PUBLIC_BASE_URL is not configured"}
 
@@ -1574,13 +1576,10 @@ async def admin_connect_integration(provider: str, body: _IntegrationConnectBody
 @router.post("/integrations/{provider}/disconnect", dependencies=_auth)
 async def admin_disconnect_integration(provider: str) -> dict[str, Any]:
     """Disconnect a provider: best-effort token revocation, then delete the
-    local account. Revocation failure does not block the local disconnect —
-    the household should always be able to forget a stored credential.
-
-    Does not yet stop/reload the MCP client (app.oda.mcp_client doesn't
-    exist until a later phase) — once it does, this route needs to call its
-    stop_mcp() + app.agent.agent.reload_agent() on success, per the design
-    doc's "Connect/disconnect lifecycle".
+    local account, then tear down the MCP connection and rebuild the agent
+    so the Oda toolset actually disappears from the running agent. Revocation
+    failure does not block the local disconnect — the household should
+    always be able to forget a stored credential.
     """
     if provider not in _KNOWN_INTEGRATION_PROVIDERS:
         return {"error": f"Unknown integration provider: {provider!r}"}
@@ -1615,6 +1614,13 @@ async def admin_disconnect_integration(provider: str) -> dict[str, Any]:
         )
 
     delete_account(hid, provider)
+
+    from app.agent.agent import reload_agent
+    from app.oda.mcp_client import stop_mcp
+
+    await stop_mcp()
+    reload_agent()  # rebuild agent singleton without the Oda toolset
+
     return {"disconnected": True}
 
 

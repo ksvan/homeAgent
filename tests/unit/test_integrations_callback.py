@@ -181,6 +181,71 @@ def test_successful_exchange_creates_account_and_returns_success_page(
     assert decrypt(account.refresh_token) == "new-refresh-token"
 
 
+def test_successful_exchange_restarts_mcp_and_reloads_agent_when_feature_enabled(
+    client: TestClient, monkeypatch: pytest.MonkeyPatch, engines: tuple[object, object]
+) -> None:
+    from app.config import get_settings
+
+    monkeypatch.setenv("FEATURE_ODA", "true")
+    get_settings.cache_clear()
+    _seed_state()
+
+    async def _fake_discover() -> OAuthServerMetadata:
+        return _METADATA
+
+    async def _fake_exchange(metadata: object, **kwargs: object) -> TokenResponse:
+        return TokenResponse(
+            access_token="at", refresh_token="rt", expires_at=datetime.utcnow() + timedelta(hours=1)
+        )
+
+    calls: list[str] = []
+
+    async def _fake_stop_mcp() -> None:
+        calls.append("stop_mcp")
+
+    async def _fake_start_mcp() -> None:
+        calls.append("start_mcp")
+
+    def _fake_reload_agent() -> None:
+        calls.append("reload_agent")
+
+    monkeypatch.setattr("app.oda.oauth.discover_metadata", _fake_discover)
+    monkeypatch.setattr("app.oda.oauth.exchange_code", _fake_exchange)
+    monkeypatch.setattr("app.oda.mcp_client.stop_mcp", _fake_stop_mcp)
+    monkeypatch.setattr("app.oda.mcp_client.start_mcp", _fake_start_mcp)
+    monkeypatch.setattr("app.agent.agent.reload_agent", _fake_reload_agent)
+
+    resp = client.get("/integrations/oda/callback?code=auth-code&state=state-abc")
+    assert resp.status_code == 200
+    assert calls == ["stop_mcp", "start_mcp", "reload_agent"]
+    get_settings.cache_clear()
+
+
+def test_successful_exchange_skips_mcp_lifecycle_when_feature_disabled(
+    client: TestClient, monkeypatch: pytest.MonkeyPatch, engines: tuple[object, object]
+) -> None:
+    # FEATURE_ODA defaults to false.
+    _seed_state()
+
+    async def _fake_discover() -> OAuthServerMetadata:
+        return _METADATA
+
+    async def _fake_exchange(metadata: object, **kwargs: object) -> TokenResponse:
+        return TokenResponse(
+            access_token="at", refresh_token="rt", expires_at=datetime.utcnow() + timedelta(hours=1)
+        )
+
+    async def _fail_start_mcp() -> None:
+        raise AssertionError("start_mcp must not run when FEATURE_ODA is false")
+
+    monkeypatch.setattr("app.oda.oauth.discover_metadata", _fake_discover)
+    monkeypatch.setattr("app.oda.oauth.exchange_code", _fake_exchange)
+    monkeypatch.setattr("app.oda.mcp_client.start_mcp", _fail_start_mcp)
+
+    resp = client.get("/integrations/oda/callback?code=auth-code&state=state-abc")
+    assert resp.status_code == 200
+
+
 def test_state_is_not_reusable(
     client: TestClient, monkeypatch: pytest.MonkeyPatch, engines: tuple[object, object]
 ) -> None:
