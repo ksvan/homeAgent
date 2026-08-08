@@ -31,6 +31,14 @@ def test_static_prompt_body_is_nonempty_and_contains_persona_content() -> None:
     assert "household helper" in body.lower()
 
 
+def test_static_prompt_body_contains_groceries_section() -> None:
+    # See docs/oda-grocery-mcp-tool-design.md "Agent behaviour" — kept
+    # deliberately brief, only the three explicitly-requested rules.
+    body = load_static_prompt_body()
+    assert "Groceries (Oda)" in body
+    assert "No budget constraints" in body
+
+
 def test_static_prompt_body_preserves_json_examples_from_instructions() -> None:
     # instructions.md uses {{...}} escaping for JSON examples that must survive
     # the format_map pass unescaped to single braces, not left doubled.

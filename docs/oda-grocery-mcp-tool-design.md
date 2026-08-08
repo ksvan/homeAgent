@@ -1,10 +1,10 @@
 # Oda Grocery MCP Tool — Design
 
-Status: Phases 1–4 (OAuth + storage foundation; admin Integrations page;
-public callback; MCP client + policy gate) implemented — including closing
-out both lifecycle TODOs Phases 2 and 3 deliberately deferred. Phase 5
-(agent behaviour / `instructions.md`) not started.
-Last code check: 2026-08-07
+Status: All 5 phases implemented (OAuth + storage foundation; admin
+Integrations page; public callback; MCP client + policy gate; agent
+behaviour). Feature-complete pending a real household connecting an
+account and exercising it in production.
+Last code check: 2026-08-08
 Implemented runtime entry points: `app/models/integrations.py`
 (`IntegrationAccount`), `app/models/cache.py` (`OAuthState`),
 `app/integrations/crypto.py` (Fernet key derivation), `app/integrations/accounts.py`
@@ -22,9 +22,15 @@ route, now also starting/reloading the agent on success),
 (Oda toolset assembly, two-gate: `feature_oda` + connected account),
 `alembic/versions/0015_users_db_integration_account.py`,
 `alembic/versions/0007_cache_db_oauth_state.py`,
-`alembic/versions/0008_cache_db_oauth_state_client.py`.
-Planned (not yet built): `## Groceries (Oda)` in `prompts/instructions.md`
-(Phase 5).
+`alembic/versions/0008_cache_db_oauth_state_client.py`,
+`prompts/instructions.md` (`## Groceries (Oda)`, verified loaded via
+`tests/unit/test_prompts_static_split.py`).
+
+Nothing left to build. What's untested is real-world behavior: no household
+has actually connected an Oda account yet, so the live token-exchange/
+DCR/refresh calls, the real `manipulate_cart` argument shape in practice,
+and the cart deep-link copy are all still only verified against Oda's
+documented schemas and mocked responses — see "Open questions" below.
 
 ## Purpose
 
@@ -489,16 +495,22 @@ MCP endpoint itself (fixed: `https://oda.com/mcp`) — registration in
 pattern Homey/Prometheus already use (feature flag + "is it actually
 configured").
 
-## Agent behaviour (`prompts/instructions.md`)
+## Agent behaviour (`prompts/instructions.md`) — implemented
 
 Tool wiring alone doesn't tell the agent *how* to act around groceries.
-Follow the existing `## Wine Cellar` precedent in `prompts/instructions.md`:
+Follows the existing `## Wine Cellar` precedent in `prompts/instructions.md`:
 a compact, always-loaded decision-rules block, not an `app/skills/` entry
 (skills are for lazy-loaded domain knowledge/APIs — the skills design doc
-explicitly excludes tool workflows, that's MCP's job).
+explicitly excludes tool workflows, that's MCP's job). Inserted directly
+after the `## Wine Cellar` section. Presence verified by
+`tests/unit/test_prompts_static_split.py::test_static_prompt_body_contains_groceries_section`
+(part of the existing byte-identical/no-placeholder static-body test suite,
+so a future edit that breaks the `{{...}}` JSON-escaping pass or introduces
+an identity placeholder here would already be caught).
 
-Drafted section content (kept intentionally short, matching the compact
-style of the rest of `instructions.md`):
+Final section content (kept intentionally short, matching the compact
+style of the rest of `instructions.md` — exactly what was requested, no
+more):
 
 ```markdown
 ## Groceries (Oda)
@@ -598,6 +610,32 @@ schemas, `feedback`'s rate limit.
    Phase 1's `test_integrations_accounts.py` for the single-flight lock
    itself), connect/callback state validation
    (`test_integrations_callback.py`), Fernet key derivation round-trip
-   (`test_integrations_crypto.py`, Phase 1). 110 Oda-related tests total
-   across Phases 1–4, all HTTP calls faked — no live calls to oda.com in
-   any unit test.
+   (`test_integrations_crypto.py`, Phase 1). 111 Oda-related tests total
+   across all 5 phases (110 from Phases 1–4 plus the Phase 5 static-prompt
+   presence check), all HTTP calls faked — no live calls to oda.com in any
+   unit test.
+9. **Done.** `## Groceries (Oda)` in `prompts/instructions.md` (Phase 5) —
+   see "Agent behaviour" above.
+
+## Production rollout checklist
+
+1. `uv run alembic upgrade heads` — applies the three new migrations
+   (`0015_users` `IntegrationAccount`, `0007_cache`/`0008_cache`
+   `OAuthState`). Additive only, no destructive changes to existing tables.
+2. Set `ODA_OAUTH_PUBLIC_BASE_URL` to the real public HTTPS hostname
+   (the Cloudflare Tunnel domain — must match what oda.com redirects back
+   to).
+3. Set `FEATURE_ODA=true`.
+4. Restart the app so the new settings take effect.
+5. Open the admin dashboard's **Integrations** tab, pick which household
+   member is connecting, click **Connect**, approve on oda.com.
+6. Watch for the "Oda connected" page and the `integration.connected`
+   event in the admin Live feed; `GET /admin/integrations` should then show
+   `connected: true`.
+7. Ask the agent to do something Oda-related (e.g. "what's in our Oda
+   cart?") and confirm the tool call actually reaches Oda — this is the
+   first real exercise of the live token-exchange/refresh path, which has
+   only been verified against mocks and Oda's documented schemas until now.
+8. Try a `manipulate_cart` request specifically, to confirm the real
+   confirmation-prompt flow (Telegram inline Yes/No) works end-to-end, not
+   just in the unit tests.
