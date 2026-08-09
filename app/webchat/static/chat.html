@@ -94,6 +94,26 @@
     border-radius: 8px; cursor: pointer; font-family: inherit; font-weight: 600; font-size: 13px;
   }
   #composer button:disabled { opacity: 0.5; cursor: default; }
+
+  /* ---------------- Desktop browser-tab framing ----------------
+     Full-bleed is the default (right above) — correct for a phone screen
+     and for an installed PWA window, which is its own dedicated app window
+     rather than one tab among many. Only when there's real desk space AND
+     we're sitting in an ordinary browser tab does it make sense to frame
+     the chat as a small, neat card instead of stretching edge to edge.
+     display-mode:browser excludes the installed-PWA case even on a wide
+     desktop display. Threshold picked to clear tablet-landscape widths. */
+  @media (min-width: 860px) and (display-mode: browser) {
+    body { align-items: center; justify-content: center; padding: 32px; }
+    #login-view, #chat-view {
+      width: 460px; max-width: 92vw;
+      height: 720px; max-height: 88vh;
+      flex: none;
+      border-radius: 14px; border: 1px solid var(--border);
+      box-shadow: 0 24px 60px rgba(0, 0, 0, 0.5);
+      overflow: hidden;
+    }
+  }
 </style>
 </head>
 <body>

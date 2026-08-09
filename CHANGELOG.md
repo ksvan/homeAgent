@@ -8,6 +8,20 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Changed
+
+- **Admin Integrations tab**: the household-member picker on the Connect
+  action now has a visible "Authorizing as" label (previously an unlabeled
+  dropdown). Copy-only fix — `IntegrationAccount` was already one row per
+  household+provider, not per user; the picker records who did the OAuth
+  handshake, it doesn't create a personal integration.
+- **Web chat layout**: on a desktop-width browser tab, the chat is now a
+  centered ~460px card instead of stretching edge to edge — reads as "a
+  chat window," not "a webpage." Unchanged (full width) on phone-sized
+  viewports and when running as an installed PWA (`display-mode: standalone`
+  is excluded from the card treatment, since an installed PWA window is its
+  own dedicated app window, not one tab among many).
+
 ### Added
 
 - **Web chat channel** — browser-based chat UI for household members without

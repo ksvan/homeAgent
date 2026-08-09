@@ -1554,7 +1554,8 @@ async function loadIntegrations() {
         : 'Not connected';
       var actions = it.connected
         ? '<button class="details-btn" onclick="disconnectIntegration(\'' + esc(it.provider) + '\')">Disconnect</button>'
-        : '<select id="ic-user-' + esc(it.provider) + '" class="er-input" style="width:auto">'
+        : '<span style="font-size:11px;color:var(--dim);margin-right:6px">Authorizing as</span>'
+          + '<select id="ic-user-' + esc(it.provider) + '" class="er-input" style="width:auto">'
           + users.map(function(u) { return '<option value="' + esc(u.id) + '">' + esc(u.name) + '</option>'; }).join('')
           + '</select>'
           + '<button class="details-btn" onclick="connectIntegration(\'' + esc(it.provider) + '\')">Connect</button>';
