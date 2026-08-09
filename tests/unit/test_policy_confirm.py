@@ -82,6 +82,10 @@ def _patch_mcp_server(monkeypatch: pytest.MonkeyPatch, server: object | None) ->
     monkeypatch.setattr("app.homey.mcp_client.get_mcp_server", lambda: server)
 
 
+def _patch_oda_mcp_server(monkeypatch: pytest.MonkeyPatch, server: object | None) -> None:
+    monkeypatch.setattr("app.oda.mcp_client.get_mcp_server", lambda: server)
+
+
 # ---------------------------------------------------------------------------
 # execute_pending_action
 # ---------------------------------------------------------------------------
@@ -177,6 +181,98 @@ async def test_execute_tool_exception_reports_failure_and_saves_failure_pair(
     assert "failed" in patch_side_effects["saved_pairs"][0][2]
     # No verify scheduled — the write itself never succeeded
     assert patch_side_effects["verify_scheduled"] == []
+
+
+# ---------------------------------------------------------------------------
+# execute_pending_action — Oda provider dispatch
+#
+# Regression coverage: execute_pending_action used to be hardcoded to
+# app.homey.mcp_client.get_mcp_server() regardless of which server the tool
+# actually belonged to, so a confirmed Oda action (e.g. manipulate_cart)
+# would always fail with "tool not found" on the Homey server, surfaced to
+# the user as a generic "Action failed — please check the device and try
+# again." This is exactly the bug seen in production once Oda confirmations
+# started firing (Phase 4 added Oda's confirm-required policies but never
+# updated this shared execute path — the PendingAction row had no concept
+# of which server it belonged to).
+# ---------------------------------------------------------------------------
+
+
+async def test_execute_dispatches_to_oda_server_for_oda_provider(
+    monkeypatch: pytest.MonkeyPatch, patch_side_effects: dict
+) -> None:
+    action = _make_action(
+        provider="oda",
+        tool_name="manipulate_cart",
+        tool_args='{"operations": [{"quantity": 1, "productId": 69388}]}',
+        policy_name="Oda manipulate_cart",
+    )
+    _patch_pending_action(monkeypatch, action)
+    homey_server = _FakeMcpServer()
+    _patch_mcp_server(monkeypatch, homey_server)
+    oda_server = _FakeMcpServer(result="cart updated")
+    _patch_oda_mcp_server(monkeypatch, oda_server)
+
+    result = await execute_pending_action("tok-1", "user-1", "chan-1")
+
+    assert result.ok is True
+    assert result.status == "executed"
+    assert "cart updated" in result.message
+    assert oda_server.calls == [
+        ("manipulate_cart", {"operations": [{"quantity": 1, "productId": 69388}]})
+    ]
+    # The Homey server must never be touched for an Oda-owned action.
+    assert homey_server.calls == []
+    # No device-state verification for Oda — see confirm.py's comment.
+    assert patch_side_effects["verify_scheduled"] == []
+
+
+async def test_execute_reports_failed_when_oda_disconnected(
+    monkeypatch: pytest.MonkeyPatch, patch_side_effects: dict
+) -> None:
+    action = _make_action(provider="oda", tool_name="manipulate_cart")
+    _patch_pending_action(monkeypatch, action)
+    _patch_oda_mcp_server(monkeypatch, None)
+
+    result = await execute_pending_action("tok-1", "user-1", "chan-1")
+
+    assert result.status == "failed"
+    assert result.message == "Oda is not connected — cannot execute."
+    assert patch_side_effects["deleted"] == ["tok-1"]
+
+
+async def test_execute_oda_failure_message_does_not_mention_device(
+    monkeypatch: pytest.MonkeyPatch, patch_side_effects: dict
+) -> None:
+    action = _make_action(provider="oda", tool_name="manipulate_cart")
+    _patch_pending_action(monkeypatch, action)
+    server = _FakeMcpServer(raise_exc=RuntimeError("oda unavailable"))
+    _patch_oda_mcp_server(monkeypatch, server)
+
+    result = await execute_pending_action("tok-1", "user-1", "chan-1")
+
+    assert result.ok is False
+    assert result.status == "failed"
+    assert "device" not in result.message.lower()
+
+
+async def test_execute_defaults_to_homey_when_provider_missing(
+    monkeypatch: pytest.MonkeyPatch, patch_side_effects: dict
+) -> None:
+    # Rows saved before the provider column existed have an empty/None value
+    # in practice once read back — must still behave like "homey", not crash.
+    action = _make_action()
+    action.provider = ""  # simulate a pre-migration row
+    _patch_pending_action(monkeypatch, action)
+    server = _FakeMcpServer(result="done")
+    _patch_mcp_server(monkeypatch, server)
+
+    result = await execute_pending_action("tok-1", "user-1", "chan-1")
+
+    assert result.ok is True
+    assert server.calls == [
+        ("set_light", {"device_id": "dev-1", "capability": "onoff", "value": True})
+    ]
 
 
 # ---------------------------------------------------------------------------

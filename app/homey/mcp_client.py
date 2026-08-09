@@ -170,6 +170,7 @@ async def _policy_process_tool_call(
         tool_name=tool_name,
         tool_args=tool_args,
         policy_name=decision.policy_name,
+        provider="homey",
     )
 
     channel = get_channel(channel_name)

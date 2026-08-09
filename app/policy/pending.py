@@ -19,10 +19,13 @@ def save_pending_action(
     tool_name: str,
     tool_args: dict[str, object],
     policy_name: str,
+    provider: str = "homey",
 ) -> str:
     """
     Persist a PendingAction awaiting user confirmation.
 
+    provider: which MCP server owns tool_name ("homey" | "oda") —
+        execute_pending_action dispatches on this to call the right server.
     Returns the UUID token (encoded in the Telegram inline button callback_data).
     """
     settings = get_settings()
@@ -36,6 +39,7 @@ def save_pending_action(
             tool_name=tool_name,
             tool_args=json.dumps(tool_args),
             policy_name=policy_name,
+            provider=provider,
             expires_at=expires_at,
         )
         session.add(action)
@@ -62,6 +66,7 @@ def get_pending_action(token: str) -> PendingAction | None:
             tool_name=action.tool_name,
             tool_args=action.tool_args,
             policy_name=action.policy_name,
+            provider=action.provider,
             created_at=action.created_at,
             expires_at=action.expires_at,
         )

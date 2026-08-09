@@ -55,13 +55,21 @@ async def execute_pending_action(
     # "expired", preventing double-execution while this one is still in flight.
     delete_pending_action(token)
 
-    from app.homey.mcp_client import get_mcp_server
+    # Which MCP server owns this tool — see PendingAction.provider. Defaults
+    # to "homey" for rows saved before this field existed.
+    provider = action.provider or "homey"
+    if provider == "oda":
+        from app.oda.mcp_client import get_mcp_server
+
+        not_connected_message = "Oda is not connected — cannot execute."
+    else:
+        from app.homey.mcp_client import get_mcp_server
+
+        not_connected_message = "Homey is not connected — cannot execute."
 
     server = get_mcp_server()
     if server is None:
-        return ConfirmResult(
-            ok=False, message="Homey is not connected — cannot execute.", status="failed"
-        )
+        return ConfirmResult(ok=False, message=not_connected_message, status="failed")
 
     from app.memory.conversation import save_message_pair
 
@@ -79,17 +87,22 @@ async def execute_pending_action(
             " and executed successfully. No further confirmation is needed.",
         )
 
-        from app.homey.verify import verify_after_write
+        # Device-state verification is Homey-specific — physical state can lag
+        # or fail silently, so a poll-and-confirm follow-up makes sense there.
+        # There's no equivalent for Oda (manipulate_cart's response already
+        # reflects the new cart state synchronously).
+        if provider == "homey":
+            from app.homey.verify import verify_after_write
 
-        asyncio.ensure_future(
-            verify_after_write(
-                action.household_id,
-                channel_user_id,
-                action.tool_name,
-                tool_args,
-                channel=channel,
+            asyncio.ensure_future(
+                verify_after_write(
+                    action.household_id,
+                    channel_user_id,
+                    action.tool_name,
+                    tool_args,
+                    channel=channel,
+                )
             )
-        )
 
         return ConfirmResult(ok=True, message=f"Done: {result}", status="executed")
     except Exception:
@@ -101,9 +114,14 @@ async def execute_pending_action(
             f"The action '{action.tool_name}' was confirmed by the user but failed to execute."
             " The user has been notified. Do not retry this action automatically.",
         )
+        failure_message = (
+            "Action failed — please check the device and try again."
+            if provider == "homey"
+            else "Action failed — please try again."
+        )
         return ConfirmResult(
             ok=False,
-            message="Action failed — please check the device and try again.",
+            message=failure_message,
             status="failed",
         )
 

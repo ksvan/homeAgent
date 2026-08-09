@@ -2,9 +2,10 @@
 
 Status: All 5 phases implemented (OAuth + storage foundation; admin
 Integrations page; public callback; MCP client + policy gate; agent
-behaviour). Feature-complete pending a real household connecting an
-account and exercising it in production.
-Last code check: 2026-08-08
+behaviour), plus a post-launch production bug fix — see "Post-launch fix:
+confirm/execute provider dispatch" below. Live in production, actively
+being tested by a real household.
+Last code check: 2026-08-09
 Implemented runtime entry points: `app/models/integrations.py`
 (`IntegrationAccount`), `app/models/cache.py` (`OAuthState`),
 `app/integrations/crypto.py` (Fernet key derivation), `app/integrations/accounts.py`
@@ -23,14 +24,73 @@ route, now also starting/reloading the agent on success),
 `alembic/versions/0015_users_db_integration_account.py`,
 `alembic/versions/0007_cache_db_oauth_state.py`,
 `alembic/versions/0008_cache_db_oauth_state_client.py`,
+`alembic/versions/0009_cache_db_pending_action_provider.py`,
 `prompts/instructions.md` (`## Groceries (Oda)`, verified loaded via
-`tests/unit/test_prompts_static_split.py`).
+`tests/unit/test_prompts_static_split.py`), `app/policy/confirm.py` +
+`app/policy/pending.py` (provider-aware confirm/execute dispatch — see
+"Post-launch fix" below).
 
-Nothing left to build. What's untested is real-world behavior: no household
-has actually connected an Oda account yet, so the live token-exchange/
-DCR/refresh calls, the real `manipulate_cart` argument shape in practice,
-and the cart deep-link copy are all still only verified against Oda's
-documented schemas and mocked responses — see "Open questions" below.
+Nothing left to build from the original plan. A household has since
+connected a real account and is actively testing — the live token
+exchange, DCR, and refresh calls, and the real `manipulate_cart` argument
+shape all confirmed working in practice, not just against mocks. One real
+bug surfaced during that testing and is already fixed — see immediately
+below.
+
+## Post-launch fix: confirm/execute provider dispatch
+
+**Symptom** (screenshot from production, web chat channel): asking the
+agent to add an item to the Oda cart correctly triggered the "Confirm
+action: Update the shared Oda cart?" prompt, but tapping confirm always
+returned "Action failed — please check the device and try again." — a
+message that doesn't even make sense for a cloud grocery cart ("device"),
+which was itself the tell.
+
+**Root cause**: `app/policy/confirm.py`'s `execute_pending_action` — the
+single shared function both Telegram's inline buttons and the web chat
+channel's confirm/cancel messages call when a user taps Confirm — was
+hardcoded to `app.homey.mcp_client.get_mcp_server()`. It had no concept of
+multiple MCP servers. Every confirm-required tool in this codebase used to
+be a Homey tool, so this was invisible until Phase 4 added Oda's
+confirm-required tools (`manipulate_cart`, `select_delivery_slot`). At
+confirm time, `server.direct_call_tool("manipulate_cart", ...)` was called
+against Homey's server, which has no such tool — the resulting exception
+was caught by the generic error handler and surfaced as the (Homey-worded)
+generic failure message. This is a gap in Phase 4 specifically: I built
+`app/oda/mcp_client.py`'s `_policy_process_tool_call` (the code that
+*creates* a pending confirmation) but never touched `confirm.py` (the code
+that *executes* one once confirmed) — the two are separate modules and the
+second one needed to become provider-aware too. Neither the unit tests nor
+the manual dev-DB verification during Phase 4 caught this because nothing
+exercised the full save-confirm-execute round trip for an Oda tool; the
+Oda mcp_client tests only covered `_policy_process_tool_call`'s pending-save
+half in isolation.
+
+**Fix**: `PendingAction` gained a `provider: str = "homey"` column
+(`alembic/versions/0009_cache_db_pending_action_provider.py`) — set to
+`"homey"` at `app/homey/mcp_client.py`'s `save_pending_action` call site and
+`"oda"` at `app/oda/mcp_client.py`'s. `execute_pending_action` now branches
+on `action.provider` to pick the right `get_mcp_server()` (Homey or Oda),
+the right "not connected" message, and — since Homey's `verify_after_write`
+device-state-poll has no Oda equivalent (see "MCP client wiring" above) —
+only schedules it when `provider == "homey"`. The generic failure message
+also became provider-aware (no more "check the device" for an Oda action).
+
+Covered by 7 new tests: `tests/unit/test_policy_pending.py` (provider
+round-trips through a real DB) and 4 new cases in
+`tests/unit/test_policy_confirm.py` (dispatches to Oda's server, reports
+"Oda is not connected" distinctly from Homey's message, Oda failure
+messages don't mention "device", and a defensive default-to-homey check for
+any pre-migration row). Also live-verified against the real dev DB: saving
+an `provider="oda"` pending action and confirming it now correctly reaches
+Oda's (not Homey's) `get_mcp_server()`.
+
+**Lesson for future providers**: any new MCP-backed provider needs its
+`save_pending_action` call site to set `provider=` explicitly, and if it
+has its own post-write verification concept, `execute_pending_action`'s
+`if provider == "homey":` verify-scheduling branch needs a matching
+branch — this shared confirm/execute path is easy to forget precisely
+because it's not colocated with the provider-specific `mcp_client.py` files.
 
 ## Purpose
 

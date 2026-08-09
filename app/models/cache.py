@@ -63,6 +63,10 @@ class PendingAction(SQLModel, table=True):
     # JSON-encoded tool arguments
     tool_args: str = "{}"
     policy_name: str
+    # Which MCP server owns this tool ("homey" | "oda") — execute_pending_action
+    # dispatches on this rather than assuming Homey. Defaults to "homey" since
+    # that was the only provider before Oda existed.
+    provider: str = "homey"
     created_at: datetime = Field(default_factory=_now)
     expires_at: datetime
 
