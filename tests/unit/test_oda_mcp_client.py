@@ -125,6 +125,12 @@ def db(monkeypatch: pytest.MonkeyPatch, in_memory_engine: object) -> Session:
             yield s
 
     monkeypatch.setattr("app.db.users_session", _session)
+    # app.integrations.accounts imports users_session at module level
+    # (`from app.db import users_session`), so patching app.db.users_session
+    # alone doesn't affect its already-bound reference — get_account() would
+    # otherwise fall through to the real DB. See test_integrations_accounts.py,
+    # which patches this same module-local binding for the same reason.
+    monkeypatch.setattr("app.integrations.accounts.users_session", _session)
     with Session(in_memory_engine) as s:  # type: ignore[arg-type]
         yield s
 
