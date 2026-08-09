@@ -4,6 +4,7 @@ Tests the tool-execution safety gate: pattern matching, arg conditions,
 read-only defaults, DB failure fallback, and use_tool message building.
 All DB calls are replaced by a monkeypatched session yielding in-memory policy objects.
 """
+
 from __future__ import annotations
 
 from contextlib import contextmanager
@@ -253,3 +254,85 @@ def test_build_confirm_message_use_tool_without_name() -> None:
 def test_build_confirm_message_other_tool() -> None:
     msg = _build_confirm_message("lock_door", {"device_id": "abc"})
     assert "lock_door" in msg
+
+
+# ---------------------------------------------------------------------------
+# manipulate_cart (Oda) — dynamic message by operation count/direction
+#
+# Regression coverage: production feedback that the confirmation card only
+# ever said "Update the shared Oda cart?" regardless of what was actually
+# being added/removed. Note operations never carry a product name (only a
+# numeric productId — confirmed against Oda's own schema), so these messages
+# summarize by count/direction, not by naming the product.
+# ---------------------------------------------------------------------------
+
+
+def test_manipulate_cart_single_add_message() -> None:
+    msg = _build_confirm_message(
+        "manipulate_cart", {"operations": [{"quantity": 1, "productId": 1}]}
+    )
+    assert msg == "Update the shared Oda cart — add 1 item?"
+
+
+def test_manipulate_cart_multiple_adds_message() -> None:
+    msg = _build_confirm_message(
+        "manipulate_cart",
+        {"operations": [{"quantity": 1, "productId": 1}, {"quantity": 2, "productId": 2}]},
+    )
+    assert msg == "Update the shared Oda cart — add 2 items?"
+
+
+def test_manipulate_cart_remove_message() -> None:
+    msg = _build_confirm_message(
+        "manipulate_cart", {"operations": [{"quantity": -1, "productId": 1}]}
+    )
+    assert msg == "Update the shared Oda cart — remove 1 item?"
+
+
+def test_manipulate_cart_reorder_message() -> None:
+    msg = _build_confirm_message(
+        "manipulate_cart", {"operations": [{"quantity": 1, "orderNumber": "ORD-123"}]}
+    )
+    assert msg == "Update the shared Oda cart — re-add 1 previous order?"
+
+
+def test_manipulate_cart_mixed_operations_message() -> None:
+    msg = _build_confirm_message(
+        "manipulate_cart",
+        {
+            "operations": [
+                {"quantity": 1, "productId": 1},
+                {"quantity": -1, "productId": 2},
+            ]
+        },
+    )
+    assert msg == "Update the shared Oda cart — add 1 item, remove 1 item?"
+
+
+def test_manipulate_cart_empty_operations_falls_back() -> None:
+    msg = _build_confirm_message("manipulate_cart", {"operations": []})
+    assert msg == "Update the shared Oda cart?"
+
+
+def test_manipulate_cart_missing_operations_falls_back() -> None:
+    msg = _build_confirm_message("manipulate_cart", {})
+    assert msg == "Update the shared Oda cart?"
+
+
+def test_manipulate_cart_malformed_operations_falls_back() -> None:
+    msg = _build_confirm_message("manipulate_cart", {"operations": "not-a-list"})
+    assert msg == "Update the shared Oda cart?"
+
+
+def test_evaluate_policy_uses_dynamic_message_for_manipulate_cart(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    pol = _policy(
+        tool_pattern="manipulate_cart",
+        requires_confirm=True,
+        name="Oda manipulate_cart",
+        confirm_message="",
+    )
+    _patch_session(monkeypatch, [pol])
+    result = evaluate_policy("manipulate_cart", {"operations": [{"quantity": 1, "productId": 1}]})
+    assert result.confirm_message == "Update the shared Oda cart — add 1 item?"

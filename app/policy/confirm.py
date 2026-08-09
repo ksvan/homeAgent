@@ -17,6 +17,15 @@ from dataclasses import dataclass
 
 logger = logging.getLogger(__name__)
 
+# Tool results shown directly in the confirmation outcome message are meant
+# to be a quick "here's what happened" — not a full data dump. Homey tool
+# results are typically short human-readable strings and are fine to show
+# in full; Oda's manipulate_cart returns the entire new cart contents as a
+# JSON blob, which is genuinely useful data but terrible as a raw chat
+# bubble. Cap by length rather than special-casing providers, so any future
+# tool with a large result gets the same treatment.
+_MAX_RESULT_PREVIEW_CHARS = 200
+
 
 @dataclass
 class ConfirmResult:
@@ -104,7 +113,11 @@ async def execute_pending_action(
                 )
             )
 
-        return ConfirmResult(ok=True, message=f"Done: {result}", status="executed")
+        result_str = str(result)
+        success_message = (
+            "Done." if len(result_str) > _MAX_RESULT_PREVIEW_CHARS else f"Done: {result_str}"
+        )
+        return ConfirmResult(ok=True, message=success_message, status="executed")
     except Exception:
         logger.exception("Failed to execute confirmed action (token=%s)", token)
         # Persist failure so the agent doesn't keep re-prompting for the same action

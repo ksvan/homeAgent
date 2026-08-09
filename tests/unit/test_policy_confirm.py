@@ -164,6 +164,39 @@ async def test_execute_success_calls_tool_saves_history_and_schedules_verify(
     assert patch_side_effects["verify_scheduled"] == [("hh-1", "chan-1", "set_light", "web")]
 
 
+async def test_execute_success_with_large_result_shows_generic_done(
+    monkeypatch: pytest.MonkeyPatch, patch_side_effects: dict
+) -> None:
+    """Regression coverage: confirming an Oda manipulate_cart used to dump
+    the entire raw cart JSON into the chat as the confirmation outcome
+    ("Done: {'groups': [...huge...]}"). Large results should collapse to a
+    plain "Done." instead."""
+    action = _make_action(provider="oda", tool_name="manipulate_cart")
+    _patch_pending_action(monkeypatch, action)
+    huge_result = {"groups": [{"items": [{"product": {"name": "x"}}] * 50}]}
+    server = _FakeMcpServer(result=huge_result)
+    _patch_oda_mcp_server(monkeypatch, server)
+
+    result = await execute_pending_action("tok-1", "user-1", "chan-1")
+
+    assert result.ok is True
+    assert result.message == "Done."
+
+
+async def test_execute_success_with_short_result_shows_it(
+    monkeypatch: pytest.MonkeyPatch, patch_side_effects: dict
+) -> None:
+    action = _make_action(provider="oda", tool_name="manipulate_cart")
+    _patch_pending_action(monkeypatch, action)
+    server = _FakeMcpServer(result="ok")
+    _patch_oda_mcp_server(monkeypatch, server)
+
+    result = await execute_pending_action("tok-1", "user-1", "chan-1")
+
+    assert result.ok is True
+    assert result.message == "Done: ok"
+
+
 async def test_execute_tool_exception_reports_failure_and_saves_failure_pair(
     monkeypatch: pytest.MonkeyPatch, patch_side_effects: dict
 ) -> None:

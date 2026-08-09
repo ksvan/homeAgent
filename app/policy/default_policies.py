@@ -83,7 +83,11 @@ DEFAULT_POLICIES: list[dict[str, object]] = [
         "arg_conditions": "{}",
         "impact_level": "medium",
         "requires_confirm": True,
-        "confirm_message": "Update the shared Oda cart?",
+        # Built dynamically per call by gate._build_manipulate_cart_message
+        # (operation count/direction) — see gate.py's _DYNAMIC_CONFIRM_MESSAGE_TOOLS.
+        # This static value is never read; empty matches the same convention
+        # already used for Homey's use_tool row above.
+        "confirm_message": "",
     },
     {
         "name": "Oda select_delivery_slot",

@@ -46,13 +46,23 @@ def test_auto_allow_entries_do_not_require_confirmation() -> None:
 
 @pytest.mark.parametrize("tool", _ODA_CONFIRM_TOOLS)
 def test_cart_and_slot_writes_require_confirmation_with_a_real_message(tool: str) -> None:
+    from app.policy.gate import _DYNAMIC_CONFIRM_MESSAGE_TOOLS
+
     by_pattern = {p["tool_pattern"]: p for p in _oda_policy_entries()}
     entry = by_pattern[tool]
     assert entry["requires_confirm"] is True
-    # Must not be empty — an empty confirm_message falls back to gate.py's
-    # generic (Homey-worded) default, which would be wrong here.
-    assert entry["confirm_message"]
-    assert "homey" not in str(entry["confirm_message"]).lower()
+
+    if tool in _DYNAMIC_CONFIRM_MESSAGE_TOOLS:
+        # manipulate_cart's message is built per-call from the operations
+        # (see gate._build_manipulate_cart_message) — the static DB value is
+        # intentionally empty so a stale static string is never shown by
+        # mistake if it's ever removed from the dynamic set.
+        assert entry["confirm_message"] == ""
+    else:
+        # Must not be empty — an empty confirm_message falls back to gate.py's
+        # generic (Homey-worded) default, which would be wrong here.
+        assert entry["confirm_message"]
+        assert "homey" not in str(entry["confirm_message"]).lower()
 
 
 def test_no_duplicate_policy_names() -> None:

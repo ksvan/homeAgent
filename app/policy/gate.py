@@ -74,9 +74,10 @@ def evaluate_policy(tool_name: str, tool_args: dict[str, object]) -> PolicyDecis
                 logger.warning("Malformed arg_conditions in policy '%s'", policy.name)
                 continue
 
-        # For use_tool (meta-tool), build a dynamic message showing the inner action.
-        # For other tools, use the policy's configured message.
-        if tool_name == "use_tool":
+        # For tools with a dynamic per-call message (Homey's use_tool meta-tool,
+        # Oda's manipulate_cart), build it from the args. For everything else,
+        # use the policy's configured static message.
+        if tool_name in _DYNAMIC_CONFIRM_MESSAGE_TOOLS:
             msg = _build_confirm_message(tool_name, tool_args)
         else:
             msg = policy.confirm_message or f"Execute '{tool_name}' on your Homey?"
@@ -101,10 +102,55 @@ def evaluate_policy(tool_name: str, tool_args: dict[str, object]) -> PolicyDecis
     )
 
 
+_DYNAMIC_CONFIRM_MESSAGE_TOOLS = frozenset({"use_tool", "manipulate_cart"})
+
+
 def _build_confirm_message(tool_name: str, tool_args: dict[str, object]) -> str:
     """Build a human-readable confirmation message for the given tool call."""
     if tool_name == "use_tool":
         inner = str(tool_args.get("name", ""))
         if inner:
             return f"Execute Homey action '{inner}'?"
+    if tool_name == "manipulate_cart":
+        return _build_manipulate_cart_message(tool_args)
     return f"Execute '{tool_name}' on your Homey?"
+
+
+def _build_manipulate_cart_message(tool_args: dict[str, object]) -> str:
+    """Summarize an Oda manipulate_cart call by operation count/direction.
+
+    Note: operations only ever carry a numeric productId, never a product
+    name (confirmed against Oda's own tool schema) — there's no way to say
+    "add Salami" here without an extra live lookup at confirm-build time,
+    which this deliberately does not do (adds latency/complexity for a
+    cosmetic improvement; the agent's own chat reply already names the
+    product in practice, just not the confirmation card itself).
+    """
+    operations = tool_args.get("operations")
+    if not isinstance(operations, list) or not operations:
+        return "Update the shared Oda cart?"
+
+    adds = removes = reorders = 0
+    for op in operations:
+        if not isinstance(op, dict):
+            continue
+        if op.get("orderNumber"):
+            reorders += 1
+            continue
+        quantity = op.get("quantity") or 0
+        if isinstance(quantity, (int, float)) and quantity < 0:
+            removes += 1
+        else:
+            adds += 1
+
+    parts: list[str] = []
+    if adds:
+        parts.append(f"add {adds} item{'s' if adds != 1 else ''}")
+    if removes:
+        parts.append(f"remove {removes} item{'s' if removes != 1 else ''}")
+    if reorders:
+        parts.append(f"re-add {reorders} previous order{'s' if reorders != 1 else ''}")
+
+    if not parts:
+        return "Update the shared Oda cart?"
+    return "Update the shared Oda cart — " + ", ".join(parts) + "?"
