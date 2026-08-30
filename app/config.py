@@ -316,11 +316,32 @@ class Settings(BaseSettings):
     web_chat_session_absolute_ttl_days: int = 90
 
     # WebAuthn passkey login (docs/household-identity-and-access-design.md).
-    # Phased rollout: false throughout Phase 0-4; only Phase 5 enables this
-    # for real, alongside publishing the public Cloudflare hostname. Once
-    # on in a given environment, the old anonymous picker/session endpoints
-    # are removed in the same change, not left reachable behind the flag.
+    # Selects which router app.webchat.app mounts: off (default) keeps
+    # today's anonymous picker/bearer-session flow (app.webchat.api)
+    # completely unchanged; on switches to the WebAuthn flow
+    # (app.webchat.api_webauthn) with a real cookie session and no
+    # anonymous "list users" endpoint. Only one is ever mounted — never
+    # both — so there's no runtime cutover logic to get wrong, just a
+    # choice made once at startup. Intended to go on for real no earlier
+    # than Phase 5, alongside publishing the public Cloudflare hostname;
+    # the legacy router is deleted from the codebase in a follow-up
+    # cleanup once that's proven, not kept indefinitely.
     feature_webauthn_login: bool = False
+
+    # Relying Party identity — must match the hostname the browser actually
+    # sees, or every ceremony fails. E.g. "chat.example.com" in production;
+    # "localhost" is fine for local dev over plain HTTP.
+    webauthn_rp_id: str = "localhost"
+    webauthn_rp_name: str = "HomeAgent"
+    # Comma-separated exact origins the browser may present a ceremony
+    # from (scheme + host + port) — e.g.
+    # "https://chat.example.com,http://192.168.1.50:9091" to allow both
+    # the public hostname and a LAN address. No wildcards: an unlisted
+    # origin is rejected outright, both for WebAuthn verification and for
+    # the WebSocket Origin check.
+    webauthn_origins: str = "http://localhost:9091"
+    webauthn_invite_ttl_minutes: int = 15
+    webauthn_challenge_ttl_minutes: int = 5
 
     # ------------------------------------------------------------------
     # Competing action detection

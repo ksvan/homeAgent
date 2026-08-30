@@ -13,7 +13,7 @@ from __future__ import annotations
 
 from fastapi import FastAPI
 
-from app.webchat.api import router
+from app.config import get_settings
 
 
 def create_webchat_app() -> FastAPI:
@@ -23,5 +23,11 @@ def create_webchat_app() -> FastAPI:
         redoc_url=None,
         openapi_url=None,
     )
+
+    if get_settings().feature_webauthn_login:
+        from app.webchat.api_webauthn import router
+    else:
+        from app.webchat.api import router
+
     app.include_router(router)
     return app

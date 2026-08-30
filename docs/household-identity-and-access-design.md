@@ -3,9 +3,10 @@
 Status: design complete — problem definition, resolved Decisions, and
 security-hardened Options (see "Options for the next pass") are now
 followed by a Phased Implementation Plan (Phase 0–5, each with an exit
-gate). Ready to start Phase 0. A second, implementation-time security
-review is planned for after coding, to catch actual-code issues the way
-this pass caught design issues.
+gate). Phase 0 and Phase 1 are done (see "Phased Implementation Plan");
+next up is Phase 2. A second, implementation-time security review is
+planned for after coding, to catch actual-code issues the way this pass
+caught design issues.
 Last code check: 2026-08-30
 Related docs: `docs/user-identity-memory-link-design.md` (identity↔memory
 link, predates web chat), `docs/web-chat-channel-design.md` (Decision #1
@@ -1083,7 +1084,7 @@ alone the internet — until Phase 5.
 - Schema changes land per phase as their needs arrive, following this
   repo's existing per-database `alembic/versions/` convention.
 
-**Phase 0 — Identity/session plumbing, no user-facing change**
+**Phase 0 — Identity/session plumbing, no user-facing change — done (2026-08-30)**
 
 - `WebAuthnCredential` model (`app/models/users.py` or a new
   `app/models/webauthn.py`): `id`, `user_id` (FK), unique `credential_id`,
@@ -1102,29 +1103,46 @@ alone the internet — until Phase 5.
   the hashed-session model; `ruff`/`mypy`/`pytest` green; zero behavior
   change for existing users (flag stays off throughout).
 
-**Phase 1 — WebAuthn registration + login behind the flag**
+**Phase 1 — WebAuthn registration + login behind the flag — done (2026-08-30)**
 
 - Admin-provisioned invite issuance (Option A's contract): hashed
-  high-entropy token, short absolute expiry, one outstanding attempt,
-  durable audit event, admin revoke/reissue.
-- New endpoints in `app/webchat/api.py`: registration options/verify
-  (bound to a specific invite/`User`) and login options/verify
-  (usernameless, discoverable).
-- Session issuance moves onto the Phase 0 hardened model; cookie + CSRF +
+  high-entropy token, 15-minute absolute expiry, one outstanding attempt
+  per user (creating a new one revokes the last), durable audit event,
+  admin revoke/reissue (`app/webchat/invites.py`,
+  `POST /admin/users/invite`).
+- New router `app/webchat/api_webauthn.py` — kept separate from
+  `app/webchat/api.py` rather than added into it, since exactly one of
+  the two is ever mounted (`app/webchat/app.py`, keyed on
+  `FEATURE_WEBAUTHN_LOGIN`): registration options/verify (bound to a
+  specific invite/`User`) and login options/verify (usernameless,
+  discoverable). `app/webchat/webauthn.py` wraps the `webauthn` library
+  for both ceremonies, including the sign-count regression check.
+- Session issuance moved onto the Phase 0 hardened model; cookie + CSRF +
   Origin-validated WebSocket handshake (Option D) replace the bearer
   token in `localStorage`/the connection URL.
-- Frontend: `chat.html`'s picker replaced by a "Sign in with passkey"
-  trigger for the discoverable-credential ceremony; inline `<script>`
-  split into an external file (prep for Phase 3's CSP, doesn't block
-  here).
-- `GET /api/users` / `POST /api/session` removed in this same phase, not
-  left reachable behind the flag.
+- Frontend: new `chat_webauthn.html` (picker replaced by a "Sign in with
+  passkey" trigger for the discoverable-credential ceremony) and
+  `invite.html` (claim page), sharing base64url/WebAuthn JS helpers from
+  an external `webauthn-common.js` (prep for Phase 3's CSP — no inline
+  `<script>` logic in either page).
+  `GET /api/users` / `POST /api/session` are not present in the new
+  router at all; the legacy router (with those endpoints) is left in
+  place only for the flag-off path, per the feature-flag-gated mounting
+  decision above — deleting it outright is deferred to the cleanup after
+  the flag is proven on in a real environment (Phase 5), not carried
+  indefinitely alongside the new one.
 - **Exit gate:** registration/login ceremonies covered by tests against
   the `webauthn` library's verification functions (mocked authenticator
-  responses covering cross-origin, replayed, expired, and wrong-user
-  cases per Option F); a manual pass with a real platform authenticator
-  before Phase 2 starts — the one part of this plan that can't be fully
-  unit-tested.
+  responses covering unknown-credential, expired/replayed challenge, and
+  sign-count-regression/cloned-authenticator cases — cross-origin
+  rejection itself is the library's own tested responsibility, exercised
+  here only via the `expected_origin`/RP-ID parameters we pass it) plus
+  full HTTP/WS router integration tests (invite lifecycle, cookie +
+  CSRF enforcement, WebSocket Origin/session checks). **Still
+  outstanding:** a manual pass with a real platform authenticator in an
+  actual browser — nothing in this environment can drive WebAuthn's
+  browser-native ceremony, so this remains a manual, pre-Phase-2 gate
+  rather than something automated tests can close.
 
 **Phase 2 — Telegram linking + permission matrix**
 

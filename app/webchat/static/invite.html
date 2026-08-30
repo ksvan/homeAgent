@@ -1,0 +1,111 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>HomeAgent — Set up passkey</title>
+<style>
+  :root {
+    --bg: #0d1117; --surface: #161b22; --border: #30363d;
+    --text: #c9d1d9; --dim: #8b949e; --accent: #7c5cfc; --accent-dim: #4a3a99;
+    --danger: #e5534b; --ok: #3fb950;
+  }
+  * { box-sizing: border-box; }
+  html, body { height: 100%; }
+  body {
+    margin: 0; background: var(--bg); color: var(--text);
+    font-family: ui-monospace, 'SF Mono', Menlo, Consolas, monospace;
+    font-size: 14px; line-height: 1.5;
+    display: flex; flex-direction: column; align-items: center; justify-content: center;
+    gap: 24px; padding: 24px;
+  }
+  .brand { display: flex; flex-direction: column; align-items: center; gap: 8px; }
+  .brand-mark {
+    width: 52px; height: 52px; border-radius: 50%;
+    background: radial-gradient(circle at 35% 30%, var(--accent), var(--accent-dim));
+    box-shadow: 0 0 24px rgba(124, 92, 252, 0.45);
+  }
+  .brand-name { font-size: 15px; letter-spacing: 0.08em; color: var(--dim); text-transform: uppercase; }
+  #claim-text { text-align: center; max-width: 360px; }
+  #setup-btn {
+    background: var(--accent); border: none; color: #fff; padding: 12px 28px;
+    border-radius: 8px; cursor: pointer; font-family: inherit; font-weight: 600; font-size: 14px;
+  }
+  #setup-btn:disabled { opacity: 0.5; cursor: default; }
+  #status { font-size: 12px; max-width: 360px; text-align: center; min-height: 16px; }
+  #status.error { color: var(--danger); }
+  #status.ok { color: var(--ok); }
+</style>
+</head>
+<body>
+
+<div class="brand">
+  <div class="brand-mark"></div>
+  <div class="brand-name">HomeAgent</div>
+</div>
+<div id="claim-text">Checking your invite…</div>
+<button id="setup-btn" type="button" style="display:none;">Create passkey</button>
+<div id="status"></div>
+
+<script src="/webauthn-common.js"></script>
+<script>
+(function () {
+  'use strict';
+
+  var claimText = document.getElementById('claim-text');
+  var setupBtn = document.getElementById('setup-btn');
+  var status = document.getElementById('status');
+
+  var pathParts = location.pathname.split('/');
+  var token = decodeURIComponent(pathParts[pathParts.length - 1] || '');
+
+  function setStatus(text, cls) {
+    status.textContent = text || '';
+    status.className = cls || '';
+  }
+
+  fetch('/api/invite/' + encodeURIComponent(token)).then(function (r) {
+    if (!r.ok) throw new Error('invalid invite');
+    return r.json();
+  }).then(function (data) {
+    claimText.textContent = 'Set up a passkey for ' + data.name + ' on this device.';
+    setupBtn.style.display = '';
+  }).catch(function () {
+    claimText.textContent = 'This invite link is invalid or has expired. Ask a household admin for a new one.';
+  });
+
+  setupBtn.addEventListener('click', function () {
+    setupBtn.disabled = true;
+    setStatus('');
+    fetch('/api/webauthn/register/options', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ invite_token: token }),
+    })
+      .then(function (r) { if (!r.ok) throw new Error('options failed'); return r.json(); })
+      .then(function (data) {
+        var publicKey = HomeAgentWebAuthn.decodeRegistrationOptions(data.options);
+        return navigator.credentials.create({ publicKey: publicKey }).then(function (cred) {
+          var body = {
+            invite_token: token,
+            challenge_id: data.challenge_id,
+            credential: HomeAgentWebAuthn.encodeAttestation(cred),
+          };
+          return fetch('/api/webauthn/register/verify', {
+            method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body),
+          });
+        });
+      })
+      .then(function (r) { if (!r.ok) throw new Error('verify failed'); return r.json(); })
+      .then(function () {
+        setStatus('Passkey created. Redirecting…', 'ok');
+        setTimeout(function () { location.href = '/'; }, 1200);
+      })
+      .catch(function () {
+        setStatus('Could not set up the passkey. The invite may already be used — ask for a new link.', 'error');
+        setupBtn.disabled = false;
+      });
+  });
+})();
+</script>
+</body>
+</html>

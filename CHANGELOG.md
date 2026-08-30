@@ -24,6 +24,36 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 
 ### Added
 
+- **Household identity & access, Phase 0-1 (WebAuthn passkey login)** — see
+  `docs/household-identity-and-access-design.md`. Phase 0 laid the
+  foundation: `User.is_active`, a `WebAuthnCredential` table, a hardened
+  `WebChatSession` (hashed token, sliding + absolute expiry, revoke-not-
+  delete), and `app/policy/authorize.py` — a single, pure, default-deny
+  `authorize(principal, surface)` decision point. Phase 1 builds the actual
+  passkey flow behind `FEATURE_WEBAUTHN_LOGIN` (default off, so today's
+  anonymous picker/bearer-session web chat is untouched): a new
+  `app/webchat/api_webauthn.py` router, mounted instead of (never
+  alongside) the legacy one, with cookie-based sessions
+  (`HttpOnly`/`Secure`/`SameSite=Lax`), a synchronizer CSRF token, and an
+  `Origin`-checked WebSocket handshake. Registration is invite-bound:
+  admins issue a one-time, short-lived enrollment link
+  (`POST /admin/users/invite`, `app/webchat/invites.py`) that a household
+  member spends to create a discoverable-credential (resident key) passkey
+  — no username/password step, no picker; login is usernameless, letting
+  the browser's own account chooser present whichever passkey it holds.
+  `app/webchat/webauthn.py` wraps the `webauthn` library for both
+  ceremonies, including a sign-count regression check for cloned-
+  authenticator detection (with a zero/zero exception for platform
+  authenticators that never increment their counter). New durable
+  `AuditLog` (`app/control/audit.py`) records logins, credential/session
+  lifecycle, and invite issuance/use/revoke — distinct from the existing
+  in-memory admin-dashboard event ring buffer. New cache.db tables:
+  `WebAuthnChallenge`, `WebChatInvite`, `AuditLog`. Shared WS message loop
+  (`app/webchat/ws_loop.py`) extracted so both routers dispatch chat/
+  confirm/cancel identically. Tests: `test_authorize.py`,
+  `test_webchat_webauthn.py`, `test_webchat_invites.py`, `test_audit.py`,
+  `test_webchat_api_webauthn.py`, `test_webchat_app.py`,
+  `test_control_api_webchat_invite.py`.
 - **Web chat channel** — browser-based chat UI for household members without
   Telegram on the current device, behind `FEATURE_WEB_CHAT` (default off).
   Runs as its own standalone FastAPI app/port (`WEB_CHAT_PORT`, default

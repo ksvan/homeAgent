@@ -1132,6 +1132,42 @@ async def admin_list_users() -> dict[str, Any]:
     }
 
 
+class _CreateInviteRequest(BaseModel):
+    user_id: str
+
+
+@router.post("/users/invite", dependencies=_auth)
+async def admin_create_webchat_invite(body: _CreateInviteRequest) -> dict[str, Any]:
+    """Issue a one-time web chat enrollment invite for a household user —
+    see docs/household-identity-and-access-design.md Option A. Returns the
+    claim URL for the admin to deliver out of band (chat, in person); it
+    is never shown again once this response is sent.
+
+    Admin auth is a single shared secret with no per-admin-user identity
+    (see require_admin_auth) — invites are attributed to "admin" rather
+    than a specific admin account until that's introduced.
+    """
+    from sqlmodel import select
+
+    from app.config import get_settings
+    from app.db import users_session
+    from app.models.users import User
+    from app.webchat.invites import create_invite
+
+    with users_session() as session:
+        user = session.exec(select(User).where(User.id == body.user_id)).first()
+    if user is None:
+        return {"error": "Unknown user"}
+
+    invite = create_invite(user.id, user.household_id, created_by_user_id="admin")
+    origins = [o.strip() for o in get_settings().webauthn_origins.split(",") if o.strip()]
+    base_url = origins[0] if origins else ""
+    return {
+        "claim_url": f"{base_url}/invite/{invite.token}",
+        "expires_at": invite.expires_at.isoformat(),
+    }
+
+
 @router.get("/event-rules", dependencies=_auth)
 async def admin_event_rules() -> dict[str, Any]:
     """List all EventRule records for the household."""

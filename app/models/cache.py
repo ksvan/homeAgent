@@ -124,3 +124,66 @@ class WebChatSession(SQLModel, table=True):
     expires_at: datetime
     absolute_expires_at: datetime
     revoked_at: Optional[datetime] = Field(default=None)
+
+
+class WebAuthnChallenge(SQLModel, table=True):
+    """A single-use, short-lived WebAuthn ceremony challenge — see
+    docs/household-identity-and-access-design.md Option F.
+
+    Not itself a bearer credential (a leaked challenge alone grants
+    nothing without the matching private key), so unlike invite/session
+    tokens it's stored as issued rather than hashed. `user_id` is set only
+    for a registration ceremony, bound to the invite's target account; a
+    login ceremony's challenge is usernameless (see app.webchat.webauthn).
+    """
+
+    id: str = Field(default_factory=_uuid, primary_key=True)
+    purpose: str  # "registration" | "login"
+    challenge: str  # base64url, as generated
+    user_id: Optional[str] = Field(default=None)
+    created_at: datetime = Field(default_factory=_now)
+    expires_at: datetime
+    used_at: Optional[datetime] = Field(default=None)
+
+
+class WebChatInvite(SQLModel, table=True):
+    """An admin-issued, one-time web chat enrollment secret — see
+    docs/household-identity-and-access-design.md Option A.
+
+    A URL is a transferable bearer credential, proof of possession only —
+    not proof of a person. This token is a short-lived bootstrap secret
+    spent establishing a passkey (`mark_invite_used`, atomic with
+    credential creation), never a standing credential itself. Hashed like
+    a session token; the raw value exists only at issuance, handed to the
+    admin to deliver out of band.
+    """
+
+    id: str = Field(default_factory=_uuid, primary_key=True)
+    token_hash: str = Field(unique=True, index=True)
+    user_id: str = Field(index=True)
+    household_id: str = Field(index=True)
+    created_by_user_id: str
+    created_at: datetime = Field(default_factory=_now)
+    expires_at: datetime
+    used_at: Optional[datetime] = Field(default=None)
+    revoked_at: Optional[datetime] = Field(default=None)
+
+
+class AuditLog(SQLModel, table=True):
+    """Durable, security-relevant event log — see
+    docs/household-identity-and-access-design.md Goal 8.
+
+    Distinct from app.control.events' in-memory ring buffer, which is for
+    live admin-dashboard observation only and doesn't survive a restart —
+    this is the durable record: logins, session/credential lifecycle,
+    invite issuance/use/revoke, and (later phases) permission and admin
+    mutations.
+    """
+
+    id: str = Field(default_factory=_uuid, primary_key=True)
+    event_type: str = Field(index=True)
+    household_id: str = Field(index=True)
+    actor_user_id: Optional[str] = Field(default=None, index=True)
+    target_user_id: Optional[str] = Field(default=None, index=True)
+    detail: str = "{}"  # JSON
+    created_at: datetime = Field(default_factory=_now, index=True)

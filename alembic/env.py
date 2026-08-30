@@ -17,6 +17,7 @@ from app.config import get_settings  # noqa: E402
 from app.models import (  # noqa: E402, F401  — imported for side effects (metadata registration)
     ActionPolicy,
     AgentRunLog,
+    AuditLog,
     CalendarEntity,
     ChannelMapping,
     ConversationMessage,
@@ -43,7 +44,9 @@ from app.models import (  # noqa: E402, F401  — imported for side effects (met
     FlightStatusSnapshotRow,
     FlightWatchRow,
     UserProfile,
+    WebAuthnChallenge,
     WebAuthnCredential,
+    WebChatInvite,
     WebChatSession,
     WineBottleRow,
     WineSyncMeta,
@@ -79,7 +82,8 @@ DATABASES: dict[str, set[str]] = {
         "winebottlerow", "winesyncmeta",
         "flightwatch", "flightstatussnapshot", "flightevent",
         "emailmessage", "emailattachment", "emailintakeconfirmation",
-        "webchatsession", "oauthstate",
+        "webchatsession", "oauthstate", "webauthnchallenge", "webchatinvite",
+        "auditlog",
     },
 }
 

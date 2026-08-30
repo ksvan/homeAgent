@@ -1,10 +1,13 @@
 # Import all SQLModel table classes so Alembic can discover them via target_metadata.
 from app.models.cache import (
     AgentRunLog,
+    AuditLog,
     DeviceSnapshot,
     EventLog,
     OAuthState,
     PendingAction,
+    WebAuthnChallenge,
+    WebChatInvite,
     WebChatSession,
 )
 from app.models.events import EventRule
@@ -53,6 +56,9 @@ __all__ = [
     "PendingAction",
     "WebChatSession",
     "WebAuthnCredential",
+    "WebAuthnChallenge",
+    "WebChatInvite",
+    "AuditLog",
     "ScheduledPrompt",
     "ScheduledPromptLink",
     "ScheduledPromptRun",

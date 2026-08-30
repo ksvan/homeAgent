@@ -8,17 +8,15 @@ picked a household user from the list" (see docs/web-chat-channel-design.md
 
 from __future__ import annotations
 
-import json
 import logging
 import pathlib
 from typing import Any
 
-from fastapi import APIRouter, Depends, Header, HTTPException, WebSocket, WebSocketDisconnect
+from fastapi import APIRouter, Depends, Header, HTTPException, WebSocket
 from fastapi.responses import HTMLResponse
 from pydantic import BaseModel
 
 from app.webchat.channel import WebChannel
-from app.webchat.dispatch import handle_web_cancel, handle_web_confirm, handle_web_message
 from app.webchat.session import (
     SessionInfo,
     create_session,
@@ -26,6 +24,7 @@ from app.webchat.session import (
     revoke_session,
     touch_session,
 )
+from app.webchat.ws_loop import run_chat_ws_loop
 
 logger = logging.getLogger(__name__)
 
@@ -136,54 +135,4 @@ async def chat_ws(websocket: WebSocket, token: str = "") -> None:
     touch_session(token)
     _channel.register_connection(session.token, websocket)
 
-    from app.control.admin_events import emit_admin_event
-
-    emit_admin_event("webchat.session_started", {"user_id": session.user_id})
-
-    async def _status(label: str) -> None:
-        try:
-            await websocket.send_text(json.dumps({"type": "status", "text": label}))
-        except Exception:
-            pass
-
-    try:
-        while True:
-            raw = await websocket.receive_text()
-            try:
-                frame = json.loads(raw)
-            except (ValueError, TypeError):
-                continue
-
-            frame_type = frame.get("type")
-
-            if frame_type == "message":
-                text = str(frame.get("text", "")).strip()
-                if not text:
-                    continue
-                touch_session(token)
-                response = await handle_web_message(session, text, on_status=_status)
-                await websocket.send_text(
-                    json.dumps({"type": "message", "role": "agent", "text": response or ""})
-                )
-            elif frame_type in ("confirm", "cancel"):
-                action_token = str(frame.get("token", ""))
-                result = (
-                    await handle_web_confirm(session, action_token)
-                    if frame_type == "confirm"
-                    else await handle_web_cancel(session, action_token)
-                )
-                await websocket.send_text(
-                    json.dumps(
-                        {
-                            "type": "confirm_result",
-                            "token": action_token,
-                            "ok": result.ok,
-                            "text": result.message,
-                        }
-                    )
-                )
-    except WebSocketDisconnect:
-        pass
-    finally:
-        _channel.unregister_connection(session.token, websocket)
-        emit_admin_event("webchat.session_ended", {"user_id": session.user_id})
+    await run_chat_ws_loop(websocket, session, _channel, token, touch_session)

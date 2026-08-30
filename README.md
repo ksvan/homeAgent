@@ -267,6 +267,11 @@ See [docs/web-chat-channel-design.md](docs/web-chat-channel-design.md) for
 the full design, trust model, and what's still deferred (PIN, PWA
 packaging, proactive/scheduled messages over this channel).
 
+The LAN-only picker above is being replaced by passkey (WebAuthn) login
+behind `FEATURE_WEBAUTHN_LOGIN` (default off, not yet ready for real use)
+as part of publishing web chat externally alongside Telegram — see
+[docs/household-identity-and-access-design.md](docs/household-identity-and-access-design.md).
+
 ---
 
 ## Integrations
