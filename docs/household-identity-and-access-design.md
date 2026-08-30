@@ -1,12 +1,11 @@
 # Household Identity & Access Design
 
-Status: problem definition done; two of three Foundational Decisions
-resolved by household input (see "Decisions"); options for what remains
-open (see "Options for the next pass") sharpened by a dedicated security
-review into concrete acceptance criteria (enrollment contract, WebAuthn
-ceremony, authorization model, session/CSRF, origin boundary, CSP) and a
-suggested rollout sequence. A full task-level implementation plan is the
-next thing after this, not written yet.
+Status: design complete — problem definition, resolved Decisions, and
+security-hardened Options (see "Options for the next pass") are now
+followed by a Phased Implementation Plan (Phase 0–5, each with an exit
+gate). Ready to start Phase 0. A second, implementation-time security
+review is planned for after coding, to catch actual-code issues the way
+this pass caught design issues.
 Last code check: 2026-08-30
 Related docs: `docs/user-identity-memory-link-design.md` (identity↔memory
 link, predates web chat), `docs/web-chat-channel-design.md` (Decision #1
@@ -1058,3 +1057,126 @@ LAN) cleanly. Admin has the opposite property on purpose: it stays
 VPN/LAN-only, so admin access is only ever as available as the VPN
 connection is — an intentional asymmetry between the two surfaces, not an
 oversight.
+
+## Phased Implementation Plan
+
+Mirrors the phasing style used for `docs/web-chat-channel-design.md` and
+`docs/email-channel-agentmail-design.md` — each phase ships behind a flag,
+is independently testable, and has an explicit exit gate before the next
+one starts. Nothing here is reachable by a real household member — let
+alone the internet — until Phase 5.
+
+**Tooling and mechanics, decided before Phase 0 starts:**
+
+- WebAuthn library: `webauthn` (PyPI, formerly Duo Labs' py_webauthn) —
+  actively maintained, correct discoverable-credential and RP-ID/origin
+  handling, leaves challenge storage to the caller, which is what Option
+  F wants (challenges hashed and single-use, like every other credential
+  in this design).
+- Feature flag: `FEATURE_WEBAUTHN_LOGIN`, default `false`, following the
+  existing `FEATURE_WEB_CHAT` / `FEATURE_ODA` pattern in `app/config.py`.
+  The flag exists so Phases 0–4 can land incrementally without breaking
+  today's LAN-only web chat, not to run the old and new models side by
+  side indefinitely — once it's flipped on in a given environment, the
+  old picker/bearer-session paths are deleted in that same change, per
+  the release gate above.
+- Schema changes land per phase as their needs arrive, following this
+  repo's existing per-database `alembic/versions/` convention.
+
+**Phase 0 — Identity/session plumbing, no user-facing change**
+
+- `WebAuthnCredential` model (`app/models/users.py` or a new
+  `app/models/webauthn.py`): `id`, `user_id` (FK), unique `credential_id`,
+  `public_key`, `sign_count`, `created_at`, `last_used_at`, optional
+  `device_label`.
+- Per-surface access: `User` flags or a small `UserSurfaceAccess(user_id,
+  surface, enabled)` side table — worth deciding once Phase 2's
+  permission-matrix UI is actually being built, not before.
+- `WebChatSession` hardening (`app/models/cache.py`): add `token_hash`,
+  `absolute_expires_at`, `revoked_at`; `app/webchat/session.py` moves to
+  hash-compare lookups and never stores the raw token.
+- The `authorize(principal, surface, action)` module (new, e.g.
+  `app/policy/authorize.py`) — pure decision logic, default-deny,
+  independently unit-testable with no HTTP/WS wiring yet.
+- **Exit gate:** full unit coverage of `authorize()`'s decision matrix and
+  the hashed-session model; `ruff`/`mypy`/`pytest` green; zero behavior
+  change for existing users (flag stays off throughout).
+
+**Phase 1 — WebAuthn registration + login behind the flag**
+
+- Admin-provisioned invite issuance (Option A's contract): hashed
+  high-entropy token, short absolute expiry, one outstanding attempt,
+  durable audit event, admin revoke/reissue.
+- New endpoints in `app/webchat/api.py`: registration options/verify
+  (bound to a specific invite/`User`) and login options/verify
+  (usernameless, discoverable).
+- Session issuance moves onto the Phase 0 hardened model; cookie + CSRF +
+  Origin-validated WebSocket handshake (Option D) replace the bearer
+  token in `localStorage`/the connection URL.
+- Frontend: `chat.html`'s picker replaced by a "Sign in with passkey"
+  trigger for the discoverable-credential ceremony; inline `<script>`
+  split into an external file (prep for Phase 3's CSP, doesn't block
+  here).
+- `GET /api/users` / `POST /api/session` removed in this same phase, not
+  left reachable behind the flag.
+- **Exit gate:** registration/login ceremonies covered by tests against
+  the `webauthn` library's verification functions (mocked authenticator
+  responses covering cross-origin, replayed, expired, and wrong-user
+  cases per Option F); a manual pass with a real platform authenticator
+  before Phase 2 starts — the one part of this plan that can't be fully
+  unit-tested.
+
+**Phase 2 — Telegram linking + permission matrix**
+
+- `/link <code>` Telegram command (`app/commands/handlers.py`) plus
+  linking-code issuance; `authorize()` enforced on Telegram ingress too —
+  `ALLOWED_TELEGRAM_IDS` and DB-enabled-and-linked are both required
+  (Option D's AND, not a hand-off).
+- Admin "Access" tab: household member × surface permission matrix,
+  extending `app/control/dashboard.html` plus a new mutation endpoint
+  alongside the existing read-only `/admin/users`.
+- WebSocket and HTTP checks move from connect-time/expiry-only to live
+  per-message `authorize()` calls; revoke force-closes any open
+  connection.
+- **Exit gate:** regression tests shaped around TM-003/TM-004 — revoked
+  access stops working mid-session, Telegram linking rejects name-based
+  collisions, duplicate/relink attempts are audited.
+
+**Phase 3 — CSP and origin hardening**
+
+- Header-delivered CSP (nonce/hash `script-src`, `object-src 'none'`,
+  `base-uri 'none'`), `X-Content-Type-Options`, `Referrer-Policy`,
+  `frame-ancestors`, a WebAuthn-compatible `Permissions-Policy`.
+- Deployment verification, not application code: confirm the origin
+  isn't reachable except via the Cloudflare Tunnel and the deliberate LAN
+  path; scope trusted-proxy header handling to that path only.
+- Pre-auth rate limits on enrollment/login endpoints, WS frame-size and
+  per-account connection caps, generic failure responses.
+- **Exit gate:** headers verified at the real Cloudflare edge, not just
+  from the app directly; a direct-origin request confirmed rejected or
+  unreachable.
+
+**Phase 4 — Admin auth migration**
+
+- Admin dashboard onto the same WebAuthn plumbing — named, per-person
+  admin principals instead of the shared `APP_SECRET_KEY`; durable audit
+  for every admin mutation; SSE moves off a query-string secret onto the
+  authenticated session.
+- Server-enforced invariant: cannot disable or remove the last admin or
+  the last working recovery path, checked at the mutation itself, not
+  only hidden in the UI.
+- **Exit gate:** admin login/mutation audit trail verified end-to-end;
+  the last-admin invariant has a regression test.
+
+**Phase 5 — Enable the public hostname**
+
+- Second Cloudflare Tunnel public hostname → web chat's port, added the
+  same static way Telegram's route already exists.
+- Full regression pass against every Critical/High item from the
+  implementation-time security review before flipping this on for real.
+- This is the one phase with a genuinely irreversible-feeling consequence
+  — worth a deliberate go/no-go moment with Kristian, not the tail end of
+  a routine deploy.
+
+Each phase after 0 should land as its own reviewed change rather than one
+large diff, consistent with how the original web chat channel was built.
