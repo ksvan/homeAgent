@@ -775,14 +775,10 @@ async def check_alert_credit_balance() -> None:
         if new_state == "empty":
             _emit_admin_event("flight.alert_credit_empty", {"remaining": 0})
         elif new_state == "low":
-            _emit_admin_event(
-                "flight.alert_credit_low", {"remaining": balance.remaining}
-            )
+            _emit_admin_event("flight.alert_credit_low", {"remaining": balance.remaining})
         elif new_state == "ok" and _last_credit_state in ("low", "empty"):
             # Credits replenished — emit recovery event for admin visibility.
-            _emit_admin_event(
-                "flight.alert_credit_recovered", {"remaining": balance.remaining}
-            )
+            _emit_admin_event("flight.alert_credit_recovered", {"remaining": balance.remaining})
     _last_credit_state = new_state
 
 
