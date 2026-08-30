@@ -100,13 +100,27 @@ class OAuthState(SQLModel, table=True):
 
 
 class WebChatSession(SQLModel, table=True):
-    """Opaque bearer token issued when a household member picks themselves
-    from the web chat login screen. Sliding expiry — see
-    docs/web-chat-channel-design.md "Identity & login"."""
+    """A web chat login session — see
+    docs/household-identity-and-access-design.md Option D / Goal 7.
 
-    token: str = Field(default_factory=_uuid, primary_key=True)
+    Only `token_hash` (SHA-256 hex digest) is ever stored — the raw bearer
+    token exists solely in memory at issuance time and in the caller's
+    hands afterward, never persisted, so a stolen DB backup can't be
+    replayed as a live session. `expires_at` slides forward on each use
+    (`touch_session`); `absolute_expires_at` is fixed at creation and never
+    extended, capping how long a session can live regardless of activity.
+    `revoked_at` marks an explicit logout/admin-revoke — kept as a row
+    (not deleted) so it remains visible for audit; a session that merely
+    expired is deleted outright since natural expiry isn't an audit-worthy
+    event the way an explicit revoke is.
+    """
+
+    id: str = Field(default_factory=_uuid, primary_key=True)
+    token_hash: str = Field(unique=True, index=True)
     user_id: str = Field(index=True)
     household_id: str = Field(index=True)
     created_at: datetime = Field(default_factory=_now)
     last_seen_at: datetime = Field(default_factory=_now)
     expires_at: datetime
+    absolute_expires_at: datetime
+    revoked_at: Optional[datetime] = Field(default=None)

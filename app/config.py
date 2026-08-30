@@ -310,6 +310,17 @@ class Settings(BaseSettings):
     web_chat_host: str = "0.0.0.0"
     # Sliding session expiry — extended on each authenticated request/message.
     web_chat_session_ttl_days: int = 30
+    # Hard cap on a session's lifetime regardless of activity — see
+    # docs/household-identity-and-access-design.md Goal 7. Not extended by
+    # touch_session; only web_chat_session_ttl_days slides.
+    web_chat_session_absolute_ttl_days: int = 90
+
+    # WebAuthn passkey login (docs/household-identity-and-access-design.md).
+    # Phased rollout: false throughout Phase 0-4; only Phase 5 enables this
+    # for real, alongside publishing the public Cloudflare hostname. Once
+    # on in a given environment, the old anonymous picker/session endpoints
+    # are removed in the same change, not left reachable behind the flag.
+    feature_webauthn_login: bool = False
 
     # ------------------------------------------------------------------
     # Competing action detection

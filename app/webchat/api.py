@@ -22,8 +22,8 @@ from app.webchat.dispatch import handle_web_cancel, handle_web_confirm, handle_w
 from app.webchat.session import (
     SessionInfo,
     create_session,
-    delete_session,
     get_session,
+    revoke_session,
     touch_session,
 )
 
@@ -121,7 +121,7 @@ async def me(session: SessionInfo = Depends(_require_session)) -> dict[str, Any]
 
 @router.delete("/api/session")
 async def end_session(session: SessionInfo = Depends(_require_session)) -> dict[str, bool]:
-    delete_session(session.token)
+    revoke_session(session.token)
     return {"ok": True}
 
 

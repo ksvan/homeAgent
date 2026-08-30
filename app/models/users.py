@@ -29,6 +29,12 @@ class User(SQLModel, table=True):
     is_admin: bool = False
     preferred_channel: str = "telegram"
     onboarding_complete: bool = Field(default=False)
+    # Global kill switch, independent of the per-surface access flags planned
+    # for Phase 2 (docs/household-identity-and-access-design.md Option D) —
+    # authorize() denies everything for an inactive account regardless of
+    # surface. Not exposed anywhere yet; defaults true so existing accounts
+    # are unaffected.
+    is_active: bool = Field(default=True)
     created_at: datetime = Field(default_factory=_now)
     updated_at: datetime = Field(default_factory=_now)
 
@@ -59,3 +65,27 @@ class ChannelMapping(SQLModel, table=True):
     channel: str
     channel_user_id: str
     created_at: datetime = Field(default_factory=_now)
+
+
+class WebAuthnCredential(SQLModel, table=True):
+    """A registered passkey for a User — see
+    docs/household-identity-and-access-design.md Option F.
+
+    Public key material only; the private key never leaves the
+    authenticator, so nothing here is secret or needs encryption at rest
+    (contrast IntegrationAccount's OAuth tokens). `credential_id` and
+    `public_key` are the base64url-encoded values WebAuthn libraries
+    hand back from the registration ceremony. `sign_count` backs the
+    cloned-authenticator check: a counter that doesn't strictly increase
+    on successive authentications is the standard signal of a cloned
+    credential.
+    """
+
+    id: str = Field(default_factory=_uuid, primary_key=True)
+    user_id: str = Field(foreign_key="user.id", index=True)
+    credential_id: str = Field(unique=True, index=True)
+    public_key: str
+    sign_count: int = 0
+    device_label: str = ""
+    created_at: datetime = Field(default_factory=_now)
+    last_used_at: datetime = Field(default_factory=_now)

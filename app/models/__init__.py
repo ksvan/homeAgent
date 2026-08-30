@@ -20,7 +20,7 @@ from app.models.memory import (
 )
 from app.models.scheduled_prompts import ScheduledPrompt, ScheduledPromptLink, ScheduledPromptRun
 from app.models.tasks import Task, TaskLink, TaskStep
-from app.models.users import ActionPolicy, ChannelMapping, Household, User
+from app.models.users import ActionPolicy, ChannelMapping, Household, User, WebAuthnCredential
 from app.models.wine import WineBottleRow, WineSyncMeta
 from app.models.world import (
     CalendarEntity,
@@ -52,6 +52,7 @@ __all__ = [
     "AgentRunLog",
     "PendingAction",
     "WebChatSession",
+    "WebAuthnCredential",
     "ScheduledPrompt",
     "ScheduledPromptLink",
     "ScheduledPromptRun",

@@ -43,6 +43,7 @@ from app.models import (  # noqa: E402, F401  — imported for side effects (met
     FlightStatusSnapshotRow,
     FlightWatchRow,
     UserProfile,
+    WebAuthnCredential,
     WebChatSession,
     WineBottleRow,
     WineSyncMeta,
@@ -64,6 +65,7 @@ DATABASES: dict[str, set[str]] = {
         "householdmember", "memberinterest", "membergoal", "memberactivity",
         "place", "deviceentity", "calendarentity", "routineentity",
         "relationship", "worldfact", "eventrule", "integrationaccount",
+        "webauthncredential",
     },
     "memory": {
         "userprofile",
