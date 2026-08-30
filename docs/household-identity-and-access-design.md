@@ -1,10 +1,13 @@
 # Household Identity & Access Design
 
 Status: problem definition done; two of three Foundational Decisions
-resolved by household input (see "Decisions" below); options/tradeoffs for
-what remains open follow in this same pass. A phased implementation plan
-comes after those options are reviewed.
-Last code check: 2026-08-29
+resolved by household input (see "Decisions"); options for what remains
+open (see "Options for the next pass") sharpened by a dedicated security
+review into concrete acceptance criteria (enrollment contract, WebAuthn
+ceremony, authorization model, session/CSRF, origin boundary, CSP) and a
+suggested rollout sequence. A full task-level implementation plan is the
+next thing after this, not written yet.
+Last code check: 2026-08-30
 Related docs: `docs/user-identity-memory-link-design.md` (identity↔memory
 link, predates web chat), `docs/web-chat-channel-design.md` (Decision #1
 and "Explicitly Deferred" — the PIN and `telegram_id`-optional items this
@@ -194,6 +197,7 @@ options get judged against — not a checklist to satisfy equally.
    surface and an internet-reachable one don't need identical defenses,
    but the level for each has to be a deliberate choice, not an inherited
    accident of "this is what was easiest to build for the first channel."
+   But should be possibly technically to protect all channels the same, also on lan.
 2. **Owning a login must never depend on which channel you happened to use
    first.** Today it depends entirely on Telegram. The goal isn't "every
    household member gets an account" — some (young children, short-term
@@ -302,28 +306,31 @@ on the first real case.
    They need to actually *be authenticated*, not merely "have found the
    URL."
 5. **Someone who is not a household member finds the public URL** (a
-   leaked link, a guessed hostname, a scan). Two failures stack today: the
-   picker would let them select "Mom" and chat as her with zero further
-   checks, but even before that — the picker itself hands the full
-   household member list to anyone who loads the page, which is
-   information disclosure regardless of whether login then succeeds. A
-   remote entry point shouldn't show *any* identities until after
-   authentication. The LAN can still reasonably keep today's low-friction
-   picker-first flow — but that's an accepted trusted-LAN risk being taken
-   deliberately, not a claim that LAN equals physical presence. A guest on
-   the Wi-Fi password, a compromised IoT device, or a misconfigured
-   network can reach the LAN too; "on the network" is a weaker signal than
-   the current design's framing implies, it's just a signal this household
-   has chosen to accept for the LAN case specifically.
+   leaked link, a guessed hostname, a scan). Two failures stacked in the
+   original no-password design: the picker would let them select "Mom"
+   and chat as her with zero further checks, and even before that, the
+   picker itself handed the full household member list to anyone who
+   loaded the page — information disclosure regardless of whether login
+   then succeeded. Resolved structurally, not just access-controlled, by
+   Option C's later refinement: the app-rendered picker is removed
+   entirely, everywhere (LAN included, not only remote), replaced by
+   WebAuthn's discoverable-credential login — there is no server-side
+   "list users" step for an unauthenticated request to reach in the first
+   place. This also retires the LAN-equals-safe-enough judgment call this
+   scenario used to require: LAN and remote get the same login now, so
+   there's no separate LAN risk being accepted here at all.
 6. **A member installs the web chat PWA on their personal phone.** The
    session persists across app opens (that's the point of installing it),
    but if the phone is later lost or stolen, that one installation's
    access needs to be killable without touching anyone else's.
 7. **Someone else picks up a shared device** (the kitchen tablet) that's
    mid-session as a different family member. "Switch user" needs to stay
-   as frictionless as it is today for this case specifically — this is
-   the scenario most at risk of an overcorrection toward heavier auth
-   making the LAN/shared-device experience worse than it is now.
+   as frictionless as it is today for this case specifically: clearing
+   the active session and re-triggering the discoverable-credential
+   ceremony (the OS's own account chooser, then a biometric/PIN prompt)
+   should be at least as fast as tapping a name in the old picker was —
+   this is the scenario most at risk of an overcorrection toward heavier
+   auth making the shared-device experience worse than it is today.
 8. **The admin wants to see who currently has access, and revoke one
    person's without affecting others** — no such view exists today for
    web chat sessions (only a live connection *count*, per-session
@@ -564,12 +571,14 @@ not a narrow re-run of the telegram_id migration:
   stays flat there is a separate, still-undecided question.
 - What's authoritative for Telegram access specifically, once Goal 4's
   admin-managed surface toggle exists alongside today's static
-  `ALLOWED_TELEGRAM_IDS` env var — the next pass has to pick one
-  relationship between them, not leave both live and potentially
-  disagreeing. One shape worth weighing: env stays a bootstrap/hard
-  ceiling (nobody gets in who isn't listed there, full stop — a
-  deploy-time safety net), while the database becomes the runtime
-  authority for the finer-grained per-user toggle within that ceiling.
+  `ALLOWED_TELEGRAM_IDS` env var. Resolved as an **AND**, not a
+  hand-off from one to the other: env remains a bootstrap/hard ceiling
+  (nobody gets in who isn't listed there, full stop — a deploy-time
+  safety net independent of any database state), and the database's
+  per-user Telegram-surface toggle is an *additional*, independently
+  required condition checked live on every message and callback, not just
+  at account creation. Both must agree; neither alone is sufficient. See
+  Option D's `authorize(principal, surface, action)` shape.
 - Authentication strength appropriate to each trust boundary: LAN-only web
   chat vs. remotely-reachable web chat vs. admin dashboard vs. PWA-at-rest
   — these may reasonably end up with different answers, but the answers
@@ -697,11 +706,33 @@ Three shapes, in increasing order of friction/control:
   `HouseholdMember` from an admin UI, clicks "create login," gets a
   short-lived one-time invite URL to hand to that person. Opening it
   starts passkey registration bound to that specific pre-created `User`
-  row — the invite token is what proves "you're the person meant to claim
-  this account," spent the moment the passkey ceremony completes, per
-  Foundational Decision 1's "invitation is a bootstrap, not a standing
-  credential." Full admin control, small amount of admin legwork per new
-  person.
+  row, spent the moment the passkey ceremony completes, per Foundational
+  Decision 1's "invitation is a bootstrap, not a standing credential."
+  Full admin control, small amount of admin legwork per new person.
+
+  Worth being precise about what the invite link actually proves, since
+  it's easy to overstate: **a URL is a transferable bearer credential —
+  proof of possession, not proof of person.** It can be forwarded,
+  screenshotted, shoulder-surfed, or logged in browser history before the
+  intended person opens it. Treating it as identity proof rather than a
+  bootstrap secret is the mistake to avoid. The enrollment flow needs its
+  own security contract, not just "generate a token": a long, random,
+  high-entropy token stored only as a hash server-side (never logged, and
+  excluded from anything that would leak it via Referer headers or
+  analytics); a short absolute expiry; the consume-and-enroll step
+  happening as one atomic transaction (no window where the token is
+  marked used but the account isn't yet bound, or vice versa); only one
+  outstanding enrollment attempt per invite; the claiming screen showing
+  plainly *which* household member this invite is for before finalizing
+  the passkey (so a wrong-recipient case is caught by a human, not just
+  by the token); a durable audit event on issuance, use, and expiry; and
+  an admin affordance to revoke or reissue an invite that wasn't claimed
+  by the intended person, or that leaked. *Delivery* is itself a security
+  decision — handing the link over in person (e.g. a QR code shown on a
+  device screen) or sending it through an already-authenticated channel
+  (Telegram DM to a linked account, if one exists) is meaningfully safer
+  than, say, texting a bare URL — not just an implementation detail to
+  skip past.
 - **A2 — Self-service request, admin approves.** Anyone reaching web chat
   can hit "I'm new," enter a name; creates a pending request, admin
   approves (Telegram notification or admin dashboard), approval sends the
@@ -743,6 +774,17 @@ Telegram command. The bot verifies the code against that specific
 channel_user_id=str(telegram_id))` — never touching `User.name` matching
 logic at all. Small, contained addition to `app/commands/handlers.py`.
 
+Two properties from Option A's enrollment contract apply equally here,
+worth restating rather than assuming they're obvious by analogy: the
+code-check-and-link step must be one atomic transaction against
+`ChannelMapping`'s existing `(channel, channel_user_id)` uniqueness
+constraint (no window where a code is valid but not yet consumed, which a
+race could exploit to attach two Telegram IDs to intent meant for one),
+and the linking attempt itself needs a durable audit event — successful
+or not — since a failed/repeated linking attempt against a given `User.id`
+is exactly the signal that would reveal someone probing for another
+member's account (TM-004's abuse path).
+
 ### C. Does web chat's login need to get stronger, now that it's public? — resolved
 
 This was written as an open fork (C1 no change / C2 step-up only / C3
@@ -758,6 +800,32 @@ any action ever needs *step-up* on top of the standard passkey session
 (the old C2 idea) — plausible for something like a large Oda order or an
 away-from-home Homey action, but worth building only if a concrete case
 asks for it, not speculatively.
+
+**Follow-on decision this raises: the login picker itself should be
+removed, not merely gated behind passkey.** It was an MVP simplification
+from before any real authentication existed, not a UI choice worth
+preserving now. WebAuthn supports *discoverable credentials* (resident
+keys): the authentication ceremony can ask "who's there?" with no
+username step at all, and the browser/OS answers with its own native
+account chooser — showing only the passkeys actually present on (or
+synced to) that specific device, via Face ID/Touch ID/Windows Hello — and
+the resulting assertion carries a `userHandle` (set to `User.id` at
+registration) that tells the server exactly who authenticated. That
+native chooser *is* the picker, and it's strictly better than the
+app-rendered one: nothing about which household members exist is ever
+served to an unauthenticated request, because there's no server-side
+"list users" step in the login path to begin with — the login ceremony
+and the identification of who's logging in are the same event. This
+resolves Scenario 5's information-disclosure half of the problem
+structurally, not just by adding a check in front of it, and is a
+materially cleaner way to satisfy the security review's release gate
+(remove the anonymous picker/session flow, not wrap it) than gating the
+existing app-rendered list behind a passkey prompt would have been.
+"Switch user" on a shared device becomes: clear the current session and
+immediately re-trigger the discoverable-credential ceremony — the OS
+picker appears again for whoever's next, no app-rendered list involved
+there either. See Option F for the concrete WebAuthn requirement this
+implies.
 
 ### D. Session security hardening (Goals 7 and 8, concrete shape)
 
@@ -777,6 +845,47 @@ hashes, matching the earlier review's requirement), an
 `revoked_at` for the explicit revoke model. `User` gains the per-surface
 flags Goal 4 needs (or a small side table if that reads cleaner —
 implementation detail for the plan, not this pass).
+
+**One authoritative, live authorization check, not several that can
+disagree.** The Telegram-authority scope item above ("env as bootstrap
+ceiling, database as runtime authority") needs one more precision pass:
+those two should be an **AND**, not an either/or — a Telegram message is
+accepted only if the sender is both on `ALLOWED_TELEGRAM_IDS` *and*
+resolves to an enabled `User` with Telegram surface access, checked
+before the message (or callback) is processed, not just at account
+creation. The cleanest shape is a single `authorize(principal, surface,
+action)` decision point that every ingress calls — Telegram messages and
+callbacks, every web chat HTTP request, every WebSocket message,
+including in-flight confirmations — with default-deny as the failure
+mode. This also fixes a real gap in what's written above: today,
+`WebChatSession` validation only checks token expiry, and a WebSocket is
+only checked once at connect time, not per message — meaning a session
+that's since been revoked, or an account whose web-chat surface access
+was just turned off, can keep acting for as long as that WebSocket stays
+open. The fix is the same live-lookup pattern already used for session
+validity, extended to cover surface/account state on every check, plus
+one more property worth being explicit about: a permission change and any
+session/connection revocation it implies should be one transactionally
+ordered operation (revoke takes effect, *then* the change is considered
+complete) with the server actively closing any now-unauthorized open
+WebSocket, not waiting for it to notice on its next message.
+
+**Cookie, CSRF, and WebSocket auth need to be decided as one unit, not
+three separate choices that can drift out of sync.** Moving off a
+JS-readable bearer token (Goal 7's security minimums) only works if the
+replacement is specified completely: a server-side opaque session
+identifier in a `Secure` + `HttpOnly` + `SameSite=Lax` cookie (`Secure`
+conditionally relaxed only for local non-TLS development, never in
+production); a synchronizer CSRF token required on every state-changing
+HTTP endpoint, since `SameSite` alone is mitigation, not a substitute; and
+— the part easiest to get wrong — a defined way for the WebSocket
+handshake to authenticate from that cookie (validating the session cookie
+during the connection upgrade, plus an exact `Origin` allowlist checked
+before `accept()`) rather than falling back to a token in the connection
+URL, which would quietly undo the entire point of moving off bearer
+tokens. Whatever initial CSRF token a page needs can be embedded
+server-side in the rendered page itself; it doesn't need its own
+bootstrap round-trip.
 
 **This is also, for free, the device-enrollment story Option C's passkey
 decision raises.** A passkey is inherently device-bound (platform
@@ -801,8 +910,141 @@ toggles, following the same row-plus-action-button pattern already used
 for the World Model and Event Rules tabs in `app/control/dashboard.html`.
 Backed by a new mutation endpoint alongside the existing read-only
 `/admin/users`, gated by the same `require_admin_auth` every other admin
-mutation already uses. No real alternatives worth comparing here — this
-is squarely "extend the existing pattern," not a new one.
+mutation already uses today.
+
+That last point deserves a caveat, though: `require_admin_auth` is a
+single shared secret with no named principal and no durable record of
+*who* made a change — adequate for what admin does today, but this pass
+is specifically about to add the power to grant or revoke household
+members' access from that same shared-secret surface. Worth sequencing
+deliberately rather than incidentally: migrate admin to named,
+per-person-authenticated principals (passkey-backed, same mechanism as
+web chat, so no new auth system) with durable mutation auditing *before*
+routine use of the new permission UI, not after. Until that migration
+lands, the existing LAN/VPN-only network restriction is the real control
+worth leaning on — worth rotating `APP_SECRET_KEY` if it's ever suspected
+of leaking in the meantime. This doesn't reopen the earlier decision that
+admin stays off the public path; it's about who admin's own login
+identifies as, on the LAN/VPN it already restricts itself to.
+
+### F. WebAuthn ceremony and recovery — required, not left to the library defaults
+
+Passkey was decided (Option C), but "use WebAuthn" isn't itself a
+complete specification — the ceremony has enough configurable surface
+area that getting it wrong reproduces exactly the account-takeover risk
+passkeys are meant to remove. Concrete requirements for the next pass to
+carry into implementation, not optional hardening:
+
+- A fixed production relying-party ID and an exact allowed-origin list —
+  not derived permissively from the request at runtime.
+- **Discoverable credentials (resident keys), required** — the property
+  Option C's picker-removal decision actually depends on. Registration
+  ceremonies must request a resident key, and the login ceremony must be
+  the usernameless form (no `allowCredentials` naming a user in advance),
+  so the browser's own account chooser can present whichever passkeys
+  exist for this origin without the app ever asking "who are you" first.
+- Registration challenges generated server-side, cryptographically
+  random, single-use, short-lived, and bound to both the specific
+  ceremony and the specific intended `User` (the invite-flow case — a
+  challenge meant for one enrollment must not be replayable against
+  another). Authentication (login) challenges are equally single-use,
+  short-lived, and server-generated, but — precisely because the flow is
+  usernameless — bound to the ceremony/session and validated against
+  whichever credential the returned `userHandle` identifies, not to a
+  pre-known user.
+- `userVerification: required` (biometric/PIN confirmed on the
+  authenticator itself, not merely "a security key was present").
+- A mature, actively maintained WebAuthn library for parsing and
+  verification rather than hand-rolled attestation/assertion handling.
+- Credential public key and credential ID uniqueness enforced at the
+  database level, plus a defined policy for the signature counter (most
+  authenticators increment it; a counter that goes backwards or repeats
+  is the standard signal for a cloned authenticator and should be treated
+  as one).
+- Support for more than one registered authenticator per person
+  (phone lost, laptop also wanted) — and specifically *encouraged*, not
+  just permitted, for whoever holds admin, so a single lost device can't
+  become a lockout.
+- Recovery is the highest-risk part of this whole option, because a
+  permissive recovery path is a backdoor around everything else here:
+  recovery must go only through the local/LAN-only audited break-glass
+  path already required elsewhere in this document, or through action by
+  an already-authenticated admin — never through email, and never through
+  any endpoint reachable from the public hostname.
+
+### G. Origin boundary, proxy trust, and pre-authentication abuse limits
+
+Two related deployment-level requirements that don't show up naturally
+until the network topology is drawn out, both concrete acceptance
+criteria rather than open forks:
+
+- **The Cloudflare Tunnel is one ingress route to the app, not the only
+  one that exists.** `docker-compose.yml` currently publishes web chat's
+  port for LAN access (`${WEB_CHAT_HOST:-0.0.0.0}:9091`) independently of
+  whatever public hostname the tunnel adds. If the origin is also
+  reachable directly from outside that intended LAN/tunnel split, an
+  attacker can bypass Cloudflare's own rate limiting, WAF, and logging
+  entirely — those protections only apply to traffic that actually goes
+  through Cloudflare. This needs an explicit deployment acceptance test,
+  not an assumption: confirm the origin is not reachable except via the
+  tunnel and the deliberately-permitted LAN path, and — separately —
+  never trust `CF-Connecting-IP` or `X-Forwarded-*` headers for anything
+  (rate limiting, audit "from where," any future access decision) unless
+  they can only have arrived via a known, trusted proxy hop. An
+  unvalidated forwarded header is attacker-supplied data, not a fact
+  about the request.
+- **Pre-authentication endpoints need their own resource limits,
+  independent of the per-user rate limiting that only applies once
+  someone's already identified.** Enrollment, passkey assertion, and
+  session/WebSocket setup are all reachable by anyone before any identity
+  check happens — worth explicit per-IP limits on those specific
+  endpoints, backoff that slows an attacker down without being able to
+  lock a real household member out permanently, a maximum WebSocket frame
+  size and per-user/device connection cap, a request body size limit, and
+  bounded agent-run concurrency so a flood of connections can't translate
+  into unbounded LLM/tool-call spend. Failure responses should stay
+  generic (not "no such user" vs. "wrong passkey") to avoid letting
+  someone enumerate valid household member names from the outside.
+
+### H. Frontend hardening: CSP needs `chat.html`'s inline script split out
+
+A real Content-Security-Policy — worth having specifically because an XSS
+bug would otherwise be able to act as whichever household member is
+logged in, regardless of how strong the login itself is — can't coexist
+with `chat.html`'s current single-file inline `<script>` block without
+falling back to `unsafe-inline`, which defeats the point. Implementing a
+CSP properly means moving that script to an external same-origin file (or
+serving it with a per-response nonce), then setting a header-delivered
+policy with a nonce/hash-based `script-src`, `object-src 'none'`, and
+`base-uri 'none'`, alongside `X-Content-Type-Options: nosniff`, a
+reasonable `Referrer-Policy`, `frame-ancestors` for clickjacking
+protection, and a `Permissions-Policy` that doesn't block WebAuthn. Worth
+verifying these headers actually reach the browser at the Cloudflare edge
+during deployment testing, not just confirming the app sets them.
+
+### Suggested rollout sequence
+
+Given how much of the above is a prerequisite for something later in the
+list, roughly this order: (1) nail down the WebAuthn ceremony and the
+enrollment security contract (Options A and F) and the identity/linking
+transaction invariants (Scope's integrity constraints) before writing any
+public-facing enrollment endpoint; (2) build the single `authorize()`
+decision point, the cookie/CSRF/session model, and WebSocket revoke
+behavior together (Option D) — these interlock enough that building them
+separately invites exactly the kind of drift Option D warns about; (3)
+add the CSP/frontend hardening (Option H) and pre-auth abuse limits
+(Option G), then verify the origin/proxy boundary at the real Cloudflare
+edge, not just in source; (4) migrate admin to named, audited principals
+(Option E's caveat) before the new permission-matrix UI sees routine use;
+(5) only then turn on the public web chat hostname — with the explicit
+release gate that the current unauthenticated picker and bearer-token
+session flow (`GET /api/users`, `POST /api/session`, and the WebSocket's
+existing token handling) is *removed*, not merely supplemented or gated
+behind the new login — per Option C's refinement, there's no reason for
+an endpoint that lists household members to exist at all once login is
+usernameless. Treat "the old flow still reachable alongside the new one"
+as equivalent to not having shipped the new one at
+all.
 
 ### Noted, not requiring a decision here
 
