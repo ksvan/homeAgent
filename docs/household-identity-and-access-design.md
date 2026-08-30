@@ -1,9 +1,10 @@
 # Household Identity & Access Design
 
-Status: problem definition + goals/scenarios captured — no decisions made
-yet. Options, tradeoffs, and a phased plan follow in a later pass once this
-framing has been reviewed.
-Last code check: 2026-08-20
+Status: problem definition done; two of three Foundational Decisions
+resolved by household input (see "Decisions" below); options/tradeoffs for
+what remains open follow in this same pass. A phased implementation plan
+comes after those options are reviewed.
+Last code check: 2026-08-29
 Related docs: `docs/user-identity-memory-link-design.md` (identity↔memory
 link, predates web chat), `docs/web-chat-channel-design.md` (Decision #1
 and "Explicitly Deferred" — the PIN and `telegram_id`-optional items this
@@ -218,16 +219,19 @@ options get judged against — not a checklist to satisfy equally.
    doesn't — from a dedicated admin screen, not by editing `.env` or
    database rows by hand. The capability is decided; the mechanism (most
    likely a `User` × surface permission matrix) is for the next pass.
-5. **Controlling which surfaces are reachable beyond the LAN should be an
-   easily changeable setting, not a deployment-time decision baked into
-   `docker-compose.yml`.** Household-stated requirement: e.g. publish web
-   chat's PWA-facing API via Cloudflare while keeping the admin dashboard
-   LAN-only, and be able to change that later without hand-editing compose
-   files or `cloudflared` config. Concretely, this points at a new admin
-   "Channels" capability, per surface. What exactly that capability
-   changes — real network exposure, or only what HomeAgent's own app-level
-   gate accepts — is a genuinely open mechanism question, not decided
-   here; see Foundational Decision 3.
+5. **Which surfaces are reachable beyond the LAN, and how.** Settled by
+   the Decisions below for the two surfaces that exist today: web chat
+   gets a real public hostname via the same Cloudflare Tunnel already
+   proven for Telegram (a static, occasionally-hand-edited config change —
+   the household accepted the same "as easy as Telegram already is" bar
+   rather than insisting on a live toggle for the network path itself);
+   admin stays LAN/VPN-only, full stop. The "easily changeable without a
+   redeploy" aspiration this goal originally named lives on, just
+   relocated to where it actually matters day to day: Goal 4's per-user
+   surface-access toggles, not the network path underneath them. A live
+   admin "Channels" exposure page (Foundational Decision 3's fuller
+   machinery) remains a legitimate later addition if a third surface or a
+   change of heart on admin's posture ever needs it — not required now.
 6. **Low friction for the people actually using this day to day.**
    This is a household of a few people, not an org with an IT desk.
    Whatever onboarding/login flow comes out of this must stay usable by
@@ -331,16 +335,16 @@ on the first real case.
    `is_admin`, and nothing governs per-surface access. This is Goal 4's
    scenario: a permission-matrix view in the admin UI, not a config file
    edit.
-10. **The admin wants web chat's PWA-facing API reachable from the internet
-    via Cloudflare while keeping the admin dashboard LAN-only — and to
-    change that decision again next month without hand-editing
-    `docker-compose.yml` or `cloudflared` config.** No such control exists
-    today; this is entirely a deployment-time, file-editing decision. This
-    is Goal 5's scenario, and the reason Foundational Decision 3 exists:
-    whatever the admin does on that "Channels" page has to be honest about
-    whether it actually changed the network path or just what HomeAgent
-    itself chooses to accept on it — the admin needs to know which one
-    they just did.
+10. **The admin wants web chat's PWA-facing API reachable from the
+    internet via Cloudflare while keeping the admin dashboard LAN-only.**
+    Resolved by the Decisions below — this is now exactly what happens,
+    via the same static Cloudflare Tunnel mechanism already proven for
+    Telegram. What's still a live, recurring need day to day isn't
+    changing that network path (settled, rarely revisited, same as
+    Telegram's own setup) but Scenario 9's finer-grained cousin: revoking
+    or granting one specific person's access to a specific surface
+    without touching the network config at all — that's Goal 4's
+    permission matrix, not this scenario's concern.
 11. **The admin dashboard itself is opened remotely.** Same tension as web
     chat, but for a surface that can directly rewrite policy, event rules,
     and world-model data — arguably deserves a *higher* bar than chat, not
@@ -416,7 +420,13 @@ is equally privileged everywhere.
 
 **3. Does the admin "Channels" capability (Goal 5) actually change network
 exposure, or only control which incoming traffic HomeAgent's own app-level
-gate accepts?** These are materially different capabilities, and
+gate accepts?** *Resolved for web chat, still open for admin* — see
+Decisions below: web chat gets a real, statically-configured public
+hostname (genuine exposure, not an app-level toggle pretending otherwise),
+secured by uniform passkey login rather than by distinguishing arrival
+path. Admin isn't going public at all, so this question simply doesn't
+bind for it yet; the reasoning below stays relevant if that ever changes.
+These are materially different capabilities, and
 conflating them is a mistake worth naming explicitly, because an earlier
 draft of this doc made exactly that mistake — calling a statically-tunneled
 port plus an app-level toggle "LAN-only." It isn't: if the tunnel routes
@@ -459,6 +469,70 @@ version first, label it plainly as an **access policy**, not
 **exposure**, and show perimeter status as a separate, clearly-caveated
 field rather than implying HomeAgent controls it. The exposure-managing
 version is a legitimate later option, not a default to design toward now.
+
+## Decisions (household input, 2026-08-29)
+
+Direct answers to the three Foundational Decisions above, from Kristian.
+These are decisions, not leanings — the options analysis below builds on
+top of them rather than re-opening them.
+
+**Foundational Decision 2 is resolved: stay flat.** No action-level role
+tiers. `ActionPolicy` does not gain a role dimension — a child's account
+and an adult's account get identical Homey/Oda action permissions once
+they're authenticated, exactly like today. `admin` vs. everyone-else
+remains the only distinction, and it stays scoped to what it already
+governs (Telegram slash commands today, arguably `/admin/*` after this
+pass — see the Admin access scope bullet below) rather than expanding into
+a broader RBAC system. This does not touch Goal 4: per-user, per-*surface*
+access (can this person use web chat / Telegram / admin at all) remains a
+separate, confirmed requirement, orthogonal to this decision.
+
+**Foundational Decision 1's exposure axis, revised same day: web chat
+will be published externally the same way Telegram already is —
+superseding the VPN-first framing below it in this section's edit
+history.** The household has a VPN already, but the stated preference is
+to reuse the exact infrastructure already proven for Telegram rather than
+require a VPN client on every family member's device: the Cloudflare
+Tunnel container already running (already carrying `TELEGRAM_WEBHOOK_URL`
+to port 8080) gets a second public hostname routed to web chat's port
+(9091), added the same static way Telegram's route was. No new
+infrastructure, no runtime-managed Cloudflare API integration — literally
+the same mechanism, one more entry.
+
+That reuse is genuinely simple, but it does **not** carry over Telegram's
+actual security property, which is worth being precise about: Telegram's
+public endpoint is safe not because of Cloudflare, but because (a)
+Telegram's own platform has already authenticated the human before the
+message reaches HomeAgent at all, and (b) `TELEGRAM_WEBHOOK_SECRET`
+proves the request came from Telegram's servers specifically. Web chat
+has no equivalent upstream identity provider. So the household also
+decided the load-bearing consequence of this reuse: **web chat's login
+must become real, per-person authentication — a WebAuthn passkey per
+household member** — replacing today's no-password picker as the actual
+security boundary, applied the same way regardless of whether the request
+arrives from the LAN or the public hostname. (A useful side effect: this
+removes the need for Foundational Decision 3's trickier "trusted ingress
+marker to tell LAN from remote apart" machinery for *this* surface —
+there's no LAN-special-case to protect once the same strong login applies
+everywhere.)
+
+**The admin dashboard explicitly does not follow web chat onto the public
+path.** It stays LAN/VPN-only — the VPN the household already runs is
+still exactly the right tool for admin specifically, given admin can
+directly rewrite policy, event rules, and world-model data (materially
+higher blast radius than chat, per the existing Admin access scope
+bullet). Foundational Decision 3's fuller exposure/perimeter/access-gate
+framework remains fully open and un-decided for admin, simply because
+admin isn't going public and the question doesn't bind for it yet.
+
+**Both currently account-less household members should get full
+accounts** — not a future-proofing exercise, a live v1 requirement. Given
+web chat is now genuinely public rather than VPN-gated, onboarding has to
+be admin-provisioned rather than open self-registration (see Option A
+below, which changed as a direct result of this decision) — the
+onboarding/linking mechanism (Scenario 1 for the first login, Scenario 2
+for later Telegram linking) is the centerpiece of the options below, more
+so now than before.
 
 ## Scope for the next (design/options) pass
 
@@ -522,12 +596,15 @@ not a narrow re-run of the telegram_id migration:
   identity), per surface — plus rate limiting and lockout behavior once
   brute-forcing the picker is a realistic threat rather than a
   theoretical one.
-- An admin "Channels" page (Goal 5, Scenario 10, Foundational Decision 3):
-  per-surface visibility into desired policy, observed/configured
-  perimeter, and HomeAgent's own access-gate decision — shown as three
-  separate things, not one status. What the page's controls actually
-  change (real network exposure vs. only HomeAgent's acceptance) is the
-  open mechanism question in Foundational Decision 3, not decided here.
+- A live admin "Channels" exposure page (Goal 5, Scenario 10,
+  Foundational Decision 3) is **not required for this pass** — web
+  chat's and admin's network paths are both decided and static, matching
+  Telegram's own precedent. The three-way desired-policy /
+  observed-perimeter / access-gate distinction Foundational Decision 3
+  describes stays relevant if a live exposure-toggle UI is ever actually
+  built later (e.g. for a third surface, or if admin's posture is
+  revisited) — worth keeping the reasoning rather than deleting it, but
+  nothing here blocks the current plan.
 - Web session security minimums — not optional hardening to consider
   later, a fixed bar the next pass's design has to clear: `HttpOnly` +
   `Secure` + an appropriate `SameSite` on any session cookie; no bearer
@@ -604,3 +681,138 @@ not a narrow re-run of the telegram_id migration:
 - No multi-household support (still one household per deployment, per
   `docs/user-identity-memory-link-design.md`'s existing Non-Goals, which
   this doc doesn't challenge).
+
+## Options for the next pass
+
+Concrete alternatives for what the Decisions section left open, with a
+recommendation named for each — recommendations, not decisions; the
+household still chooses. A phased implementation plan follows once these
+are picked.
+
+### A. Onboarding mechanism (Scenario 1 — first login with no account anywhere)
+
+Three shapes, in increasing order of friction/control:
+
+- **A1 — Admin-provisioned, invite link.** Admin picks the
+  `HouseholdMember` from an admin UI, clicks "create login," gets a
+  short-lived one-time invite URL to hand to that person. Opening it
+  starts passkey registration bound to that specific pre-created `User`
+  row — the invite token is what proves "you're the person meant to claim
+  this account," spent the moment the passkey ceremony completes, per
+  Foundational Decision 1's "invitation is a bootstrap, not a standing
+  credential." Full admin control, small amount of admin legwork per new
+  person.
+- **A2 — Self-service request, admin approves.** Anyone reaching web chat
+  can hit "I'm new," enter a name; creates a pending request, admin
+  approves (Telegram notification or admin dashboard), approval sends the
+  same kind of invite as A1 to complete passkey registration. More moving
+  parts (a pending-request state machine) for a household of a handful of
+  people — probably more process than the problem needs.
+- ~~A3 — Open self-register, no admin step~~ **— ruled out by the
+  Decisions above, not just deprioritized.** This option's entire
+  justification was "network-level access already gates who can create an
+  account" (true for Telegram's allowlist, and would have been true for
+  VPN-gated web chat). It stops being true the moment web chat is
+  published the same way Telegram is: with no admin step and no VPN gate,
+  "self-register by picking a name" on a genuinely public endpoint means
+  an attacker can register the passkey for "Mom" before Mom does. Once
+  the account creation event *is* the security-critical moment (which it
+  now is, since it's when a passkey gets bound to an identity), it can't
+  be the same event as "anyone who reaches the URL types a name."
+
+**Recommendation: A1.** Directly follows from the public-web-chat
+decision, not a preference reversal on its own terms — the invite-link
+step exists specifically to be the thing that verifies "this real
+person, and not whoever else found the URL, is who's registering this
+passkey." A2's extra approval step doesn't add meaningful safety over A1
+once the invite link itself is the security boundary; it only adds
+process. Note this also gives Kristian a clean, auditable enrollment
+record for free — see the device-enrollment note under Option D below.
+
+### B. Linking a later-acquired Telegram account to an existing web-only `User` (Scenario 2)
+
+Not really an alternatives question — Foundational Decision 1 and the
+integrity constraints in Scope already settled the shape: never infer
+from name. One mechanism, regardless of which onboarding option (A) is
+picked: a short-lived, single-use linking code generated for a specific
+existing `User.id` (via admin UI, or self-service from an already-
+logged-in web session — either works, pick whichever reuses more of A's
+UI), sent to the person out of band, entered via a new `/link <code>`
+Telegram command. The bot verifies the code against that specific
+`User.id` and creates `ChannelMapping(channel="telegram",
+channel_user_id=str(telegram_id))` — never touching `User.name` matching
+logic at all. Small, contained addition to `app/commands/handlers.py`.
+
+### C. Does web chat's login need to get stronger, now that it's public? — resolved
+
+This was written as an open fork (C1 no change / C2 step-up only / C3
+PIN-or-passkey at every login) back when the working assumption was a
+VPN-gated web chat, where "no change" was a defensible answer. It no
+longer is one: the Decisions section above settled this — web chat is
+published the same way Telegram is, and the household chose **passkey
+per person, applied uniformly** (closest to what was labeled C3 here,
+minus the PIN alternative — a PIN was already ruled inadequate standalone
+security for a public URL back in Foundational Decision 1). What's still
+a genuinely open implementation question, not reopened by this: whether
+any action ever needs *step-up* on top of the standard passkey session
+(the old C2 idea) — plausible for something like a large Oda order or an
+away-from-home Homey action, but worth building only if a concrete case
+asks for it, not speculatively.
+
+### D. Session security hardening (Goals 7 and 8, concrete shape)
+
+Less a fork, more a specific implementation, since the Goals already
+dictated most of it. Worth naming one simplification the current
+architecture already provides: `WebChatSession` validation is already a
+live DB lookup on every request (no in-memory caching of session validity)
+— so "authorization changes take effect immediately" (Goal 7) doesn't
+need a separate `authorization_version` invalidation scheme *as long as*
+Goal 4's per-surface access check is implemented the same way (checked
+live per request/message, not baked into the token at issuance). The
+concrete schema change: `WebChatSession` gains `token_hash` (the actual
+bearer value is shown once at issuance and never stored — lookups compare
+hashes, matching the earlier review's requirement), an
+`absolute_expires_at` set once at creation and never extended by
+`touch_session` (alongside the existing sliding `expires_at`), and
+`revoked_at` for the explicit revoke model. `User` gains the per-surface
+flags Goal 4 needs (or a small side table if that reads cleaner —
+implementation detail for the plan, not this pass).
+
+**This is also, for free, the device-enrollment story Option C's passkey
+decision raises.** A passkey is inherently device-bound (platform
+authenticator or synced keychain), so registering one during an A1 invite
+already *is* enrolling that device; no separate enrollment system is
+needed. The resulting `WebChatSession` — once hardened as above — becomes
+the durable, per-device enrollment record: Goal 8's admin visibility (see
+who's connected) and Scenario 8's per-session revoke (kill one lost
+phone's access without touching anyone else's) apply directly, with
+nothing extra to build. A heavier option exists — Cloudflare Access with
+WARP device posture checks, requiring an enrolled/managed device before a
+request even reaches HomeAgent — but it requires installing a client on
+every device, which is exactly the friction the household chose to avoid
+by not going VPN-first for web chat; not worth it unless passkey-per-person
+turns out to be insufficient in practice.
+
+### E. Admin UI shape for Goal 4's permission matrix
+
+New section on the existing admin dashboard (not a separate app) — a
+table of household members × surfaces (Telegram / web chat / admin) with
+toggles, following the same row-plus-action-button pattern already used
+for the World Model and Event Rules tabs in `app/control/dashboard.html`.
+Backed by a new mutation endpoint alongside the existing read-only
+`/admin/users`, gated by the same `require_admin_auth` every other admin
+mutation already uses. No real alternatives worth comparing here — this
+is squarely "extend the existing pattern," not a new one.
+
+### Noted, not requiring a decision here
+
+PWA install now works without any network-topology caveat: since web
+chat is reachable via its own public hostname (same as Telegram), an
+installed PWA works the same whether the phone is on the home Wi-Fi, on
+cellular data, or anywhere else — no VPN client required on the device at
+all. This is a direct, positive consequence of the Decisions above and
+closes out the original "why now" motivation (PWA + reachable outside the
+LAN) cleanly. Admin has the opposite property on purpose: it stays
+VPN/LAN-only, so admin access is only ever as available as the VPN
+connection is — an intentional asymmetry between the two surfaces, not an
+oversight.
