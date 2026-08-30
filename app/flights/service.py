@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import hashlib
 import json
 import logging
@@ -12,6 +13,10 @@ if TYPE_CHECKING:
     from app.flights.models import FlightWatch
 
 logger = logging.getLogger(__name__)
+
+# Tracks last emitted credit state to avoid duplicate low/empty events across checks.
+# Reset on process restart — startup check re-establishes state.
+_last_credit_state: str = "ok"  # "ok" | "low" | "empty"
 
 
 # ---------------------------------------------------------------------------
@@ -164,9 +169,11 @@ async def track_flight(
     save_watch(watch)
     _emit_admin_event("flight.watch_created", {"watch_id": watch.id, "flight": watch.flight_label})
 
-    # Attempt alert subscription
+    # Attempt alert subscription — sleep first to avoid hitting RapidAPI burst limit
+    # immediately after resolve_flight (same-second calls trigger free-tier throttle).
     alert_status = "no_alert"
     if settings.flight_aerodatabox_alerts_enabled and public_base:
+        await asyncio.sleep(2)
         try:
             from app.flights.providers.base import FlightProvider
 
@@ -186,11 +193,21 @@ async def track_flight(
         except ProviderAlertDeferredError:
             alert_status = "deferred"
             _emit_admin_event("flight.provider_alert_deferred", {"watch_id": watch.id})
+        except ProviderQuotaError:
+            # Throttled immediately after resolve_flight — treat as deferred so the
+            # retry job picks it up within minutes rather than reporting a hard failure.
+            alert_status = "deferred"
+            logger.warning("Alert subscription throttled for watch %s — will retry", watch.id)
+            _emit_admin_event(
+                "flight.provider_alert_deferred",
+                {"watch_id": watch.id, "reason": "quota_throttle"},
+            )
         except ProviderError as exc:
             alert_status = "failed"
             logger.warning("Alert subscription failed for watch %s: %s", watch.id, exc)
 
-    # Fetch initial status snapshot
+    # Fetch initial status snapshot — sleep to space out from create_alert call.
+    await asyncio.sleep(2)
     try:
         from app.flights.providers.base import FlightProvider
 
@@ -497,6 +514,10 @@ async def ingest_webhook(
         logger.warning("Flight webhook normalize failed for watch %s: %s", watch.id, exc)
         return {"ok": False, "reason": "parse_error"}
 
+    # Update credit state from webhook payload if the provider included a balance.
+    # This is free — no extra API call needed.
+    _update_credit_state_from_webhook(normalized)
+
     # Deduplication
     event_hash = hashlib.sha256(body).hexdigest()
     if event_hash_exists(event_hash):
@@ -730,6 +751,8 @@ async def poll_watch(watch_id: str, *, force: bool = False) -> None:
 
 
 async def check_alert_credit_balance() -> None:
+    global _last_credit_state
+
     from app.config import get_settings
     from app.flights.providers.base import FlightProvider, ProviderError
 
@@ -743,13 +766,24 @@ async def check_alert_credit_balance() -> None:
     try:
         balance = await provider.get_alert_credit_balance()
     except ProviderError as exc:
-        logger.debug("Could not check alert credit balance: %s", exc)
+        logger.warning("Could not check alert credit balance: %s", exc)
+        _emit_admin_event("flight.alert_credit_check_failed", {"error": str(exc)})
         return
 
-    if balance.empty:
-        _emit_admin_event("flight.alert_credit_empty", {"remaining": 0})
-    elif balance.low:
-        _emit_admin_event("flight.alert_credit_low", {"remaining": balance.remaining})
+    new_state = "empty" if balance.empty else ("low" if balance.low else "ok")
+    if new_state != _last_credit_state:
+        if new_state == "empty":
+            _emit_admin_event("flight.alert_credit_empty", {"remaining": 0})
+        elif new_state == "low":
+            _emit_admin_event(
+                "flight.alert_credit_low", {"remaining": balance.remaining}
+            )
+        elif new_state == "ok" and _last_credit_state in ("low", "empty"):
+            # Credits replenished — emit recovery event for admin visibility.
+            _emit_admin_event(
+                "flight.alert_credit_recovered", {"remaining": balance.remaining}
+            )
+    _last_credit_state = new_state
 
 
 # ---------------------------------------------------------------------------
@@ -810,6 +844,41 @@ async def _cleanup_terminal_watch(watch: "FlightWatch") -> None:
                 watch.id,
                 exc,
             )
+
+
+def _update_credit_state_from_webhook(normalized: dict[str, Any]) -> None:
+    """Update credit state from a webhook payload without an extra API call."""
+    global _last_credit_state
+
+    from app.config import get_settings
+
+    credits_remaining = normalized.get("credits_remaining")
+    if credits_remaining is None:
+        return
+
+    settings = get_settings()
+    threshold = settings.flight_alert_min_credits
+
+    if credits_remaining == 0:
+        new_state = "empty"
+    elif credits_remaining <= threshold:
+        new_state = "low"
+    else:
+        new_state = "ok"
+    if new_state != _last_credit_state:
+        if new_state == "empty":
+            _emit_admin_event("flight.alert_credit_empty", {"remaining": 0, "source": "webhook"})
+        elif new_state == "low":
+            _emit_admin_event(
+                "flight.alert_credit_low",
+                {"remaining": credits_remaining, "source": "webhook"},
+            )
+        elif new_state == "ok" and _last_credit_state in ("low", "empty"):
+            _emit_admin_event(
+                "flight.alert_credit_recovered",
+                {"remaining": credits_remaining, "source": "webhook"},
+            )
+    _last_credit_state = new_state
 
 
 def _emit_admin_event(event_type: str, payload: dict[str, Any]) -> None:

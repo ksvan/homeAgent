@@ -262,19 +262,28 @@ class AeroDataBoxProvider(FlightProvider):
         return True
 
     def normalize_webhook(self, body: bytes) -> dict[str, Any]:
-        """Parse AeroDataBox webhook body to a normalized event dict.
-
-        Phase 0 note: update field mapping after examining real payloads.
-        """
+        """Parse AeroDataBox webhook body to a normalized event dict."""
         try:
             data = json.loads(body)
         except Exception as exc:
             raise ProviderError(f"Invalid JSON in webhook body: {exc}") from exc
 
+        # creditsRemaining may be included in the payload by AeroDataBox.
+        # Extract it here so ingest_webhook can update credit state cheaply
+        # without an extra API call.
+        credits_remaining: int | None = None
+        raw_credits = data.get("creditsRemaining") or data.get("credits_remaining")
+        if raw_credits is not None:
+            try:
+                credits_remaining = int(raw_credits)
+            except (TypeError, ValueError):
+                pass
+
         return {
             "provider": self.name,
             "provider_event_id": data.get("id") or data.get("eventId"),
             "event_type": data.get("eventType") or data.get("type") or "status_update",
+            "credits_remaining": credits_remaining,
             "raw": data,
         }
 

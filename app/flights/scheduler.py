@@ -248,7 +248,7 @@ async def register_flight_scheduler_jobs() -> None:
 
     jobs = [
         (flight_watchdog_job, IntervalTrigger(minutes=15), _WATCHDOG_JOB_ID),
-        (alert_subscription_retry_job, IntervalTrigger(hours=2), _ALERT_RETRY_JOB_ID),
+        (alert_subscription_retry_job, IntervalTrigger(minutes=10), _ALERT_RETRY_JOB_ID),
         (alert_credit_check_job, IntervalTrigger(hours=24), _CREDIT_CHECK_JOB_ID),
         (flight_retention_job, IntervalTrigger(hours=24), _RETENTION_JOB_ID),
     ]
@@ -260,12 +260,20 @@ async def register_flight_scheduler_jobs() -> None:
         except Exception:
             logger.debug("Flight scheduler job already registered: %s", job_id, exc_info=True)
 
-    # Run subscription retry immediately on startup so any deferred or failed
-    # subscriptions are picked up without waiting for the first 2h interval.
+    # Run subscription retry immediately on startup so any deferred or throttled
+    # subscriptions are picked up without waiting for the first 10-min interval.
     try:
         await alert_subscription_retry_job()
     except Exception:
         logger.warning("Startup alert subscription retry failed", exc_info=True)
+
+    # Credit balance check on startup — sleep first to space out from the API
+    # calls made by alert_subscription_retry_job above.
+    await asyncio.sleep(5)
+    try:
+        await alert_credit_check_job()
+    except Exception:
+        logger.warning("Startup credit balance check failed", exc_info=True)
 
 
 def remove_watch_jobs(watch_id: str) -> None:

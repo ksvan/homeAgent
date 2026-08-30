@@ -90,6 +90,11 @@ Important limitations:
 - Alert delivery is credit-based in the newer alert system. Each notification
   delivery attempt consumes alert credits, so noisy airport-level subscriptions
   can cost more than flight-specific subscriptions.
+- RapidAPI free-tier plans enforce a per-second/per-minute burst limit in addition
+  to the monthly quota. Rapid sequential calls (resolve → create_alert → get_status)
+  from a single user action can trigger HTTP 429 throttling before the monthly cap
+  is reached. API calls within the same user action must be spaced with short sleeps
+  (2 seconds between calls).
 - Alerts can be subscribed by flight number or airport, but the design should
   assume flight-number subscriptions for V1 to control cost and noise.
 
@@ -575,15 +580,20 @@ cannot yet create the subscription.
 
 Handling:
 
-1. `track_flight` attempts to create the subscription immediately.
-2. If the provider rejects it because the flight is too far out, the watch is
-   saved with `provider_alert_id = None` and a fallback polling schedule.
+1. `track_flight` attempts to create the subscription immediately, after a 2-second
+   sleep following `resolve_flight` to avoid RapidAPI burst throttling.
+2. If the provider rejects it because the flight is too far out (`ProviderAlertDeferredError`),
+   or because the call was throttled (`ProviderQuotaError`), the watch is saved with
+   `provider_alert_id = None` and a fallback polling schedule. Both cases are treated
+   as deferred — not as hard failures — so the retry job picks them up.
    The user is informed: "I'm tracking this flight. Alert subscription will be
    activated closer to departure — polling is active in the meantime."
-3. A daily scheduler job checks all `ACTIVE` watches with `provider_alert_id = None`
-   and `scheduled_departure_date` within `FLIGHT_SUBSCRIPTION_RETRY_LEAD_DAYS`
-   (default 7). It attempts subscription creation for each and updates the watch
-   if successful. Emits an admin event on success or persistent failure.
+3. A scheduler job runs every **10 minutes**, checking all `ACTIVE` watches with
+   `provider_alert_id = None` and `scheduled_departure_date` within
+   `FLIGHT_SUBSCRIPTION_RETRY_LEAD_DAYS` (default 7). It attempts subscription
+   creation for each, with a 3-second sleep between watches to stay within
+   RapidAPI rate limits. Updates the watch if successful. Emits an admin event on
+   success or persistent failure.
 4. If the subscription creation is still failing within 24 hours of departure,
    the service emits a `flight.provider_alert_failed` event and continues on
    polling only — it does **not** fail the watch.
@@ -598,6 +608,9 @@ maintain its own internal counter. When the vendor returns a quota error
 - Emit a `flight.provider_quota_exceeded` admin event.
 - If it occurred during a user-initiated query, return a message: "The flight
   data provider is temporarily unavailable (quota limit). Last known status: …"
+- If it occurred during `create_alert` in `track_flight`, treat it as a deferred
+  subscription (`provider_alert_id = None`) so the retry job picks it up within
+  10 minutes. Do **not** record it as a hard failure.
 - If it occurred during a background poll or subscription attempt, skip this
   cycle, back off, and retry on the next scheduled interval.
 
@@ -617,13 +630,23 @@ Behavior:
 
 1. On startup, if `FEATURE_FLIGHT_MONITOR=true` and
    `FLIGHT_AERODATABOX_ALERTS_ENABLED=true`, call the free alert balance endpoint.
+   A 5-second sleep separates this from the subscription-retry job that runs just
+   before it, to avoid triggering RapidAPI burst limits at startup.
 2. Run a daily balance check while alerts are enabled.
-3. Parse remaining balance from webhook payloads if AeroDataBox includes it.
+3. Parse remaining balance from webhook payloads if AeroDataBox includes it
+   (`creditsRemaining` field). This is the preferred update path — free, no extra
+   API call, happens with every push event received.
 4. Emit `flight.alert_credit_low` when balance is at or below
    `FLIGHT_ALERT_MIN_CREDITS`.
 5. Emit `flight.alert_credit_empty` when balance reaches zero.
-6. Notify admin/user only when the threshold state changes, not on every check.
-7. Do not auto-refill credits in V1.
+6. Emit `flight.alert_credit_recovered` when balance returns above threshold after
+   a low/empty state. This signals that push delivery has resumed.
+7. Emit events only on state transitions (`ok` → `low` → `empty` and back), not on
+   every check. State is tracked in a module-level variable; resets on restart, and
+   the startup check (point 1) re-establishes it.
+8. Emit `flight.alert_credit_check_failed` (WARNING level) if the balance endpoint
+   cannot be reached — do not swallow this silently.
+9. Do not auto-refill credits in V1.
 
 If the balance is zero, keep watches active but treat alert delivery as paused:
 continue conservative polling, show stale/provider warnings where relevant, and
@@ -1169,9 +1192,11 @@ Remaining decisions before implementation:
    minutes, cancellation/diversion always critical.
 4. Decide the user-facing behavior when the provider cannot find a flight:
    ask for origin/destination clarification first, then offer manual retry later.
-5. Confirm that RapidAPI exposes the Flight Alert PUSH endpoints for the selected
-   subscription. If not, V1 should start as pull-only lookup with conservative
-   polling or switch marketplace. This is the Phase 0 spike gate.
+5. ~~Confirm that RapidAPI exposes the Flight Alert PUSH endpoints for the selected
+   subscription.~~ **Confirmed in prod**: subscription creation works via RapidAPI.
+   RapidAPI burst throttling (HTTP 429) can occur when multiple calls are made in
+   rapid succession — mitigated by 2-second sleeps between API calls in `track_flight`
+   and 3-second sleeps between watches in the retry job.
 6. Confirm the exact AeroDataBox alert subscription lead time from Phase 0 testing
    (to tune `FLIGHT_SUBSCRIPTION_RETRY_LEAD_DAYS`).
 7. Confirm the initial low-credit threshold for `FLIGHT_ALERT_MIN_CREDITS`.
