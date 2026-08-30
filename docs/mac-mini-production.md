@@ -175,9 +175,14 @@ HOMEAGENT_DEPLOY_HOST=macmini.local ./scripts/prod.sh down
 
 # Run production backup script on the Mac mini
 HOMEAGENT_DEPLOY_HOST=macmini.local ./scripts/prod.sh backup
+
+# Pull the latest cloudflared image and recreate just that container
+HOMEAGENT_DEPLOY_HOST=macmini.local ./scripts/prod.sh update-cloudflared
 ```
 
 `logs` intentionally does not finish on its own because it runs `docker compose logs -f`. Use `logs-tail` when you want a finite log snapshot.
+
+`deploy`, `migrate`, and `restart` only run `docker compose build` + `up -d`. `build` rebuilds services with a `build:` context (`homeagent`, `tools`, `prometheus-mcp`) but never pulls the `cloudflared` service, since it uses `image: cloudflare/cloudflared:latest` instead. Once that image has been pulled once on the Mac mini, it stays cached indefinitely — use `update-cloudflared` to refresh it.
 
 ## Webhooks and Tunnel Cutover
 

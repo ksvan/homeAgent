@@ -61,6 +61,7 @@ Commands:
   up          Start the remote Compose stack
   down        Stop the remote Compose stack
   restart     Rebuild and restart the remote Compose stack
+  update-cloudflared  Pull the latest cloudflared image and recreate just that container
   status      Show remote Compose status and health endpoint result
   logs        Tail remote Compose logs
   logs-tail   Print the last 200 remote Compose log lines and exit
@@ -299,6 +300,15 @@ status() {
   "
 }
 
+update_cloudflared() {
+  require_target
+  step "Pulling latest cloudflared image on $DEPLOY_TARGET"
+  remote_compose "pull cloudflared"
+  step "Recreating cloudflared container"
+  remote_compose "up -d cloudflared"
+  remote_compose "ps cloudflared"
+}
+
 case "$MODE" in
   bootstrap)
     bootstrap
@@ -322,6 +332,9 @@ case "$MODE" in
     remote_compose "build"
     remote_compose "up -d"
     status
+    ;;
+  update-cloudflared)
+    update_cloudflared
     ;;
   status)
     status
