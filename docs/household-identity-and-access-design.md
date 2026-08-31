@@ -3,14 +3,18 @@
 Status: design complete — problem definition, resolved Decisions, and
 security-hardened Options (see "Options for the next pass") are now
 followed by a Phased Implementation Plan (Phase 0–5, plus Phase 6, each
-with an exit gate). Phases 0, 1, 2, and 4 are done; Phase 3's application
-code is done but its deployment-verification half (headers at the real
-Cloudflare edge, origin unreachability) is a manual step still
-outstanding; Phase 6 (retrofitting durable audit onto pre-existing admin
-mutation endpoints) is tracked but not started — see "Phased
-Implementation Plan." A second, implementation-time security review is
-planned for after coding, to catch actual-code issues the way this pass
-caught design issues.
+with an exit gate). Phases 0, 1, 2, 4, and 5's application code are all
+done; the implementation-time security review this doc always planned to
+follow coding happened as a bounded 2026-08-31 re-review
+(`SECURITY_REVIEW.md`) and its identity/access-relevant findings
+(BR-01/05/06/07) are incorporated and fixed — see Phase 5 below for the
+detail. What's still outstanding: Phase 3's deployment-verification half
+(headers at the real Cloudflare edge, origin unreachability); Phase 5's
+actual go-live cutover (Cloudflare dashboard hostname + real-device
+passkey pass — Kristian's own deliberate action, not something a coding
+pass performs, per this doc's own framing of that moment); and Phase 6
+(retrofitting durable audit onto pre-existing admin mutation endpoints),
+tracked but not started. See "Phased Implementation Plan."
 Last code check: 2026-08-31
 Related docs: `docs/user-identity-memory-link-design.md` (identity↔memory
 link, predates web chat), `docs/web-chat-channel-design.md` (Decision #1
@@ -1337,15 +1341,101 @@ deployment verification still outstanding**
   last-admin invariant (blocked when it's the last one, allowed when
   another active admin remains, unaffected for non-admins).
 
-**Phase 5 — Enable the public hostname**
+**Phase 5 — Enable the public hostname — application-code prerequisites
+done (2026-08-31); the actual cutover is Kristian's own deliberate action,
+not something this pass performs**
 
-- Second Cloudflare Tunnel public hostname → web chat's port, added the
-  same static way Telegram's route already exists.
-- Full regression pass against every Critical/High item from the
-  implementation-time security review before flipping this on for real.
-- This is the one phase with a genuinely irreversible-feeling consequence
-  — worth a deliberate go/no-go moment with Kristian, not the tail end of
-  a routine deploy.
+- **The legacy anonymous picker/bearer-token router
+  (`app/webchat/api.py`) is deleted outright** — not feature-flagged,
+  matching this doc's own "Suggested rollout sequence" from before any
+  phase started ("treat 'the old flow still reachable alongside the new
+  one' as equivalent to not having shipped the new one at all") and the
+  2026-08-31 security re-review's BR-01 (Critical) finding, which
+  confirmed exactly that risk in the interim configuration-gated state:
+  an omitted or misconfigured `FEATURE_WEBAUTHN_LOGIN` flag previously
+  fell back to unauthenticated household-member impersonation
+  (`GET /api/users` + `POST /api/session`) the moment web chat's port
+  was reachable from anywhere untrusted. `app/webchat/app.py` now
+  unconditionally mounts the WebAuthn router; the `FEATURE_WEBAUTHN_LOGIN`
+  setting is gone (there's nothing left to flag between). The
+  `WebChannel` singleton moved from the deleted router into
+  `app/webchat/channel.py`, its natural home, so it has one location
+  regardless of which router used to exist.
+- **Fail-closed production config check** (`app/__main__.py`): startup
+  refuses to proceed if `APP_ENV=production` and `FEATURE_WEB_CHAT=true`
+  but `WEBAUTHN_RP_ID`/`WEBAUTHN_ORIGINS` are still on their `localhost`
+  dev defaults — turns a forgotten env var into a clear startup error
+  instead of ceremonies silently failing.
+- **Three more findings from the same re-review, all directly relevant
+  to this rollout, fixed here rather than left as follow-up debt:**
+  - BR-06 (Medium): `webauthn_register_verify` used to mark an invite
+    used *before* WebAuthn verification succeeded, so a single
+    malformed/failed ceremony attempt permanently burned a legitimate
+    holder's valid invite (a self-inflicted denial-of-service against
+    the household's own onboarding). Reordered: the invite is now
+    claimed (the existing compare-and-swap) only *after* verification
+    has already succeeded, immediately before the credential is
+    persisted — matching what Option A's security contract already
+    specified ("no window where the token is marked used but the
+    account isn't yet bound, or vice versa") but the implementation had
+    drifted from.
+  - BR-07 (Medium): `_consume_challenge` recorded which `user_id` a
+    registration challenge was issued for but never checked it on
+    consumption, so `verify_registration` would accept an arbitrary
+    caller-supplied `user_id` against someone else's challenge — not
+    independently exploitable without already holding valid enrollment
+    material for the affected flow, but a real break of a stated
+    identity invariant (Option F: challenges "bound to... the specific
+    intended `User`"). `_consume_challenge` now takes an
+    `expected_user_id` and rejects a mismatch before ever reaching
+    cryptographic verification; a mismatch deliberately does *not*
+    consume the challenge, so it can't be used to DoS the legitimate
+    owner's own valid attempt.
+  - BR-05 (Medium): admin-issued invites, Telegram link codes, and
+    access changes were attributed only to the literal string `"admin"`
+    (`require_admin_auth` had no per-person identity before Phase 4).
+    Now that Phase 4 built real passkey-backed `AdminIdentity`, these
+    four endpoints (`POST /admin/users/invite`, `POST /admin/users`,
+    `POST /admin/users/link-code`, `PATCH /admin/users/{id}/access`)
+    consume it and attribute to the real admin's `user_id` when
+    authenticated via passkey — break-glass/dev-mode auth still has no
+    per-person identity to attribute to, so keeps the `"admin"` fallback.
+    This is distinct from, and narrower than, Phase 6's deferred
+    retrofit: these four endpoints didn't exist before this design's own
+    Phase 1/2 work, so fixing them is this rollout closing its own gap,
+    not touching the older pre-existing admin surface Phase 6 covers.
+  - BR-02/BR-03/BR-04 from the same re-review (Homey/AgentMail webhook
+    auth, SharePoint SSRF via redirects, unauthenticated tools-MCP code
+    execution) are real findings but **out of scope for this design
+    doc** — they're webhook and tools-MCP subsystems, not household
+    identity/access. Tracked in `SECURITY_REVIEW.md`, not here.
+- **Ops runbook written** (`docs/mac-mini-production.md`, "Web Chat
+  Public Hostname Cutover" and "First Admin Onboarding" sections):
+  required env vars, the Cloudflare-dashboard-side hostname addition
+  (there is no in-repo cloudflared config to script — Telegram's own
+  route is dashboard-managed the same way, confirmed by inspecting
+  `docker-compose.yml`'s `cloudflared` service), schema migrations
+  already being automatic (`alembic upgrade heads` on every container
+  start, nothing extra needed), and the concrete first-admin bootstrap
+  sequence (`ADMIN_TELEGRAM_IDS` → first Telegram contact → admin-issued
+  self-invite under break-glass → passkey registration).
+- **What remains genuinely outside this pass, on purpose:** actually
+  adding the Cloudflare Public Hostname and going live is Kristian's own
+  deliberate action against the real dashboard — nothing in this
+  environment has Cloudflare Tunnel access to perform or verify it, and
+  this phase was always meant to be "a deliberate go/no-go moment... not
+  the tail end of a routine deploy," not something a coding pass
+  executes on its own. Phase 3's still-outstanding deployment
+  verification (headers at the real Cloudflare edge, origin
+  unreachability) and Phase 1's still-outstanding manual real-
+  authenticator passkey test both remain prerequisites to actually
+  flipping this on, not superseded by any of the above.
+- **Exit gate:** application-code portion — legacy router removal,
+  fail-closed config check, and all three BR-05/06/07 fixes — covered by
+  new/updated regression tests, all passing; `ruff`/`mypy` clean. The
+  deployment-cutover half of the exit gate (public hostname live,
+  verified against the real edge, real-device passkey pass) is Kristian's
+  to execute using the new runbook, not claimed done here.
 
 **Phase 6 — Retrofit durable audit onto pre-existing admin mutation
 endpoints**

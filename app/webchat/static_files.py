@@ -1,12 +1,13 @@
 """
-Shared static-JS-serving helper for the web chat routers.
+Shared static-JS-serving helper for the web chat router
+(app.webchat.api_webauthn), also reused by the admin dashboard for its
+own WebAuthn login JS (app.control.api).
 
-Both app.webchat.api (legacy) and app.webchat.api_webauthn serve their
-page-specific JS as external files rather than inline <script> blocks —
-required for a script-src 'self' CSP with no 'unsafe-inline'/nonce
-(docs/household-identity-and-access-design.md Phase 3) — so this one
-function backs every "GET /whatever.js" route in both routers instead of
-each repeating the same read-and-404 logic.
+Every page serves its JS as an external file rather than inline
+<script> blocks — required for a script-src 'self' CSP with no
+'unsafe-inline'/nonce (docs/household-identity-and-access-design.md
+Phase 3) — so this one function backs every "GET /whatever.js" route
+instead of each repeating the same read-and-404 logic.
 """
 
 from __future__ import annotations

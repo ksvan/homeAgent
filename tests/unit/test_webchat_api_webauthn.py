@@ -1,5 +1,5 @@
 """Integration tests for app.webchat.api_webauthn — the WebAuthn-based
-router mounted when settings.feature_webauthn_login is on. See
+web chat router (the only one, since Phase 5). See
 docs/household-identity-and-access-design.md Option D/F.
 
 Exercises the full HTTP surface (invite lookup, registration, login,
@@ -80,7 +80,6 @@ def settings(monkeypatch: pytest.MonkeyPatch) -> None:
     from app.config import get_settings
 
     s = get_settings()
-    monkeypatch.setattr(s, "feature_webauthn_login", True)
     monkeypatch.setattr(s, "webauthn_origins", "http://testserver")
 
 
@@ -162,6 +161,51 @@ def test_register_verify_creates_credential_and_session(
     assert resp.json()["ok"] is True
     assert "hac_session" in resp.cookies
     assert "hac_csrf" in resp.cookies
+
+
+def test_failed_register_verify_does_not_burn_the_invite(
+    client: TestClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """2026-08-31 security re-review finding BR-06: a malformed/failed
+    ceremony must not consume a valid invite the legitimate holder could
+    otherwise retry with — the invite is only claimed after verification
+    already succeeded."""
+    token = _create_invite()
+    options_resp = client.post("/api/webauthn/register/options", json={"invite_token": token})
+    challenge_id = options_resp.json()["challenge_id"]
+
+    def _raise(**kwargs: object) -> None:
+        raise wa.WebAuthnError("bad signature")
+
+    monkeypatch.setattr(wa.webauthn, "verify_registration_response", _raise)
+
+    failed = client.post(
+        "/api/webauthn/register/verify",
+        json={"invite_token": token, "challenge_id": challenge_id, "credential": {"id": "cred-1"}},
+    )
+    assert failed.status_code == 400
+
+    # The invite itself is still claimable — get a fresh challenge (the
+    # earlier one was single-use) and succeed this time.
+    retry_options = client.post("/api/webauthn/register/options", json={"invite_token": token})
+    assert retry_options.status_code == 200
+    retry_challenge_id = retry_options.json()["challenge_id"]
+
+    fake_result = SimpleNamespace(
+        credential_id=b"cred-1", credential_public_key=b"pubkey", sign_count=0
+    )
+    monkeypatch.setattr(wa.webauthn, "verify_registration_response", lambda **kwargs: fake_result)
+
+    retry = client.post(
+        "/api/webauthn/register/verify",
+        json={
+            "invite_token": token,
+            "challenge_id": retry_challenge_id,
+            "credential": {"id": "cred-1"},
+        },
+    )
+    assert retry.status_code == 200
+    assert retry.json()["ok"] is True
 
 
 def test_register_verify_rejects_reused_invite(

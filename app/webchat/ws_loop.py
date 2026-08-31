@@ -1,13 +1,11 @@
 """
-Shared WebSocket message loop for the web chat channel.
-
-Used by both the legacy picker/bearer router (app.webchat.api) and the
-WebAuthn router (app.webchat.api_webauthn) — only one of which is ever
-mounted at a time (see app.webchat.app), but both need the identical
-chat/confirm/cancel dispatch behavior. Keeping it here means that logic
-exists exactly once regardless of which auth model is active, so the two
-routers can't silently drift apart on anything but the auth handshake
-itself.
+Shared WebSocket message loop for the web chat channel — used by
+app.webchat.api_webauthn (the only web chat router since Phase 5; the
+earlier anonymous picker/bearer-token router was removed, see
+docs/household-identity-and-access-design.md). Kept as its own module
+rather than inlined in the router, matching the pattern used while a
+second router existed, so the auth handshake and the message-dispatch
+loop stay clearly separated.
 """
 
 from __future__ import annotations

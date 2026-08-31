@@ -1,13 +1,14 @@
 """
-WebAuthn-based web chat HTTP + WebSocket API — Phase 1 of
-docs/household-identity-and-access-design.md.
+Web chat HTTP + WebSocket API — WebAuthn passkey login (Phase 1 of
+docs/household-identity-and-access-design.md), the only web chat router.
 
-Mounted *instead of* (never alongside) app.webchat.api's legacy picker/
-bearer-token routes when settings.feature_webauthn_login is on — see
-app.webchat.app.create_webchat_app. Reuses the same WebChannel singleton
-(app.webchat.api.get_web_channel) and the same chat/confirm/cancel
-dispatch loop (app.webchat.ws_loop) as the legacy router; only the
-identity/session layer differs.
+The earlier anonymous picker/bearer-token router (app.webchat.api) was
+removed at Phase 5, per the design doc's own release gate: "the old flow
+still reachable alongside the new one" is equivalent to not having
+shipped the new one at all, and the 2026-08-31 security re-review's BR-01
+finding confirmed exactly this risk in the interim configuration-gated
+state. This is now the only way to reach web chat, unconditionally
+mounted by app.webchat.app.create_webchat_app.
 
 Session identity travels in an HttpOnly/Secure/SameSite cookie, never in
 localStorage or a URL (Goal 7 / Option D). CSRF: a synchronizer token set
@@ -33,7 +34,7 @@ from app.config import get_settings
 from app.control.audit import record_audit_event
 from app.policy.authorize import authorize
 from app.policy.principal import load_principal
-from app.webchat.api import get_web_channel
+from app.webchat.channel import get_web_channel
 from app.webchat.client_ip import get_client_ip
 from app.webchat.invites import get_valid_invite, mark_invite_used
 from app.webchat.session import (
@@ -251,9 +252,14 @@ async def webauthn_register_verify(
     if invite is None:
         raise HTTPException(status_code=404, detail="Invalid or expired invite")
 
-    if not mark_invite_used(body.invite_token):
-        raise HTTPException(status_code=409, detail="Invite already claimed")
-
+    # Verify BEFORE consuming the invite (2026-08-31 security re-review
+    # finding BR-06): a failed/malformed ceremony must not burn a valid
+    # invite the legitimate holder could otherwise retry with. The invite
+    # is only actually claimed (mark_invite_used, a compare-and-swap) once
+    # verification has already succeeded, right before the credential
+    # itself is persisted — so a lost race between two concurrent claim
+    # attempts is caught here, before either creates a credential, not
+    # after.
     try:
         result = verify_registration(body.challenge_id, invite.user_id, json.dumps(body.credential))
     except WebAuthnError:
@@ -261,6 +267,9 @@ async def webauthn_register_verify(
             "WebAuthn registration failed for invite user_id=%s", invite.user_id, exc_info=True
         )
         raise HTTPException(status_code=400, detail="Registration verification failed") from None
+
+    if not mark_invite_used(body.invite_token):
+        raise HTTPException(status_code=409, detail="Invite already claimed")
 
     from app.db import users_session as _users_session
     from app.models.users import WebAuthnCredential

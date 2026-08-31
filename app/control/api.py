@@ -11,7 +11,7 @@ from fastapi import APIRouter, Cookie, Depends, HTTPException, Request, Response
 from fastapi.responses import HTMLResponse, PlainTextResponse, StreamingResponse
 from pydantic import BaseModel
 
-from app.control.auth import CSRF_COOKIE, SESSION_COOKIE, require_admin_auth
+from app.control.auth import CSRF_COOKIE, SESSION_COOKIE, AdminIdentity, require_admin_auth
 
 if TYPE_CHECKING:
     from app.models.cache import AgentRunLog
@@ -412,7 +412,7 @@ def _web_chat_active_sessions() -> int:
     """Live WebSocket connection count for the web chat channel (0 if the
     feature is off — the module is always importable, just unused)."""
     try:
-        from app.webchat.api import get_web_channel
+        from app.webchat.channel import get_web_channel
 
         return get_web_channel().active_connection_count()
     except Exception:
@@ -1303,16 +1303,19 @@ class _CreateInviteRequest(BaseModel):
     user_id: str
 
 
-@router.post("/users/invite", dependencies=_auth)
-async def admin_create_webchat_invite(body: _CreateInviteRequest) -> dict[str, Any]:
+@router.post("/users/invite")
+async def admin_create_webchat_invite(
+    body: _CreateInviteRequest, identity: AdminIdentity = Depends(require_admin_auth)
+) -> dict[str, Any]:
     """Issue a one-time web chat enrollment invite for a household user —
     see docs/household-identity-and-access-design.md Option A. Returns the
     claim URL for the admin to deliver out of band (chat, in person); it
     is never shown again once this response is sent.
 
-    Admin auth is a single shared secret with no per-admin-user identity
-    (see require_admin_auth) — invites are attributed to "admin" rather
-    than a specific admin account until that's introduced.
+    Attributed to the real admin's user_id when authenticated via passkey
+    (2026-08-31 security re-review finding BR-05); break-glass/dev-mode
+    auth still has no per-person identity to attribute to, so falls back
+    to the "admin" marker.
     """
     from sqlmodel import select
 
@@ -1326,7 +1329,9 @@ async def admin_create_webchat_invite(body: _CreateInviteRequest) -> dict[str, A
     if user is None:
         return {"error": "Unknown user"}
 
-    invite = create_invite(user.id, user.household_id, created_by_user_id="admin")
+    invite = create_invite(
+        user.id, user.household_id, created_by_user_id=identity.user_id or "admin"
+    )
     origins = [o.strip() for o in get_settings().webauthn_origins.split(",") if o.strip()]
     base_url = origins[0] if origins else ""
     return {
@@ -1339,8 +1344,10 @@ class _CreateUserRequest(BaseModel):
     name: str
 
 
-@router.post("/users", dependencies=_auth)
-async def admin_create_user(body: _CreateUserRequest) -> dict[str, Any]:
+@router.post("/users")
+async def admin_create_user(
+    body: _CreateUserRequest, identity: AdminIdentity = Depends(require_admin_auth)
+) -> dict[str, Any]:
     """Create a household member with no channel identity yet — see
     docs/household-identity-and-access-design.md Option A/Phase 2. Closes
     the gap where a `User` could previously only ever be created by
@@ -1377,7 +1384,12 @@ async def admin_create_user(body: _CreateUserRequest) -> dict[str, Any]:
         user.household_id, user_id=user.id, name=user.name, role="member", source="migration_seed"
     )
 
-    record_audit_event("user.created", user.household_id, target_user_id=user.id)
+    record_audit_event(
+        "user.created",
+        user.household_id,
+        actor_user_id=identity.user_id or "admin",
+        target_user_id=user.id,
+    )
     return {"id": user.id, "name": user.name}
 
 
@@ -1385,12 +1397,15 @@ class _CreateLinkCodeRequest(BaseModel):
     user_id: str
 
 
-@router.post("/users/link-code", dependencies=_auth)
-async def admin_create_link_code(body: _CreateLinkCodeRequest) -> dict[str, Any]:
+@router.post("/users/link-code")
+async def admin_create_link_code(
+    body: _CreateLinkCodeRequest, identity: AdminIdentity = Depends(require_admin_auth)
+) -> dict[str, Any]:
     """Issue a one-time Telegram account-linking code for a household user
     — see docs/household-identity-and-access-design.md Option B. The admin
     reads/sends the code to that person out of band; they redeem it with
-    `/link <code>` in Telegram.
+    `/link <code>` in Telegram. Attributed to the real admin's user_id
+    when authenticated via passkey (security re-review finding BR-05).
     """
     from sqlmodel import select
 
@@ -1403,7 +1418,9 @@ async def admin_create_link_code(body: _CreateLinkCodeRequest) -> dict[str, Any]
     if user is None:
         return {"error": "Unknown user"}
 
-    info = create_link_code(user.id, user.household_id, created_by_user_id="admin")
+    info = create_link_code(
+        user.id, user.household_id, created_by_user_id=identity.user_id or "admin"
+    )
     return {"code": info.code, "expires_at": info.expires_at.isoformat()}
 
 
@@ -1413,8 +1430,12 @@ class _UpdateAccessRequest(BaseModel):
     web_chat_enabled: bool | None = None
 
 
-@router.patch("/users/{user_id}/access", dependencies=_auth)
-async def admin_update_user_access(user_id: str, body: _UpdateAccessRequest) -> dict[str, Any]:
+@router.patch("/users/{user_id}/access")
+async def admin_update_user_access(
+    user_id: str,
+    body: _UpdateAccessRequest,
+    identity: AdminIdentity = Depends(require_admin_auth),
+) -> dict[str, Any]:
     """Update a household member's global active state and/or per-surface
     access (docs/household-identity-and-access-design.md Option D/E). Any
     revocation force-closes that user's open web chat connections
@@ -1428,7 +1449,7 @@ async def admin_update_user_access(user_id: str, body: _UpdateAccessRequest) -> 
     from app.control.audit import record_audit_event
     from app.db import users_session
     from app.models.users import User
-    from app.webchat.api import get_web_channel
+    from app.webchat.channel import get_web_channel
 
     with users_session() as session:
         user = session.exec(select(User).where(User.id == user_id)).first()
@@ -1472,7 +1493,11 @@ async def admin_update_user_access(user_id: str, body: _UpdateAccessRequest) -> 
 
     if changes:
         record_audit_event(
-            "user.access_updated", household_id, target_user_id=user_id, detail=changes
+            "user.access_updated",
+            household_id,
+            actor_user_id=identity.user_id or "admin",
+            target_user_id=user_id,
+            detail=changes,
         )
 
     if revoked and ("is_active" in changes or "web_chat_enabled" in changes):

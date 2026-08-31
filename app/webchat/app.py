@@ -13,11 +13,16 @@ from __future__ import annotations
 
 from fastapi import FastAPI
 
-from app.config import get_settings
 from app.webchat.security_headers import SecurityHeadersMiddleware
 
 
 def create_webchat_app() -> FastAPI:
+    """The WebAuthn passkey router (app.webchat.api_webauthn) is the only
+    web chat router — the earlier anonymous picker/bearer-token router was
+    removed at Phase 5 (docs/household-identity-and-access-design.md),
+    per that doc's own release gate against ever leaving both reachable."""
+    from app.webchat.api_webauthn import router
+
     app = FastAPI(
         title="HomeAgent Web Chat",
         docs_url=None,
@@ -25,11 +30,5 @@ def create_webchat_app() -> FastAPI:
         openapi_url=None,
     )
     app.add_middleware(SecurityHeadersMiddleware)
-
-    if get_settings().feature_webauthn_login:
-        from app.webchat.api_webauthn import router
-    else:
-        from app.webchat.api import router
-
     app.include_router(router)
     return app

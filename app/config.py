@@ -316,18 +316,14 @@ class Settings(BaseSettings):
     web_chat_session_absolute_ttl_days: int = 90
 
     # WebAuthn passkey login (docs/household-identity-and-access-design.md).
-    # Selects which router app.webchat.app mounts: off (default) keeps
-    # today's anonymous picker/bearer-session flow (app.webchat.api)
-    # completely unchanged; on switches to the WebAuthn flow
-    # (app.webchat.api_webauthn) with a real cookie session and no
-    # anonymous "list users" endpoint. Only one is ever mounted — never
-    # both — so there's no runtime cutover logic to get wrong, just a
-    # choice made once at startup. Intended to go on for real no earlier
-    # than Phase 5, alongside publishing the public Cloudflare hostname;
-    # the legacy router is deleted from the codebase in a follow-up
-    # cleanup once that's proven, not kept indefinitely.
-    feature_webauthn_login: bool = False
-
+    # This is the only web chat auth model as of Phase 5 — the earlier
+    # anonymous picker/bearer-session router was removed outright (not
+    # feature-flagged) per the design doc's own release gate and the
+    # 2026-08-31 security re-review's BR-01 finding: an omitted or
+    # misconfigured flag previously fell back to unauthenticated
+    # impersonation the moment web chat's port was reachable from
+    # anywhere untrusted.
+    #
     # Relying Party identity — must match the hostname the browser actually
     # sees, or every ceremony fails. E.g. "chat.example.com" in production;
     # "localhost" is fine for local dev over plain HTTP.

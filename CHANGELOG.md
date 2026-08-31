@@ -24,9 +24,9 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 
 ### Added
 
-- **Household identity & access, Phase 0-4 (WebAuthn passkey login,
+- **Household identity & access, Phase 0-5 (WebAuthn passkey login,
   Telegram linking, permission matrix, CSP/origin hardening, admin auth
-  migration)** — see
+  migration, public hostname prerequisites)** — see
   `docs/household-identity-and-access-design.md`. Phase 0 laid the
   foundation: `User.is_active`, a `WebAuthnCredential` table, a hardened
   `WebChatSession` (hashed token, sliding + absolute expiry, revoke-not-
@@ -128,7 +128,34 @@ Versioning follows [Semantic Versioning](https://semver.org/).
   the last active admin. `dashboard.html` gained a minimal passkey login
   gate and sign-out control; the existing Bearer/sessionStorage flow is
   unchanged. Tests: `test_control_auth.py`, `test_control_api_admin_auth.py`,
-  plus additions to `test_control_api_access.py`.
+  plus additions to `test_control_api_access.py`. **Phase 5 removed the
+  legacy anonymous picker/bearer-token web chat router
+  (`app/webchat/api.py`) outright** — not feature-flagged — per this
+  design's own release gate and a 2026-08-31 bounded security re-review
+  (`SECURITY_REVIEW.md`) that found the interim configuration-gated state
+  was a Critical unauthenticated-impersonation risk (BR-01) if the
+  WebAuthn flag was ever omitted/misconfigured on a published port; the
+  `FEATURE_WEBAUTHN_LOGIN` setting is gone along with it, since there's
+  no longer a second router to choose between. `app/__main__.py` now
+  fails closed at startup if production has web chat on with
+  `WEBAUTHN_RP_ID`/`WEBAUTHN_ORIGINS` still on `localhost` defaults.
+  Three more findings from the same review, all in this design's own
+  code, fixed alongside: registration no longer burns an admin-issued
+  invite before WebAuthn verification actually succeeds (BR-06, was a
+  self-DoS against a legitimate holder's own retry); a registration
+  challenge's stored `user_id` is now enforced on consumption instead of
+  accepting an arbitrary caller-supplied one (BR-07); and admin-issued
+  invites/link-codes/access-changes are now attributed to the real
+  admin's `user_id` when authenticated via passkey rather than always the
+  literal `"admin"` marker (BR-05). New ops runbook sections in
+  `docs/mac-mini-production.md` ("Web Chat Public Hostname Cutover",
+  "First Admin Onboarding") cover the required env vars, the Cloudflare-
+  dashboard-side hostname addition (no in-repo config to script — same as
+  Telegram's own route), and the first-admin bootstrap sequence. Tests:
+  additions to `test_webchat_app.py`, `test_webchat_webauthn.py`,
+  `test_webchat_api_webauthn.py`, `test_control_api_admin_auth.py`;
+  `test_webchat_api.py` (the legacy router's own tests) removed along
+  with the router.
 - **Web chat channel** — browser-based chat UI for household members without
   Telegram on the current device, behind `FEATURE_WEB_CHAT` (default off).
   Runs as its own standalone FastAPI app/port (`WEB_CHAT_PORT`, default

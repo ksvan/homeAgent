@@ -113,7 +113,7 @@ async def _lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
 
     if settings.feature_web_chat:
         from app.channels.registry import register_channel
-        from app.webchat.api import get_web_channel
+        from app.webchat.channel import get_web_channel
 
         register_channel("web", get_web_channel())
         logger.info("Web chat channel registered (serves on port %d)", settings.web_chat_port)

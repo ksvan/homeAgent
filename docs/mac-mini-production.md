@@ -203,6 +203,112 @@ curl -X POST "https://api.telegram.org/bot<YOUR_TOKEN>/setWebhook" \
   -d '{"url": "https://your-domain.com/webhook/telegram", "secret_token": "<YOUR_WEBHOOK_SECRET>"}'
 ```
 
+## Web Chat Public Hostname Cutover (Phase 5)
+
+Publishing web chat outside the LAN — see
+[docs/household-identity-and-access-design.md](household-identity-and-access-design.md)
+for the full design and threat model this follows. Unlike Telegram's
+webhook route, there is nothing to script here on the app side: like
+Telegram's own public hostname, the Cloudflare Tunnel ingress rule
+(domain → local port) is configured entirely in the Cloudflare Zero
+Trust dashboard, not in this repo — `docker-compose.yml`'s `cloudflared`
+service just runs `tunnel run` with a token; where each hostname routes
+is remote, dashboard-managed state.
+
+**Before publishing, in order:**
+
+1. **Schema/data**: nothing to do manually — `app/__main__.py` runs
+   `alembic upgrade heads` automatically on every container start (see
+   `_run_migrations()`), and `scripts/prod.sh migrate`/`deploy` already
+   rebuild + restart the container as part of a normal deploy. A schema
+   change ships the same way any other code change does.
+2. **Env vars** (`.env` on the Mac mini, then `./scripts/prod.sh sync-env` +
+   `restart`, or edit directly on the mini and `restart`):
+   - `FEATURE_WEB_CHAT=true`
+   - `WEBAUTHN_RP_ID=<your real domain>` — e.g. `example.com`, not
+     `localhost`. This is a bare domain (no scheme/port).
+   - `WEBAUTHN_ORIGINS=<comma-separated exact origins>` — must include
+     **both** the public web chat origin (e.g.
+     `https://chat.example.com`) **and** whatever origin the admin
+     dashboard is actually opened from (e.g.
+     `http://192.168.1.50:9090` for a LAN admin, or its VPN hostname) —
+     passkey ceremonies started from either page need their own origin
+     listed, or they fail verification outright.
+   - `app/__main__.py` refuses to start if `APP_ENV=production` and
+     `FEATURE_WEB_CHAT=true` but `WEBAUTHN_RP_ID`/`WEBAUTHN_ORIGINS` are
+     still on their `localhost` defaults — a deliberate fail-closed
+     check (2026-08-31 security re-review, BR-01) so a forgotten env var
+     produces a clear startup error instead of ceremonies silently
+     failing (or worse).
+3. **Cloudflare dashboard**: add a second Public Hostname on the same
+   tunnel used for Telegram's webhook, routing the new domain/subdomain
+   to `http://homeagent:9091` (web chat's port inside the compose
+   network) — the same way Telegram's route already exists for port
+   8080. Admin's port (9090) does **not** get a public hostname; it
+   stays LAN/VPN-only by design.
+4. **First admin passkey** — see the next section; do this before
+   publishing, not after, so there's a real path to the admin dashboard
+   once the LAN-only convenience of "it's just on my network" no longer
+   applies to web chat (admin itself is unaffected — it was never
+   published).
+5. Restart the stack (`./scripts/prod.sh restart`), then open the new
+   public URL from a real device and complete a passkey registration
+   end-to-end — the manual, real-authenticator verification this design
+   has flagged as outstanding since Phase 1 (nothing in CI or this dev
+   environment can drive an actual WebAuthn ceremony).
+
+**Release gate, not optional hardening:** the earlier anonymous picker/
+bearer-token web chat router was removed outright at Phase 5 (not
+feature-flagged) specifically so there is no configuration that can
+reintroduce it — the 2026-08-31 security re-review's BR-01 finding is
+what happens when that flow is merely gated behind a flag instead of
+deleted. Before publishing, confirm the deployed code is at or after
+that removal (`git log --oneline -- app/webchat/api.py` should show only
+the deletion commit, no file present).
+
+## First Admin Onboarding
+
+`User.is_admin` is still bootstrap-only (set at account creation via
+`ADMIN_TELEGRAM_IDS` in `.env`, matching whoever's `telegram_id` is
+listed there) — there is no in-app way to grant admin status to an
+existing account. This is unaffected by the web chat/passkey work above;
+it predates it and is the same on a fresh deployment as it always was.
+
+1. Add the intended admin's Telegram numeric user ID to
+   `ADMIN_TELEGRAM_IDS` in `.env` (comma-separated if more than one).
+   Get a numeric Telegram ID from `@userinfobot` or similar if you don't
+   already have it.
+2. Have that person message the Telegram bot once (anything — even
+   `/help`). `app.bot._get_or_create_user` auto-creates their `User` row
+   on first contact and sets `is_admin=True` because their `telegram_id`
+   matches the allowlist above. This is the *only* way a `User` row gets
+   `is_admin=True` today.
+3. To also give them a passkey for the admin dashboard: reach
+   `http://<mac-mini>:9090/admin` under the break-glass shared secret
+   (`APP_SECRET_KEY`, as `?token=` once — it's stripped from the address
+   bar on load — or a `Authorization: Bearer` header for direct API
+   calls), then use the Access tab's "Web chat invite" action for that
+   admin's row (or `POST /admin/users/invite` directly). Opening the
+   resulting `/invite/<token>` link on the admin's own device starts
+   passkey registration. The same credential then works for both web
+   chat and the admin dashboard's own passkey login
+   (`POST /admin/auth/login/verify`), since a `WebAuthnCredential` is
+   tied to the person's `user_id`, not to which surface registered it —
+   as long as `WEBAUTHN_ORIGINS` includes both origins (see the cutover
+   section above).
+4. Encourage registering a *second* authenticator (another device) for
+   anyone holding admin, per the design doc's Option F — a single lost
+   device becoming a full admin lockout is exactly the failure mode the
+   break-glass secret exists to recover from, but it's better avoided
+   than relied on.
+5. The break-glass shared secret (`APP_SECRET_KEY`) remains valid on
+   every admin route indefinitely — it is not a bootstrap step to
+   "graduate away from" once passkey login works, it's the permanent,
+   audited (`admin.break_glass_used` on every state-changing request it
+   authenticates) local/LAN-only recovery path. Rotate it
+   (`python -c "import secrets; print(secrets.token_hex(32))"`, update
+   `.env`, restart) if it's ever suspected of leaking.
+
 ## Pull-Based Auto-Update
 
 As an alternative to push deploys from the source Mac, the Mac mini can update itself by polling GitHub and pulling only when CI has passed.

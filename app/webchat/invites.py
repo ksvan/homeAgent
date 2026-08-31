@@ -4,18 +4,24 @@ docs/household-identity-and-access-design.md Option A's security contract.
 
 A URL is a transferable bearer credential, proof of possession only — not
 proof of a person. This token is a short-lived, one-time bootstrap secret
-spent establishing a passkey (`mark_invite_used`, called immediately before
-credential creation), never a standing credential itself.
+spent establishing a passkey (`mark_invite_used`, called by
+app.webchat.api_webauthn only *after* WebAuthn verification has already
+succeeded, immediately before credential creation), never a standing
+credential itself. A failed or malformed ceremony attempt no longer burns
+the invite at all — fixed 2026-08-31 (security re-review finding BR-06;
+the invite used to be marked used *before* verification, so a bad first
+attempt permanently locked out a legitimate holder's retry).
 
 `WebChatInvite` lives in cache.db, `WebAuthnCredential` in users.db —
 different SQLite files, so true cross-database atomicity isn't available
 anywhere in this codebase (no other feature has it either). `mark_invite_used`
 is a single-database compare-and-swap: it only succeeds if the invite was
-still unclaimed at that instant, so two concurrent claim attempts can't
-both succeed, even though a failure *after* that point (credential creation
-itself failing) still burns the invite. That's an accepted tradeoff — the
-legitimate user asks the admin for a new invite — favoring "never double-
-redeemable" over "always resumable after a failure."
+still unclaimed at that instant, so two concurrent claim attempts (both
+past verification) can't both succeed, even though a failure *after* that
+point (credential creation itself failing) still burns the invite. That's
+an accepted, now much narrower tradeoff — the legitimate user asks the
+admin for a new invite — favoring "never double-redeemable" over "always
+resumable after a failure."
 """
 
 from __future__ import annotations

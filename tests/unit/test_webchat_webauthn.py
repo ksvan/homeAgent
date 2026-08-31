@@ -118,6 +118,30 @@ def test_verify_registration_success(monkeypatch: pytest.MonkeyPatch) -> None:
     assert result.credential_id == wa._b64_no_pad(b"cred-id-bytes")
 
 
+def test_verify_registration_rejects_challenge_issued_for_a_different_user(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """2026-08-31 security re-review finding BR-07: a registration
+    challenge issued for one invite's target account must not be usable
+    to enroll a different account, even with an otherwise-valid
+    (unexpired, unused, correct-purpose) challenge_id."""
+    challenge_id, _ = wa.build_registration_options("user-1", "Alice")
+    fake_result = SimpleNamespace(
+        credential_id=b"cred-id-bytes", credential_public_key=b"pub-key-bytes", sign_count=0
+    )
+    monkeypatch.setattr(wa.webauthn, "verify_registration_response", lambda **kwargs: fake_result)
+
+    with pytest.raises(wa.WebAuthnError):
+        wa.verify_registration(challenge_id, "user-2", "{}")
+
+    # A mismatched attempt does NOT consume the challenge — otherwise an
+    # attacker could DoS the legitimate user-1 out of their own valid
+    # enrollment just by replaying the challenge_id with a garbage
+    # user_id. The real owner can still complete registration normally.
+    result = wa.verify_registration(challenge_id, "user-1", "{}")
+    assert result.user_id == "user-1"
+
+
 def test_verify_registration_wraps_library_exception(monkeypatch: pytest.MonkeyPatch) -> None:
     challenge_id, _ = wa.build_registration_options("user-1", "Alice")
 

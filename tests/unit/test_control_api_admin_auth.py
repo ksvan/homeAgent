@@ -69,6 +69,8 @@ def engines(monkeypatch: pytest.MonkeyPatch) -> tuple[object, object]:
     monkeypatch.setattr(wa, "cache_session", _cache_session)
     monkeypatch.setattr(wa, "users_session", _users_session)
     monkeypatch.setattr("app.control.audit.cache_session", _cache_session)
+    monkeypatch.setattr("app.webchat.invites.cache_session", _cache_session)
+    monkeypatch.setattr("app.webchat.link_codes.cache_session", _cache_session)
     monkeypatch.setattr(
         "app.control.admin_events.emit_admin_event", lambda *a, **k: None, raising=False
     )
@@ -229,3 +231,91 @@ def test_break_glass_still_works_after_admin_passkey_endpoints_added(client: Tes
     alongside the new passkey endpoints."""
     resp = client.get("/admin/users", headers=_AUTH)
     assert resp.status_code == 200
+
+
+def _login_as_admin(client: TestClient, monkeypatch: pytest.MonkeyPatch) -> dict[str, str]:
+    _mock_login(monkeypatch)
+    options = client.post("/admin/auth/login/options").json()
+    resp = client.post(
+        "/admin/auth/login/verify",
+        json={"challenge_id": options["challenge_id"], "credential": {"id": "admin-cred"}},
+    )
+    return {"hac_session": resp.cookies["hac_session"], "hac_csrf": resp.cookies["hac_csrf"]}
+
+
+# ---------------------------------------------------------------------------
+# BR-05 (2026-08-31 security re-review): privileged actions are now
+# attributable to the real admin's user_id when authenticated via passkey,
+# not just the shared "admin" marker.
+# ---------------------------------------------------------------------------
+
+
+def test_invite_issuance_is_attributed_to_the_real_admin(
+    client: TestClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    cookies = _login_as_admin(client, monkeypatch)
+
+    resp = client.post(
+        "/admin/users/invite",
+        json={"user_id": "nonadmin-1"},
+        cookies=cookies,
+        headers={"X-CSRF-Token": cookies["hac_csrf"]},
+    )
+    assert resp.status_code == 200
+
+    from sqlmodel import select
+
+    from app.control.audit import cache_session
+    from app.models.cache import AuditLog
+
+    with cache_session() as db:
+        row = db.exec(
+            select(AuditLog).where(AuditLog.event_type == "webchat.invite_created")
+        ).first()
+    assert row is not None
+    assert row.actor_user_id == "admin-1"
+
+
+def test_access_update_is_attributed_to_the_real_admin(
+    client: TestClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    cookies = _login_as_admin(client, monkeypatch)
+
+    resp = client.patch(
+        "/admin/users/nonadmin-1/access",
+        json={"telegram_enabled": False},
+        cookies=cookies,
+        headers={"X-CSRF-Token": cookies["hac_csrf"]},
+    )
+    assert resp.status_code == 200
+
+    from sqlmodel import select
+
+    from app.control.audit import cache_session
+    from app.models.cache import AuditLog
+
+    with cache_session() as db:
+        row = db.exec(
+            select(AuditLog).where(AuditLog.event_type == "user.access_updated")
+        ).first()
+    assert row is not None
+    assert row.actor_user_id == "admin-1"
+
+
+def test_invite_issuance_via_break_glass_falls_back_to_admin_marker(
+    client: TestClient,
+) -> None:
+    resp = client.post("/admin/users/invite", json={"user_id": "nonadmin-1"}, headers=_AUTH)
+    assert resp.status_code == 200
+
+    from sqlmodel import select
+
+    from app.control.audit import cache_session
+    from app.models.cache import AuditLog
+
+    with cache_session() as db:
+        row = db.exec(
+            select(AuditLog).where(AuditLog.event_type == "webchat.invite_created")
+        ).first()
+    assert row is not None
+    assert row.actor_user_id == "admin"

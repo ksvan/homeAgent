@@ -254,23 +254,28 @@ To inspect rules: `GET /admin/event-rules` (requires admin token).
 A browser-based chat UI for household members without Telegram installed on
 the current device (e.g. a shared kitchen tablet), or who just want to
 continue a Telegram conversation from a laptop — same agent, same
-conversation history, same policy gate. LAN-only, no password: pick your
-name from the household's existing user list.
+conversation history, same policy gate. Login is a passkey (WebAuthn),
+usernameless: the browser's own account chooser presents whichever
+passkeys it holds for this origin, no picker or password. See
+[docs/household-identity-and-access-design.md](docs/household-identity-and-access-design.md)
+for the full identity/access model.
 
 1. Set `FEATURE_WEB_CHAT=true` and (optionally) `WEB_CHAT_PORT` in `.env`.
 2. Restart the stack. The web chat app listens on its own port
    (default `9091`), separate from the webhook port (8080) and admin
    dashboard (9090).
-3. Open `http://<host>:9091/` on any device on the home network.
+3. An admin issues a one-time enrollment invite from the admin dashboard's
+   Access tab (or `POST /admin/users/invite`) for each household member;
+   opening it starts passkey registration bound to that person's account.
+4. After that, open `http://<host>:9091/` on any device with a matching
+   passkey (the same device used to register it, or any device where the
+   passkey has synced) to sign in.
 
 See [docs/web-chat-channel-design.md](docs/web-chat-channel-design.md) for
-the full design, trust model, and what's still deferred (PIN, PWA
-packaging, proactive/scheduled messages over this channel).
-
-The LAN-only picker above is being replaced by passkey (WebAuthn) login
-behind `FEATURE_WEBAUTHN_LOGIN` (default off, not yet ready for real use)
-as part of publishing web chat externally alongside Telegram — see
-[docs/household-identity-and-access-design.md](docs/household-identity-and-access-design.md).
+the original LAN-only design this replaced, and
+[docs/household-identity-and-access-design.md](docs/household-identity-and-access-design.md)
+for what's still deferred (PWA packaging, proactive/scheduled messages
+over this channel).
 
 ---
 

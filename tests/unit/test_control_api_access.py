@@ -49,7 +49,7 @@ class _FakeWebChannel:
 @pytest.fixture
 def fake_channel(monkeypatch: pytest.MonkeyPatch) -> _FakeWebChannel:
     channel = _FakeWebChannel()
-    monkeypatch.setattr("app.webchat.api.get_web_channel", lambda: channel)
+    monkeypatch.setattr("app.webchat.channel.get_web_channel", lambda: channel)
     return channel
 
 

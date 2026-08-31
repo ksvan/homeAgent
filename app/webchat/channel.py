@@ -40,7 +40,7 @@ class WebChannel(Channel):
         self._tokens_by_user: dict[str, set[str]] = {}
 
     # ------------------------------------------------------------------
-    # Connection registry — used by app.webchat.api's WS endpoint
+    # Connection registry — used by app.webchat.api_webauthn's WS endpoint
     # ------------------------------------------------------------------
 
     def register_connection(self, session_token: str, ws: "WebSocket", user_id: str = "") -> None:
@@ -142,3 +142,15 @@ class WebChannel(Channel):
                 "text": prompt_text,
             },
         )
+
+
+# Module-level singleton so app.api.server's lifespan and app.control.api can
+# register/reach the same instance under "web" in app.channels.registry —
+# mid-run policy gate confirmations need to reach this exact connection map.
+# Lives here (not in the router module) so it has one home regardless of
+# which web chat router is mounted.
+_channel = WebChannel()
+
+
+def get_web_channel() -> WebChannel:
+    return _channel

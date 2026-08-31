@@ -70,15 +70,28 @@ def _store_challenge(challenge_bytes: bytes, purpose: str, user_id: str | None) 
         return row.id
 
 
-def _consume_challenge(challenge_id: str, purpose: str) -> bytes | None:
+def _consume_challenge(
+    challenge_id: str, purpose: str, expected_user_id: str | None = None
+) -> bytes | None:
     """One-shot: returns the raw challenge bytes if valid and unused, and
-    marks it used in the same step so it can never be replayed."""
+    marks it used in the same step so it can never be replayed.
+
+    `expected_user_id`, when given, must match the challenge's own stored
+    `user_id` (set at issuance — see build_registration_options) or this
+    rejects outright, before ever reaching cryptographic verification.
+    Registration always passes this (a challenge issued for one invite's
+    target account must not be usable to enroll a different account —
+    2026-08-31 security re-review finding BR-07); login omits it, since a
+    usernameless ceremony's challenge is never bound to a pre-known user
+    in the first place (see build_login_options)."""
     now = datetime.now(timezone.utc)
     with cache_session() as session:
         row = session.exec(
             select(WebAuthnChallenge).where(WebAuthnChallenge.id == challenge_id)
         ).first()
         if row is None or row.purpose != purpose or row.used_at is not None:
+            return None
+        if expected_user_id is not None and row.user_id != expected_user_id:
             return None
         if row.expires_at.replace(tzinfo=timezone.utc) < now:
             return None
@@ -119,7 +132,7 @@ def verify_registration(
     challenge_id: str, user_id: str, credential_json: str
 ) -> RegisteredCredential:
     settings = get_settings()
-    challenge = _consume_challenge(challenge_id, "registration")
+    challenge = _consume_challenge(challenge_id, "registration", expected_user_id=user_id)
     if challenge is None:
         raise WebAuthnError("expired_or_used_challenge")
 

@@ -1,8 +1,9 @@
-"""Unit tests for app.webchat.app's router selection — exactly one of the
-legacy picker/bearer router or the WebAuthn router is ever mounted, chosen
-by settings.feature_webauthn_login. See
-docs/household-identity-and-access-design.md's "Feature-flag-gated router
-mounting" decision.
+"""Unit tests for app.webchat.app — the WebAuthn router is the only web
+chat router, unconditionally mounted. See
+docs/household-identity-and-access-design.md Phase 5: the earlier
+anonymous picker/bearer-token router was removed (not just gated behind
+a flag) per the design doc's own release gate and the 2026-08-31 security
+re-review's BR-01 finding.
 
 Exercised via real HTTP requests (TestClient) rather than by inspecting
 FastAPI's internal route objects, whose shape isn't a stable public API
@@ -17,24 +18,30 @@ an unwired call would fall through to the real on-disk database).
 
 from __future__ import annotations
 
-import pytest
 from fastapi.testclient import TestClient
 
-from app.config import get_settings
 from app.webchat.app import create_webchat_app
 
 
-def test_legacy_router_mounted_when_flag_is_off(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setattr(get_settings(), "feature_webauthn_login", False)
+def test_webauthn_router_is_mounted() -> None:
     client = TestClient(create_webchat_app())
 
-    assert client.get("/webauthn-common.js").status_code == 404
-    assert client.post("/api/webauthn/login/options").status_code == 404
-
-
-def test_webauthn_router_mounted_when_flag_is_on(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setattr(get_settings(), "feature_webauthn_login", True)
-    client = TestClient(create_webchat_app())
-
+    # Static-file routes only — no DB access, unlike /api/webauthn/*
+    # (which would otherwise fall through to the real on-disk database;
+    # see the module docstring).
     assert client.get("/webauthn-common.js").status_code == 200
+    assert client.get("/chat_webauthn.js").status_code == 200
+    assert client.get("/invite.js").status_code == 200
+
+
+def test_legacy_anonymous_endpoints_do_not_exist() -> None:
+    """GET /api/users and POST /api/session were the legacy router's
+    unauthenticated impersonation surface (BR-01) — confirm they're gone
+    outright, not merely unreachable behind a flag. (POST /api/session
+    is 405, not 404: the WebAuthn router has DELETE /api/session at the
+    same path — the important thing is it's not a 200 that creates an
+    anonymous session for an arbitrary supplied user_id.)"""
+    client = TestClient(create_webchat_app())
+
     assert client.get("/api/users").status_code == 404
+    assert client.post("/api/session", json={"user_id": "anyone"}).status_code == 405

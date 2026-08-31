@@ -50,6 +50,23 @@ async def _run() -> None:
             'Generate one with: python -c "import secrets; print(secrets.token_hex(32))"'
         )
 
+    # Fail fast if web chat is enabled in production with WebAuthn still on
+    # its localhost dev defaults — see docs/household-identity-and-access-
+    # design.md Phase 5. Passkey ceremonies would silently fail (wrong RP
+    # ID/origin) rather than a clear startup error, which is a worse
+    # failure mode than refusing to start.
+    if (
+        settings.app_env == "production"
+        and settings.feature_web_chat
+        and (settings.webauthn_rp_id == "localhost" or "localhost" in settings.webauthn_origins)
+    ):
+        raise SystemExit(
+            "ERROR: WEBAUTHN_RP_ID/WEBAUTHN_ORIGINS are still on localhost defaults "
+            "with FEATURE_WEB_CHAT=true in production.\n"
+            "Set WEBAUTHN_RP_ID to the real hostname and WEBAUTHN_ORIGINS to the "
+            "exact origin(s) web chat and the admin dashboard are actually served from."
+        )
+
     class _ChildServer(uvicorn.Server):
         """Uvicorn server that leaves asyncio's signal handlers untouched —
         used for the secondary apps (admin, web chat) that ride on the main
