@@ -13,7 +13,7 @@ import pathlib
 from typing import Any
 
 from fastapi import APIRouter, Depends, Header, HTTPException, WebSocket
-from fastapi.responses import HTMLResponse
+from fastapi.responses import HTMLResponse, PlainTextResponse
 from pydantic import BaseModel
 
 from app.webchat.channel import WebChannel
@@ -24,6 +24,7 @@ from app.webchat.session import (
     revoke_session,
     touch_session,
 )
+from app.webchat.static_files import serve_js
 from app.webchat.ws_loop import run_chat_ws_loop
 
 logger = logging.getLogger(__name__)
@@ -63,6 +64,11 @@ async def index() -> str:
     except FileNotFoundError:
         logger.error("chat.html not found next to app/webchat/api.py — web chat UI unavailable")
         return "<html><body><pre>Web chat UI unavailable: chat.html missing.</pre></body></html>"
+
+
+@router.get("/chat.js")
+async def chat_js() -> PlainTextResponse:
+    return serve_js("chat.js")
 
 
 @router.get("/api/users")
@@ -129,6 +135,13 @@ async def chat_ws(websocket: WebSocket, token: str = "") -> None:
     session = get_session(token)
     if session is None:
         await websocket.close(code=4401)
+        return
+
+    from app.config import get_settings
+
+    max_connections = get_settings().webchat_max_connections_per_user
+    if _channel.connection_count_for_user(session.user_id) >= max_connections:
+        await websocket.close(code=4429)
         return
 
     await websocket.accept()

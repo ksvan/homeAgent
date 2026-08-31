@@ -20,12 +20,21 @@ from sqlalchemy import create_engine
 from sqlalchemy.pool import StaticPool
 from sqlmodel import Session, SQLModel
 
+import app.bot as bot_module
 import app.control.audit as audit
 import app.webchat.invites as invites
 import app.webchat.session as wc_session
 import app.webchat.webauthn as wa
 from app.models.users import Household, User
 from app.webchat.app import create_webchat_app
+
+
+@pytest.fixture(autouse=True)
+def clear_preauth_rate_limit() -> None:
+    """The pre-auth rate limiter (Phase 3) reuses app.bot's process-wide
+    sliding-window cache — reset it so one test's calls don't count
+    against the next one's limit."""
+    bot_module._user_call_times.clear()
 
 
 def _threaded_memory_engine() -> object:
@@ -95,6 +104,16 @@ def client(engines: tuple[object, object], settings: None) -> TestClient:
 def _create_invite(user_id: str = "user-1") -> str:
     info = invites.create_invite(user_id, "hh-1", created_by_user_id="admin")
     return info.token
+
+
+def test_page_js_served_as_external_files(client: TestClient) -> None:
+    """Phase 3: no inline <script> content in either page — both load
+    their JS from these routes instead, which is what makes a
+    script-src 'self' CSP with no 'unsafe-inline' possible."""
+    for path in ("/webauthn-common.js", "/chat_webauthn.js", "/invite.js"):
+        resp = client.get(path)
+        assert resp.status_code == 200
+        assert "javascript" in resp.headers["content-type"]
 
 
 def test_get_invite_returns_target_user_name(client: TestClient) -> None:
@@ -309,3 +328,105 @@ def test_ws_rejects_missing_session(client: TestClient) -> None:
     with pytest.raises(Exception):
         with client.websocket_connect("/ws", headers={"origin": "http://testserver"}):
             pass
+
+
+def test_ws_rejects_connection_beyond_per_user_cap(
+    client: TestClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The cap counts distinct sessions (WebChannel is keyed by session
+    token), matching what "another device" actually means — reusing the
+    same cookie across multiple tabs shares one token and so only ever
+    counts once, exactly like a real browser sharing one cookie jar."""
+    from contextlib import ExitStack
+
+    from app.config import get_settings
+
+    reg = _register_and_get_client_cookies(client, monkeypatch)
+
+    monkeypatch.setattr(get_settings(), "webchat_max_connections_per_user", 2)
+    fake_result = SimpleNamespace(new_sign_count=0)
+    monkeypatch.setattr(wa.webauthn, "verify_authentication_response", lambda **kwargs: fake_result)
+
+    session_tokens = [reg["session"]]
+    for _ in range(2):
+        login_options = client.post("/api/webauthn/login/options")
+        challenge_id = login_options.json()["challenge_id"]
+        resp = client.post(
+            "/api/webauthn/login/verify",
+            json={"challenge_id": challenge_id, "credential": {"id": reg["credential_id"]}},
+        )
+        assert resp.status_code == 200
+        session_tokens.append(resp.cookies["hac_session"])
+
+    with ExitStack() as stack:
+        for token in session_tokens[:2]:
+            stack.enter_context(
+                client.websocket_connect(
+                    "/ws",
+                    cookies={"hac_session": token},
+                    headers={"origin": "http://testserver"},
+                )
+            )
+        with pytest.raises(Exception):
+            with client.websocket_connect(
+                "/ws",
+                cookies={"hac_session": session_tokens[2]},
+                headers={"origin": "http://testserver"},
+            ):
+                pass
+
+
+# ---------------------------------------------------------------------------
+# Phase 3 — pre-auth rate limiting
+# ---------------------------------------------------------------------------
+
+
+def test_preauth_rate_limit_returns_429_after_threshold(
+    client: TestClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from app.config import get_settings
+
+    monkeypatch.setattr(get_settings(), "webchat_preauth_rate_limit_per_minute", 2)
+
+    first = client.post("/api/webauthn/login/options")
+    second = client.post("/api/webauthn/login/options")
+    third = client.post("/api/webauthn/login/options")
+
+    assert first.status_code == 200
+    assert second.status_code == 200
+    assert third.status_code == 429
+
+
+def test_preauth_rate_limit_applies_to_invite_lookup_too(
+    client: TestClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from app.config import get_settings
+
+    monkeypatch.setattr(get_settings(), "webchat_preauth_rate_limit_per_minute", 1)
+
+    first = client.get("/api/invite/not-a-real-token")
+    second = client.get("/api/invite/not-a-real-token")
+
+    assert first.status_code == 404
+    assert second.status_code == 429
+
+
+def test_preauth_rate_limit_does_not_affect_authenticated_endpoints(
+    client: TestClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """GET /api/me isn't a pre-auth endpoint — exhausting the pre-auth
+    limit must not throttle it."""
+    from app.config import get_settings
+
+    # Register first, while the limit is still generous — registration
+    # itself makes pre-auth calls that would otherwise exhaust a limit
+    # this low before the cookies even exist.
+    cookies = _register_and_get_client_cookies(client, monkeypatch)
+
+    monkeypatch.setattr(get_settings(), "webchat_preauth_rate_limit_per_minute", 1)
+    client.post("/api/webauthn/login/options")
+    exhausted = client.post("/api/webauthn/login/options")
+    assert exhausted.status_code == 429
+
+    resp = client.get("/api/me", cookies={"hac_session": cookies["session"]})
+    assert resp.status_code == 200

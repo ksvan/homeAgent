@@ -18,6 +18,7 @@ from collections.abc import Callable
 
 from fastapi import WebSocket, WebSocketDisconnect
 
+from app.config import get_settings
 from app.policy.authorize import authorize
 from app.policy.principal import load_principal
 from app.webchat.channel import WebChannel
@@ -48,8 +49,13 @@ async def run_chat_ws_loop(
             pass
 
     try:
+        max_frame_bytes = get_settings().webchat_max_ws_frame_bytes
+
         while True:
             raw = await websocket.receive_text()
+            if len(raw.encode("utf-8")) > max_frame_bytes:
+                await websocket.close(code=1009)  # ASGI/RFC 6455 "message too big"
+                break
             try:
                 frame = json.loads(raw)
             except (ValueError, TypeError):

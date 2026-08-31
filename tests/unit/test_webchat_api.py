@@ -122,3 +122,33 @@ def test_index_serves_chat_html(client: TestClient) -> None:
     assert resp.status_code == 200
     assert "text/html" in resp.headers["content-type"]
     assert "HomeAgent" in resp.text
+
+
+def test_chat_js_served_as_external_file(client: TestClient) -> None:
+    """Phase 3: no inline <script> content — chat.html loads its JS from
+    this route instead, which is what makes a script-src 'self' CSP with
+    no 'unsafe-inline' possible."""
+    resp = client.get("/chat.js")
+    assert resp.status_code == 200
+    assert "javascript" in resp.headers["content-type"]
+
+
+def test_ws_rejects_connection_beyond_per_user_cap(
+    client: TestClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from contextlib import ExitStack
+
+    from app.config import get_settings
+
+    monkeypatch.setattr(get_settings(), "webchat_max_connections_per_user", 2)
+
+    tokens = [
+        client.post("/api/session", json={"user_id": "user-1"}).json()["token"] for _ in range(3)
+    ]
+
+    with ExitStack() as stack:
+        for token in tokens[:2]:
+            stack.enter_context(client.websocket_connect(f"/ws?token={token}"))
+        with pytest.raises(Exception):
+            with client.websocket_connect(f"/ws?token={tokens[2]}"):
+                pass

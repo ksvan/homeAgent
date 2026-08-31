@@ -24,8 +24,8 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 
 ### Added
 
-- **Household identity & access, Phase 0-2 (WebAuthn passkey login,
-  Telegram linking, permission matrix)** — see
+- **Household identity & access, Phase 0-3 (WebAuthn passkey login,
+  Telegram linking, permission matrix, CSP/origin hardening)** — see
   `docs/household-identity-and-access-design.md`. Phase 0 laid the
   foundation: `User.is_active`, a `WebAuthnCredential` table, a hardened
   `WebChatSession` (hashed token, sliding + absolute expiry, revoke-not-
@@ -81,7 +81,32 @@ Versioning follows [Semantic Versioning](https://semver.org/).
   Tests: `test_policy_principal.py`, `test_webchat_link_codes.py`,
   `test_bot_telegram_linking.py`, `test_control_api_access.py`,
   `test_ws_loop.py`, plus additions to `test_authorize.py` and
-  `test_webchat_channel.py`.
+  `test_webchat_channel.py`. Phase 3's application code is done (its
+  deployment-verification half is a manual step, not something further
+  coding closes out — see the design doc): a `SecurityHeadersMiddleware`
+  (`app/webchat/security_headers.py`) puts a `script-src 'self'` CSP with
+  no `'unsafe-inline'`/nonce on every web chat response, made possible by
+  extracting every page's inline `<script>` into an external file
+  (`app/webchat/static_files.py`) — `chat.html`, `chat_webauthn.html`,
+  and `invite.html` now have zero inline JS. Also `object-src 'none'`,
+  `base-uri 'none'`, `frame-ancestors 'none'`, `X-Content-Type-Options`,
+  `Referrer-Policy: no-referrer`, and a `Permissions-Policy` that
+  explicitly allows `publickey-credentials-get`/`-create` (WebAuthn
+  breaks under a naively locked-down one). New
+  `app/webchat/client_ip.py` resolves the real client IP only when the
+  request's direct connection came from a configured trusted proxy
+  (`WEBCHAT_TRUSTED_PROXY_IPS`) — otherwise a client's own
+  `X-Forwarded-For` is ignored, so it can't pick its own rate-limit
+  identity. Pre-auth rate limiting (`WEBCHAT_PREAUTH_RATE_LIMIT_PER_MINUTE`)
+  now covers invite lookup and every registration/login ceremony
+  endpoint, reusing `app.bot`'s existing limiter. `WebChannel` gained a
+  per-account simultaneous-connection cap
+  (`WEBCHAT_MAX_CONNECTIONS_PER_USER`) enforced at the WS handshake, and
+  `app/webchat/ws_loop.py` gained a per-message frame-size cap
+  (`WEBCHAT_MAX_WS_FRAME_BYTES`). Tests: `test_client_ip.py`,
+  `test_security_headers.py`, plus additions to `test_ws_loop.py`,
+  `test_webchat_channel.py`, `test_webchat_api.py`, and
+  `test_webchat_api_webauthn.py`.
 - **Web chat channel** — browser-based chat UI for household members without
   Telegram on the current device, behind `FEATURE_WEB_CHAT` (default off).
   Runs as its own standalone FastAPI app/port (`WEB_CHAT_PORT`, default

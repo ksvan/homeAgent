@@ -20,8 +20,8 @@ from app.webchat.session import SessionInfo
 
 
 class _FakeWebSocket:
-    def __init__(self, frames: list[dict[str, object]]) -> None:
-        self._frames = [json.dumps(f) for f in frames]
+    def __init__(self, frames: list[dict[str, object] | str]) -> None:
+        self._frames = [f if isinstance(f, str) else json.dumps(f) for f in frames]
         self.sent: list[str] = []
         self.closed_with_code: int | None = None
 
@@ -95,3 +95,60 @@ async def test_authorized_message_is_dispatched_normally(monkeypatch: pytest.Mon
     assert len(ws.sent) == 1
     frame = json.loads(ws.sent[0])
     assert frame == {"type": "message", "role": "agent", "text": "hi there"}
+
+
+# ---------------------------------------------------------------------------
+# Phase 3 — WS frame-size cap
+# ---------------------------------------------------------------------------
+
+
+async def test_oversized_frame_closes_socket_without_dispatching(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from app.config import get_settings
+
+    monkeypatch.setattr(get_settings(), "webchat_max_ws_frame_bytes", 16)
+    monkeypatch.setattr(ws_loop, "load_principal", lambda user_id: object())
+    monkeypatch.setattr(ws_loop, "authorize", lambda principal, surface: AuthDecision(True, "ok"))
+
+    called = {"count": 0}
+
+    async def _fake_handle_web_message(*a: object, **k: object) -> str:
+        called["count"] += 1
+        return "should not run"
+
+    monkeypatch.setattr(ws_loop, "handle_web_message", _fake_handle_web_message)
+
+    oversized = json.dumps({"type": "message", "text": "x" * 100})
+    ws = _FakeWebSocket([oversized])
+    channel = WebChannel()
+    session = _session()
+    channel.register_connection(session.token, ws, user_id=session.user_id)  # type: ignore[arg-type]
+
+    await ws_loop.run_chat_ws_loop(ws, session, channel, "tok-1", lambda token: None)
+
+    assert ws.closed_with_code == 1009
+    assert called["count"] == 0
+
+
+async def test_frame_within_limit_is_dispatched_normally(monkeypatch: pytest.MonkeyPatch) -> None:
+    from app.config import get_settings
+
+    monkeypatch.setattr(get_settings(), "webchat_max_ws_frame_bytes", 8192)
+    monkeypatch.setattr(ws_loop, "load_principal", lambda user_id: object())
+    monkeypatch.setattr(ws_loop, "authorize", lambda principal, surface: AuthDecision(True, "ok"))
+
+    async def _fake_handle_web_message(*a: object, **k: object) -> str:
+        return "ok"
+
+    monkeypatch.setattr(ws_loop, "handle_web_message", _fake_handle_web_message)
+
+    ws = _FakeWebSocket([{"type": "message", "text": "hello"}])
+    channel = WebChannel()
+    session = _session()
+    channel.register_connection(session.token, ws, user_id=session.user_id)  # type: ignore[arg-type]
+
+    await ws_loop.run_chat_ws_loop(ws, session, channel, "tok-1", lambda token: None)
+
+    assert ws.closed_with_code is None
+    assert len(ws.sent) == 1

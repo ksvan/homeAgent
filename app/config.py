@@ -343,6 +343,26 @@ class Settings(BaseSettings):
     webauthn_invite_ttl_minutes: int = 15
     webauthn_challenge_ttl_minutes: int = 5
 
+    # Phase 3 hardening (docs/household-identity-and-access-design.md).
+    # Comma-separated IPs allowed to set X-Forwarded-For — the address(es)
+    # cloudflared/the reverse proxy connects FROM as seen by this app
+    # (typically loopback, since it runs as a local sidecar). A request
+    # whose direct connecting IP isn't in this set has its
+    # X-Forwarded-For ignored outright, so a public client can't spoof
+    # its own rate-limit identity by just sending the header itself.
+    webchat_trusted_proxy_ips: str = "127.0.0.1,::1"
+    # Pre-auth endpoints (invite lookup, registration/login ceremonies)
+    # have no session yet to key a rate limit on User.id — keyed by
+    # client IP instead, reusing app.bot's existing sliding-window
+    # limiter rather than a second implementation.
+    webchat_preauth_rate_limit_per_minute: int = 10
+    # Applied in app.webchat.ws_loop per received frame — independent of
+    # whatever the ASGI server's own transport-level limit is.
+    webchat_max_ws_frame_bytes: int = 8192
+    # Caps how many WebSocket connections one user_id can hold open at
+    # once (multiple tabs/devices are normal; unbounded growth isn't).
+    webchat_max_connections_per_user: int = 5
+
     # ------------------------------------------------------------------
     # Competing action detection
     # ------------------------------------------------------------------

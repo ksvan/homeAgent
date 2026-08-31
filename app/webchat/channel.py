@@ -64,6 +64,12 @@ class WebChannel(Channel):
     def active_connection_count(self) -> int:
         return len(self._connections)
 
+    def connection_count_for_user(self, user_id: str) -> int:
+        """Used to enforce Phase 3's per-account connection cap at the WS
+        handshake, before accept() — see
+        docs/household-identity-and-access-design.md."""
+        return len(self._tokens_by_user.get(user_id, ()))
+
     async def close_connections_for_user(self, user_id: str, code: int = 4403) -> int:
         """Force-close every open connection for `user_id` (e.g. a surface
         was just disabled or the account was deactivated). Returns how many

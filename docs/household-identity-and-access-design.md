@@ -3,10 +3,12 @@
 Status: design complete — problem definition, resolved Decisions, and
 security-hardened Options (see "Options for the next pass") are now
 followed by a Phased Implementation Plan (Phase 0–5, each with an exit
-gate). Phases 0–2 are done (see "Phased Implementation Plan"); next up is
-Phase 3. A second, implementation-time security review is planned for
-after coding, to catch actual-code issues the way this pass caught
-design issues.
+gate). Phases 0–2 are done; Phase 3's application code is done but its
+deployment-verification half (headers at the real Cloudflare edge,
+origin unreachability) is a manual step still outstanding — see "Phased
+Implementation Plan." A second, implementation-time security review is
+planned for after coding, to catch actual-code issues the way this pass
+caught design issues.
 Last code check: 2026-08-31
 Related docs: `docs/user-identity-memory-link-design.md` (identity↔memory
 link, predates web chat), `docs/web-chat-channel-design.md` (Decision #1
@@ -1215,19 +1217,64 @@ alone the internet — until Phase 5.
   `test_bot_telegram_linking.py`, `test_control_api_access.py`,
   `test_ws_loop.py`), all passing; `ruff`/`mypy` clean.
 
-**Phase 3 — CSP and origin hardening**
+**Phase 3 — CSP and origin hardening — application code done (2026-08-31);
+deployment verification still outstanding**
 
-- Header-delivered CSP (nonce/hash `script-src`, `object-src 'none'`,
-  `base-uri 'none'`), `X-Content-Type-Options`, `Referrer-Policy`,
-  `frame-ancestors`, a WebAuthn-compatible `Permissions-Policy`.
-- Deployment verification, not application code: confirm the origin
-  isn't reachable except via the Cloudflare Tunnel and the deliberate LAN
-  path; scope trusted-proxy header handling to that path only.
-- Pre-auth rate limits on enrollment/login endpoints, WS frame-size and
-  per-account connection caps, generic failure responses.
-- **Exit gate:** headers verified at the real Cloudflare edge, not just
-  from the app directly; a direct-origin request confirmed rejected or
-  unreachable.
+- Header-delivered CSP (`app/webchat/security_headers.py`, a
+  `SecurityHeadersMiddleware` on `create_webchat_app()`, so it applies to
+  whichever router is mounted): `script-src 'self'` with **zero**
+  `'unsafe-inline'`/nonce needed, not because nonces were implemented but
+  because every page this app serves now has zero inline `<script>`
+  content — `chat.html`, `chat_webauthn.html`, and `invite.html` all load
+  their JS from external files (`app/webchat/static_files.py`) instead,
+  which is what makes the plain `'self'` form possible without extra
+  machinery. Also `object-src 'none'`, `base-uri 'none'`,
+  `frame-ancestors 'none'`, `form-action 'self'`, `X-Content-Type-Options:
+  nosniff`, `X-Frame-Options: DENY`, `Referrer-Policy: no-referrer`, and a
+  `Permissions-Policy` that explicitly *allows*
+  `publickey-credentials-get`/`-create` (a generic lock-everything-down
+  policy would silently break passkey login on this exact app) while
+  denying camera/microphone/geolocation. `style-src` keeps
+  `'unsafe-inline'` for each page's own `<style>` block — deliberately
+  scoped out, since the design doc's CSP requirement above was about
+  script-src/object-src/base-uri, and CSS injection is a materially
+  smaller blast radius than script injection.
+- Trusted-proxy-aware client IP resolution (`app/webchat/client_ip.py`,
+  `WEBCHAT_TRUSTED_PROXY_IPS`): `X-Forwarded-For` is only honored when
+  the request's own direct connection came from a configured trusted
+  proxy address — otherwise a public client could simply set the header
+  itself and pick its own rate-limit identity. Scoped to exactly the one
+  thing that needed it (pre-auth rate limiting below), not applied
+  anywhere else in the codebase.
+- Pre-auth rate limiting (`WEBCHAT_PREAUTH_RATE_LIMIT_PER_MINUTE`, keyed
+  by client IP via the resolver above) on invite lookup and every
+  registration/login ceremony endpoint — reuses `app.bot`'s existing
+  sliding-window limiter rather than a second implementation. WS
+  per-message frame-size cap (`WEBCHAT_MAX_WS_FRAME_BYTES`,
+  `app/webchat/ws_loop.py`) and a per-account simultaneous-connection cap
+  (`WEBCHAT_MAX_CONNECTIONS_PER_USER`, enforced at the WS handshake in
+  both routers via `WebChannel.connection_count_for_user`) — the cap
+  counts distinct sessions, so multiple tabs sharing one login only ever
+  count once, matching how a real browser's cookie jar behaves. Generic
+  failure responses were already substantially in place from Phase 1
+  (registration/login both collapse every ceremony failure to one
+  message each) and were re-audited here; no new gaps found.
+- **What's *not* done — deployment verification, not application code,
+  exactly as this plan called out above:** confirming the origin isn't
+  reachable except via the Cloudflare Tunnel and the deliberate LAN path,
+  and verifying these headers at the real Cloudflare edge rather than
+  just from the app directly. Nothing in this environment has access to
+  the actual Cloudflare Tunnel configuration or a live deployment to
+  check against — this remains a manual step for Kristian before Phase 3
+  can be considered fully closed, not something further coding here can
+  close out.
+- **Exit gate:** application-code portion covered by 25 new/updated
+  tests (`test_client_ip.py`, `test_security_headers.py`, plus additions
+  to `test_ws_loop.py`, `test_webchat_channel.py`, `test_webchat_api.py`,
+  `test_webchat_api_webauthn.py`), all passing; `ruff`/`mypy` clean. The
+  deployment half of the exit gate (headers verified at the real
+  Cloudflare edge; a direct-origin request confirmed rejected or
+  unreachable) is still open, per the above.
 
 **Phase 4 — Admin auth migration**
 

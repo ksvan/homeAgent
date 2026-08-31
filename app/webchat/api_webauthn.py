@@ -34,6 +34,7 @@ from app.control.audit import record_audit_event
 from app.policy.authorize import authorize
 from app.policy.principal import load_principal
 from app.webchat.api import get_web_channel
+from app.webchat.client_ip import get_client_ip
 from app.webchat.invites import get_valid_invite, mark_invite_used
 from app.webchat.session import (
     SessionInfo,
@@ -42,6 +43,7 @@ from app.webchat.session import (
     revoke_session,
     touch_session,
 )
+from app.webchat.static_files import serve_js
 from app.webchat.webauthn import (
     WebAuthnError,
     build_login_options,
@@ -125,6 +127,24 @@ def _origin_allowed(origin: str | None) -> bool:
     return origin in allowed
 
 
+async def _require_preauth_rate_limit(request: Request) -> None:
+    """Pre-auth throttle for the invite-lookup and registration/login
+    ceremony endpoints — there's no session yet to key a limit on
+    User.id, so this is keyed by (trusted-proxy-aware) client IP instead.
+    Reuses app.bot's existing sliding-window limiter rather than a
+    second implementation."""
+    from app.bot import _is_rate_limited
+
+    ip = get_client_ip(
+        request.client.host if request.client else None,
+        request.headers.get("x-forwarded-for"),
+    )
+    if _is_rate_limited(
+        f"webchat-preauth:{ip}", get_settings().webchat_preauth_rate_limit_per_minute
+    ):
+        raise HTTPException(status_code=429, detail="Too many attempts. Please wait a moment.")
+
+
 # ---------------------------------------------------------------------------
 # Pages
 # ---------------------------------------------------------------------------
@@ -142,11 +162,17 @@ async def index() -> str:
 
 @router.get("/webauthn-common.js")
 async def webauthn_common_js() -> PlainTextResponse:
-    path = pathlib.Path(__file__).with_name("static") / "webauthn-common.js"
-    try:
-        return PlainTextResponse(path.read_text(), media_type="application/javascript")
-    except FileNotFoundError:
-        return PlainTextResponse("", media_type="application/javascript", status_code=404)
+    return serve_js("webauthn-common.js")
+
+
+@router.get("/chat_webauthn.js")
+async def chat_webauthn_js() -> PlainTextResponse:
+    return serve_js("chat_webauthn.js")
+
+
+@router.get("/invite.js")
+async def invite_js() -> PlainTextResponse:
+    return serve_js("invite.js")
 
 
 @router.get("/invite/{token}", response_class=HTMLResponse)
@@ -164,7 +190,7 @@ async def invite_page(token: str) -> str:
 # ---------------------------------------------------------------------------
 
 
-@router.get("/api/invite/{token}")
+@router.get("/api/invite/{token}", dependencies=[Depends(_require_preauth_rate_limit)])
 async def get_invite(token: str) -> dict[str, Any]:
     invite = get_valid_invite(token)
     if invite is None:
@@ -191,7 +217,7 @@ class RegistrationOptionsRequest(BaseModel):
     invite_token: str
 
 
-@router.post("/api/webauthn/register/options")
+@router.post("/api/webauthn/register/options", dependencies=[Depends(_require_preauth_rate_limit)])
 async def webauthn_register_options(body: RegistrationOptionsRequest) -> dict[str, Any]:
     invite = get_valid_invite(body.invite_token)
     if invite is None:
@@ -217,7 +243,7 @@ class RegistrationVerifyRequest(BaseModel):
     credential: dict[str, Any]
 
 
-@router.post("/api/webauthn/register/verify")
+@router.post("/api/webauthn/register/verify", dependencies=[Depends(_require_preauth_rate_limit)])
 async def webauthn_register_verify(
     body: RegistrationVerifyRequest, response: Response
 ) -> dict[str, Any]:
@@ -265,7 +291,7 @@ async def webauthn_register_verify(
 # ---------------------------------------------------------------------------
 
 
-@router.post("/api/webauthn/login/options")
+@router.post("/api/webauthn/login/options", dependencies=[Depends(_require_preauth_rate_limit)])
 async def webauthn_login_options() -> dict[str, Any]:
     challenge_id, options_json = build_login_options()
     return {"challenge_id": challenge_id, "options": json.loads(options_json)}
@@ -276,7 +302,7 @@ class LoginVerifyRequest(BaseModel):
     credential: dict[str, Any]
 
 
-@router.post("/api/webauthn/login/verify")
+@router.post("/api/webauthn/login/verify", dependencies=[Depends(_require_preauth_rate_limit)])
 async def webauthn_login_verify(body: LoginVerifyRequest, response: Response) -> dict[str, Any]:
     try:
         result = verify_login(body.challenge_id, json.dumps(body.credential))
@@ -366,6 +392,11 @@ async def chat_ws(websocket: WebSocket) -> None:
         return
 
     channel = get_web_channel()
+    max_connections = get_settings().webchat_max_connections_per_user
+    if channel.connection_count_for_user(session.user_id) >= max_connections:
+        await websocket.close(code=4429)
+        return
+
     await websocket.accept()
     touch_session(token)
     channel.register_connection(session.token, websocket, user_id=session.user_id)

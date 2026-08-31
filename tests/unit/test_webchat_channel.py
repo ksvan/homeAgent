@@ -188,3 +188,26 @@ def test_unregister_connection_removes_user_index_entry() -> None:
     channel.unregister_connection("tok-1", ws)  # type: ignore[arg-type]
 
     assert channel._tokens_by_user.get("user-1", set()) == set()
+
+
+def test_connection_count_for_user_tracks_distinct_sessions() -> None:
+    channel = WebChannel()
+    channel.register_connection("tok-1", _FakeWebSocket(), user_id="user-1")  # type: ignore[arg-type]
+    channel.register_connection("tok-2", _FakeWebSocket(), user_id="user-1")  # type: ignore[arg-type]
+    channel.register_connection("tok-3", _FakeWebSocket(), user_id="user-2")  # type: ignore[arg-type]
+
+    assert channel.connection_count_for_user("user-1") == 2
+    assert channel.connection_count_for_user("user-2") == 1
+    assert channel.connection_count_for_user("no-such-user") == 0
+
+
+def test_connection_count_for_user_does_not_double_count_same_token() -> None:
+    """Re-registering under the same token (e.g. a page refresh reusing
+    the same session cookie) replaces the entry rather than adding a
+    second one — matches how a real browser sharing one cookie jar
+    across tabs behaves."""
+    channel = WebChannel()
+    channel.register_connection("tok-1", _FakeWebSocket(), user_id="user-1")  # type: ignore[arg-type]
+    channel.register_connection("tok-1", _FakeWebSocket(), user_id="user-1")  # type: ignore[arg-type]
+
+    assert channel.connection_count_for_user("user-1") == 1

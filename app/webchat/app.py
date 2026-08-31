@@ -14,6 +14,7 @@ from __future__ import annotations
 from fastapi import FastAPI
 
 from app.config import get_settings
+from app.webchat.security_headers import SecurityHeadersMiddleware
 
 
 def create_webchat_app() -> FastAPI:
@@ -23,6 +24,7 @@ def create_webchat_app() -> FastAPI:
         redoc_url=None,
         openapi_url=None,
     )
+    app.add_middleware(SecurityHeadersMiddleware)
 
     if get_settings().feature_webauthn_login:
         from app.webchat.api_webauthn import router
