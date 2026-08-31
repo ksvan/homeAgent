@@ -1124,8 +1124,11 @@ async def admin_list_users() -> dict[str, Any]:
                 "id": u.id,
                 "name": u.name,
                 "telegram_id": u.telegram_id,
-                "channel_user_id": str(u.telegram_id),
+                "channel_user_id": str(u.telegram_id) if u.telegram_id is not None else None,
                 "is_admin": u.is_admin,
+                "is_active": u.is_active,
+                "telegram_enabled": u.telegram_enabled,
+                "web_chat_enabled": u.web_chat_enabled,
             }
             for u in users
         ]
@@ -1168,6 +1171,141 @@ async def admin_create_webchat_invite(body: _CreateInviteRequest) -> dict[str, A
     }
 
 
+class _CreateUserRequest(BaseModel):
+    name: str
+
+
+@router.post("/users", dependencies=_auth)
+async def admin_create_user(body: _CreateUserRequest) -> dict[str, Any]:
+    """Create a household member with no channel identity yet — see
+    docs/household-identity-and-access-design.md Option A/Phase 2. Closes
+    the gap where a `User` could previously only ever be created by
+    Telegram's auto-create-on-first-message path: an admin can now
+    provision someone who has no Telegram account at all, then hand them a
+    web chat invite (`/admin/users/invite`) or a Telegram link code
+    (`/admin/users/link-code`) once they do.
+    """
+    from sqlmodel import select
+
+    from app.control.audit import record_audit_event
+    from app.db import users_session
+    from app.models.users import Household, User
+
+    name = body.name.strip()
+    if not name:
+        return {"error": "Name is required"}
+
+    with users_session() as session:
+        household = session.exec(select(Household)).first()
+        if household is None:
+            household = Household(name="My Home")
+            session.add(household)
+            session.flush()
+
+        user = User(household_id=household.id, telegram_id=None, name=name)
+        session.add(user)
+        session.commit()
+        session.refresh(user)
+
+    from app.world.repository import WorldModelRepository
+
+    WorldModelRepository.upsert_member(
+        user.household_id, user_id=user.id, name=user.name, role="member", source="migration_seed"
+    )
+
+    record_audit_event("user.created", user.household_id, target_user_id=user.id)
+    return {"id": user.id, "name": user.name}
+
+
+class _CreateLinkCodeRequest(BaseModel):
+    user_id: str
+
+
+@router.post("/users/link-code", dependencies=_auth)
+async def admin_create_link_code(body: _CreateLinkCodeRequest) -> dict[str, Any]:
+    """Issue a one-time Telegram account-linking code for a household user
+    — see docs/household-identity-and-access-design.md Option B. The admin
+    reads/sends the code to that person out of band; they redeem it with
+    `/link <code>` in Telegram.
+    """
+    from sqlmodel import select
+
+    from app.db import users_session
+    from app.models.users import User
+    from app.webchat.link_codes import create_link_code
+
+    with users_session() as session:
+        user = session.exec(select(User).where(User.id == body.user_id)).first()
+    if user is None:
+        return {"error": "Unknown user"}
+
+    info = create_link_code(user.id, user.household_id, created_by_user_id="admin")
+    return {"code": info.code, "expires_at": info.expires_at.isoformat()}
+
+
+class _UpdateAccessRequest(BaseModel):
+    is_active: bool | None = None
+    telegram_enabled: bool | None = None
+    web_chat_enabled: bool | None = None
+
+
+@router.patch("/users/{user_id}/access", dependencies=_auth)
+async def admin_update_user_access(user_id: str, body: _UpdateAccessRequest) -> dict[str, Any]:
+    """Update a household member's global active state and/or per-surface
+    access (docs/household-identity-and-access-design.md Option D/E). Any
+    revocation force-closes that user's open web chat connections
+    immediately rather than waiting for their session to next be checked —
+    the live per-message authorize() check in app.webchat.ws_loop already
+    covers a socket that sends another message, but an idle one needs this
+    to not linger open until it does.
+    """
+    from sqlmodel import select
+
+    from app.control.audit import record_audit_event
+    from app.db import users_session
+    from app.models.users import User
+    from app.webchat.api import get_web_channel
+
+    with users_session() as session:
+        user = session.exec(select(User).where(User.id == user_id)).first()
+        if user is None:
+            return {"error": "Unknown user"}
+
+        changes: dict[str, bool] = {}
+        if body.is_active is not None and body.is_active != user.is_active:
+            user.is_active = body.is_active
+            changes["is_active"] = body.is_active
+        if body.telegram_enabled is not None and body.telegram_enabled != user.telegram_enabled:
+            user.telegram_enabled = body.telegram_enabled
+            changes["telegram_enabled"] = body.telegram_enabled
+        if body.web_chat_enabled is not None and body.web_chat_enabled != user.web_chat_enabled:
+            user.web_chat_enabled = body.web_chat_enabled
+            changes["web_chat_enabled"] = body.web_chat_enabled
+
+        if changes:
+            session.add(user)
+            session.commit()
+            session.refresh(user)
+
+        household_id = user.household_id
+        revoked = (not user.is_active) or (not user.web_chat_enabled)
+
+    if changes:
+        record_audit_event(
+            "user.access_updated", household_id, target_user_id=user_id, detail=changes
+        )
+
+    if revoked and ("is_active" in changes or "web_chat_enabled" in changes):
+        await get_web_channel().close_connections_for_user(user_id)
+
+    return {
+        "id": user_id,
+        "is_active": user.is_active,
+        "telegram_enabled": user.telegram_enabled,
+        "web_chat_enabled": user.web_chat_enabled,
+    }
+
+
 @router.get("/event-rules", dependencies=_auth)
 async def admin_event_rules() -> dict[str, Any]:
     """List all EventRule records for the household."""
@@ -1203,6 +1341,8 @@ async def admin_create_event_rule(body: _EventRuleBody) -> dict[str, Any]:
             user = session.exec(select(User).where(User.id == body.user_id)).first()
         if not user:
             return {"error": f"User {body.user_id!r} not found"}
+        if user.telegram_id is None:
+            return {"error": f"User {user.name!r} has no linked Telegram account"}
         channel_user_id = str(user.telegram_id)
 
     now = datetime.now(timezone.utc)
@@ -1252,6 +1392,8 @@ async def admin_update_event_rule(rule_id: str, body: _EventRuleBody) -> dict[st
             user = session.exec(select(User).where(User.id == body.user_id)).first()
         if not user:
             return {"error": f"User {body.user_id!r} not found"}
+        if user.telegram_id is None:
+            return {"error": f"User {user.name!r} has no linked Telegram account"}
         channel_user_id = str(user.telegram_id)
 
     with users_session() as session:

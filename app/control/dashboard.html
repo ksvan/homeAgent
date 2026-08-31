@@ -192,6 +192,7 @@ header { background: var(--surface); border-bottom: 1px solid var(--border); pad
   <button class="tab" data-tab="control">Control Loop</button>
   <button class="tab" data-tab="email">Email</button>
   <button class="tab" data-tab="integrations">Integrations</button>
+  <button class="tab" data-tab="access">Access</button>
 </div>
 
 <div id="tab-live" class="tab-panel active">
@@ -624,6 +625,37 @@ header { background: var(--surface); border-bottom: 1px solid var(--border); pad
   </div>
 </div>
 
+<div id="tab-access" class="tab-panel">
+  <div class="details-body">
+    <div class="details-toolbar">
+      <button class="details-btn" id="refresh-access">&#8635; Refresh</button>
+      <button class="details-btn" id="create-member-btn">+ New member</button>
+      <span id="access-updated" style="font-size:11px;color:var(--dim)"></span>
+    </div>
+    <section class="details-section">
+      <h3>Household members &times; surfaces</h3>
+      <p style="font-size:11px;color:var(--dim);margin:0 0 10px">
+        Toggling a surface off or deactivating a member takes effect immediately —
+        any open web chat connection for them is closed right away, not just on
+        their next message.
+      </p>
+      <table class="mem-table">
+        <thead>
+          <tr>
+            <th>Name</th>
+            <th>Telegram</th>
+            <th>Web chat</th>
+            <th>Admin</th>
+            <th>Active</th>
+            <th>Actions</th>
+          </tr>
+        </thead>
+        <tbody id="access-tbody"><tr><td colspan="6">Loading…</td></tr></tbody>
+      </table>
+    </section>
+  </div>
+</div>
+
 <script>
 // Token management: strip ?token= from the address bar on first load so it
 // never enters browser history or bookmarks. Store in sessionStorage and use
@@ -979,6 +1011,7 @@ document.querySelectorAll('.tab').forEach(btn => {
     if (btn.dataset.tab === 'control') loadControlLoop();
     if (btn.dataset.tab === 'email') loadEmailMessages();
     if (btn.dataset.tab === 'integrations') loadIntegrations();
+    if (btn.dataset.tab === 'access') loadAccess();
   });
 });
 
@@ -1600,6 +1633,120 @@ async function disconnectIntegration(provider) {
 }
 
 document.getElementById('refresh-integrations').addEventListener('click', loadIntegrations);
+
+// ---------------------------------------------------------------------
+// Access tab — household member x surface permission matrix
+// ---------------------------------------------------------------------
+
+function _accessToggleSpan(userId, field, value) {
+  var color = value ? 'var(--green)' : 'var(--dim)';
+  var label = value ? 'on' : 'off';
+  return '<span style="color:' + color + ';cursor:pointer" onclick="accessToggle(\'' + esc(userId) + '\',\'' + field + '\',' + (!value) + ')">' + label + '</span>';
+}
+
+function _renderAccessTable(users) {
+  var tbody = document.getElementById('access-tbody');
+  if (!users.length) {
+    tbody.innerHTML = '<tr><td colspan="6" style="color:var(--dim);padding:12px 10px">No household members yet.</td></tr>';
+    return;
+  }
+  tbody.innerHTML = users.map(function(u) {
+    var adminCell = u.is_admin ? '<span style="color:var(--green)">yes</span>' : '<span style="color:var(--dim)">no</span>';
+    var actions = '';
+    if (!u.telegram_id) {
+      actions += '<button onclick="issueLinkCode(\'' + esc(u.id) + '\',\'' + esc(u.name) + '\')" style="background:none;border:none;color:var(--blue);cursor:pointer;font-size:11px;padding:0 4px">Telegram code</button>';
+    }
+    actions += '<button onclick="issueWebChatInvite(\'' + esc(u.id) + '\',\'' + esc(u.name) + '\')" style="background:none;border:none;color:var(--blue);cursor:pointer;font-size:11px;padding:0 4px">Web chat invite</button>';
+    return '<tr>'
+      + '<td>' + esc(u.name) + '</td>'
+      + '<td>' + _accessToggleSpan(u.id, 'telegram_enabled', u.telegram_enabled) + '</td>'
+      + '<td>' + _accessToggleSpan(u.id, 'web_chat_enabled', u.web_chat_enabled) + '</td>'
+      + '<td>' + adminCell + '</td>'
+      + '<td>' + _accessToggleSpan(u.id, 'is_active', u.is_active) + '</td>'
+      + '<td>' + actions + '</td>'
+      + '</tr>';
+  }).join('');
+}
+
+async function loadAccess() {
+  try {
+    var r = await fetch('/admin/users', {headers: _authHeaders});
+    if (!r.ok) { document.getElementById('access-tbody').innerHTML = '<tr><td colspan="6" class="err">Error ' + r.status + '</td></tr>'; return; }
+    var d = await r.json();
+    _renderAccessTable(d.users || []);
+    document.getElementById('access-updated').textContent = 'updated ' + new Date().toLocaleTimeString();
+  } catch(e) {
+    document.getElementById('access-tbody').innerHTML = '<tr><td colspan="6" class="err">' + esc(String(e)) + '</td></tr>';
+  }
+}
+
+async function accessToggle(userId, field, value) {
+  try {
+    var body = {};
+    body[field] = value;
+    var r = await fetch('/admin/users/' + userId + '/access', {
+      method: 'PATCH',
+      headers: Object.assign({'Content-Type': 'application/json'}, _authHeaders),
+      body: JSON.stringify(body),
+    });
+    var d = await r.json();
+    if (d.error) { alert(d.error); return; }
+  } catch(e) {
+    alert('Update failed: ' + e);
+  }
+  loadAccess();
+}
+
+async function createMember() {
+  var name = prompt('Household member name:');
+  if (!name || !name.trim()) return;
+  try {
+    var r = await fetch('/admin/users', {
+      method: 'POST',
+      headers: Object.assign({'Content-Type': 'application/json'}, _authHeaders),
+      body: JSON.stringify({name: name.trim()}),
+    });
+    var d = await r.json();
+    if (d.error) { alert(d.error); return; }
+  } catch(e) {
+    alert('Create failed: ' + e);
+    return;
+  }
+  loadAccess();
+}
+
+async function issueWebChatInvite(userId, name) {
+  try {
+    var r = await fetch('/admin/users/invite', {
+      method: 'POST',
+      headers: Object.assign({'Content-Type': 'application/json'}, _authHeaders),
+      body: JSON.stringify({user_id: userId}),
+    });
+    var d = await r.json();
+    if (d.error) { alert(d.error); return; }
+    prompt('Web chat invite for ' + name + ' (expires ' + new Date(d.expires_at).toLocaleString() + ') — copy and deliver out of band:', d.claim_url);
+  } catch(e) {
+    alert('Invite failed: ' + e);
+  }
+}
+
+async function issueLinkCode(userId, name) {
+  try {
+    var r = await fetch('/admin/users/link-code', {
+      method: 'POST',
+      headers: Object.assign({'Content-Type': 'application/json'}, _authHeaders),
+      body: JSON.stringify({user_id: userId}),
+    });
+    var d = await r.json();
+    if (d.error) { alert(d.error); return; }
+    prompt('Telegram link code for ' + name + ' (expires ' + new Date(d.expires_at).toLocaleString() + ') — tell them to send /link <code>:', d.code);
+  } catch(e) {
+    alert('Link code failed: ' + e);
+  }
+}
+
+document.getElementById('refresh-access').addEventListener('click', loadAccess);
+document.getElementById('create-member-btn').addEventListener('click', createMember);
 
 // Stream via fetch + ReadableStream (replaces EventSource which breaks in Safari)
 async function connectSSE() {

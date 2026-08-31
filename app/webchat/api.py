@@ -133,6 +133,6 @@ async def chat_ws(websocket: WebSocket, token: str = "") -> None:
 
     await websocket.accept()
     touch_session(token)
-    _channel.register_connection(session.token, websocket)
+    _channel.register_connection(session.token, websocket, user_id=session.user_id)
 
     await run_chat_ws_loop(websocket, session, _channel, token, touch_session)

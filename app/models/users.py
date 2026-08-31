@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import uuid
 from datetime import datetime, timezone
+from typing import Optional
 
 from sqlmodel import Field, SQLModel, UniqueConstraint
 
@@ -24,17 +25,31 @@ class Household(SQLModel, table=True):
 class User(SQLModel, table=True):
     id: str = Field(default_factory=_uuid, primary_key=True)
     household_id: str = Field(foreign_key="household.id", index=True)
-    telegram_id: int = Field(unique=True, index=True)
+    # Nullable since Phase 2 (docs/household-identity-and-access-design.md
+    # Option A/B): a User can now originate from an admin-provisioned web
+    # chat invite, with no Telegram account at all, until one is later
+    # linked via /link. SQLite treats multiple NULLs as distinct under a
+    # UNIQUE index, so this stays unique for every row that does have one.
+    # ChannelMapping(channel="telegram", ...) is the authoritative lookup
+    # for Telegram identity (app.bot._get_or_create_user); this column is
+    # kept in sync for display/legacy-lookup convenience, not as a second
+    # source of truth.
+    telegram_id: Optional[int] = Field(default=None, unique=True, index=True)
     name: str
     is_admin: bool = False
     preferred_channel: str = "telegram"
     onboarding_complete: bool = Field(default=False)
-    # Global kill switch, independent of the per-surface access flags planned
-    # for Phase 2 (docs/household-identity-and-access-design.md Option D) —
+    # Global kill switch, independent of the per-surface access flags below —
     # authorize() denies everything for an inactive account regardless of
     # surface. Not exposed anywhere yet; defaults true so existing accounts
     # are unaffected.
     is_active: bool = Field(default=True)
+    # Per-surface access (docs/household-identity-and-access-design.md
+    # Option D/Goal 4) — checked live by authorize() on every request/
+    # message, not baked into a session at issuance. Default true so
+    # existing accounts keep today's access unless an admin turns one off.
+    telegram_enabled: bool = Field(default=True)
+    web_chat_enabled: bool = Field(default=True)
     created_at: datetime = Field(default_factory=_now)
     updated_at: datetime = Field(default_factory=_now)
 

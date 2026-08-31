@@ -2,15 +2,17 @@
 Single authoritative, live authorization decision point — see
 docs/household-identity-and-access-design.md Option D.
 
-Phase 0 checks account-level state only (is_active, is_admin for the admin
-surface). Phase 2 adds per-surface access flags into this same function
-without changing its signature or default-deny behavior — callers wired up
-in Phase 0/1 don't need to change when that lands.
+Phase 0 checked account-level state only (is_active, is_admin for the admin
+surface). Phase 2 adds the per-surface access flags (Goal 4) into this same
+function without changing its signature or default-deny behavior — callers
+wired up in Phase 0/1 don't need to change when this lands, since the new
+fields default to True (today's access, unchanged) at every existing call
+site that doesn't pass them explicitly.
 
 Deliberately takes a plain `Principal`, not the `User` ORM model, so this
 stays a pure function: no DB access, no import cycle risk, trivially
 unit-testable with plain values. Callers load a `User` row and build a
-`Principal` from it at the call site.
+`Principal` from it at the call site (see app.policy.principal.load_principal).
 """
 
 from __future__ import annotations
@@ -28,6 +30,8 @@ class Principal:
     user_id: str
     is_active: bool
     is_admin: bool
+    telegram_enabled: bool = True
+    web_chat_enabled: bool = True
 
 
 @dataclass(frozen=True)
@@ -42,6 +46,12 @@ def authorize(principal: Principal | None, surface: Surface) -> AuthDecision:
         return AuthDecision(False, "no_principal")
     if not principal.is_active:
         return AuthDecision(False, "account_disabled")
-    if surface == "admin" and not principal.is_admin:
-        return AuthDecision(False, "not_admin")
+    if surface == "admin":
+        if not principal.is_admin:
+            return AuthDecision(False, "not_admin")
+        return AuthDecision(True, "ok")
+    if surface == "telegram" and not principal.telegram_enabled:
+        return AuthDecision(False, "telegram_disabled")
+    if surface == "web_chat" and not principal.web_chat_enabled:
+        return AuthDecision(False, "web_chat_disabled")
     return AuthDecision(True, "ok")

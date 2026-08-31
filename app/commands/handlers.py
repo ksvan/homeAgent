@@ -339,7 +339,8 @@ class _Users(SlashCommand):
         lines = []
         for u in users:
             admin_tag = "  [admin]" if u.is_admin else ""
-            lines.append(f"{u.name}  (tg: {u.telegram_id}){admin_tag}")
+            tg = u.telegram_id if u.telegram_id is not None else "not linked"
+            lines.append(f"{u.name}  (tg: {tg}){admin_tag}")
 
         return f"{len(users)} user(s):\n\n" + "\n".join(lines)
 

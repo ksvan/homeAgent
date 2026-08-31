@@ -169,6 +169,28 @@ class WebChatInvite(SQLModel, table=True):
     revoked_at: Optional[datetime] = Field(default=None)
 
 
+class TelegramLinkCode(SQLModel, table=True):
+    """An admin-issued, one-time code for linking a Telegram account to an
+    existing `User` — see docs/household-identity-and-access-design.md
+    Option B.
+
+    Mirrors `WebChatInvite`'s shape and security contract (hashed,
+    short-lived, single-use, revocable, audited) but the raw value is a
+    short human-typable code rather than a URL token, since it's entered
+    by hand via the `/link <code>` Telegram command rather than clicked.
+    """
+
+    id: str = Field(default_factory=_uuid, primary_key=True)
+    code_hash: str = Field(unique=True, index=True)
+    user_id: str = Field(index=True)
+    household_id: str = Field(index=True)
+    created_by_user_id: str
+    created_at: datetime = Field(default_factory=_now)
+    expires_at: datetime
+    used_at: Optional[datetime] = Field(default=None)
+    revoked_at: Optional[datetime] = Field(default=None)
+
+
 class AuditLog(SQLModel, table=True):
     """Durable, security-relevant event log — see
     docs/household-identity-and-access-design.md Goal 8.

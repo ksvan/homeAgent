@@ -32,24 +32,57 @@ logger = logging.getLogger(__name__)
 class WebChannel(Channel):
     def __init__(self) -> None:
         self._connections: dict[str, "WebSocket"] = {}
+        # Reverse index for force-closing every open connection belonging
+        # to a user whose access was just revoked (docs/household-identity-
+        # and-access-design.md Option D: "the server actively closing any
+        # now-unauthorized open WebSocket, not waiting for it to notice on
+        # its next message"). One user can hold multiple sessions/tabs.
+        self._tokens_by_user: dict[str, set[str]] = {}
 
     # ------------------------------------------------------------------
     # Connection registry — used by app.webchat.api's WS endpoint
     # ------------------------------------------------------------------
 
-    def register_connection(self, session_token: str, ws: "WebSocket") -> None:
+    def register_connection(self, session_token: str, ws: "WebSocket", user_id: str = "") -> None:
         """Bind a live WebSocket to a session token, replacing any prior one
-        (e.g. a page refresh reconnecting under the same session)."""
+        (e.g. a page refresh reconnecting under the same session). `user_id`
+        is optional so existing (pre-Phase-2) call sites keep working; a
+        connection registered without one is invisible to
+        close_connections_for_user."""
         self._connections[session_token] = ws
+        if user_id:
+            self._tokens_by_user.setdefault(user_id, set()).add(session_token)
 
     def unregister_connection(self, session_token: str, ws: "WebSocket") -> None:
         """Remove the binding, but only if `ws` is still the registered one —
         avoids a stale disconnect handler evicting a newer reconnection."""
         if self._connections.get(session_token) is ws:
             del self._connections[session_token]
+        for tokens in self._tokens_by_user.values():
+            tokens.discard(session_token)
 
     def active_connection_count(self) -> int:
         return len(self._connections)
+
+    async def close_connections_for_user(self, user_id: str, code: int = 4403) -> int:
+        """Force-close every open connection for `user_id` (e.g. a surface
+        was just disabled or the account was deactivated). Returns how many
+        were closed. Best-effort: a socket that's already gone is just
+        dropped from the index, not treated as an error."""
+        tokens = list(self._tokens_by_user.get(user_id, ()))
+        closed = 0
+        for token in tokens:
+            ws = self._connections.get(token)
+            if ws is None:
+                continue
+            try:
+                await ws.close(code=code)
+            except Exception:
+                pass
+            del self._connections[token]
+            closed += 1
+        self._tokens_by_user.pop(user_id, None)
+        return closed
 
     async def _send_json(self, session_token: str, payload: dict[str, object]) -> None:
         ws = self._connections.get(session_token)

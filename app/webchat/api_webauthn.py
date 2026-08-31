@@ -31,7 +31,8 @@ from pydantic import BaseModel
 
 from app.config import get_settings
 from app.control.audit import record_audit_event
-from app.policy.authorize import Principal, authorize
+from app.policy.authorize import authorize
+from app.policy.principal import load_principal
 from app.webchat.api import get_web_channel
 from app.webchat.invites import get_valid_invite, mark_invite_used
 from app.webchat.session import (
@@ -97,26 +98,13 @@ def _set_csrf_cookie(response: Response) -> str:
     return csrf_token
 
 
-def _principal_for(user_id: str) -> Principal | None:
-    from sqlmodel import select
-
-    from app.db import users_session
-    from app.models.users import User
-
-    with users_session() as db:
-        user = db.exec(select(User).where(User.id == user_id)).first()
-    if user is None:
-        return None
-    return Principal(user_id=user.id, is_active=user.is_active, is_admin=user.is_admin)
-
-
 async def _require_session(hac_session: str | None = Cookie(default=None)) -> SessionInfo:
     token = hac_session or ""
     session = get_session(token)
     if session is None:
         raise HTTPException(status_code=401, detail="Invalid or expired session")
 
-    decision = authorize(_principal_for(session.user_id), "web_chat")
+    decision = authorize(load_principal(session.user_id), "web_chat")
     if not decision.allowed:
         raise HTTPException(status_code=403, detail=decision.reason)
 
@@ -306,9 +294,7 @@ async def webauthn_login_verify(body: LoginVerifyRequest, response: Response) ->
     if user is None:
         raise HTTPException(status_code=401, detail="Login verification failed")
 
-    decision = authorize(
-        Principal(user_id=user.id, is_active=user.is_active, is_admin=user.is_admin), "web_chat"
-    )
+    decision = authorize(load_principal(user.id), "web_chat")
     if not decision.allowed:
         record_audit_event(
             "webchat.login_denied",
@@ -374,7 +360,7 @@ async def chat_ws(websocket: WebSocket) -> None:
         await websocket.close(code=4401)
         return
 
-    decision = authorize(_principal_for(session.user_id), "web_chat")
+    decision = authorize(load_principal(session.user_id), "web_chat")
     if not decision.allowed:
         await websocket.close(code=4403)
         return
@@ -382,6 +368,6 @@ async def chat_ws(websocket: WebSocket) -> None:
     channel = get_web_channel()
     await websocket.accept()
     touch_session(token)
-    channel.register_connection(session.token, websocket)
+    channel.register_connection(session.token, websocket, user_id=session.user_id)
 
     await run_chat_ws_loop(websocket, session, channel, token, touch_session)

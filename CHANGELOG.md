@@ -24,7 +24,8 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 
 ### Added
 
-- **Household identity & access, Phase 0-1 (WebAuthn passkey login)** — see
+- **Household identity & access, Phase 0-2 (WebAuthn passkey login,
+  Telegram linking, permission matrix)** — see
   `docs/household-identity-and-access-design.md`. Phase 0 laid the
   foundation: `User.is_active`, a `WebAuthnCredential` table, a hardened
   `WebChatSession` (hashed token, sliding + absolute expiry, revoke-not-
@@ -53,7 +54,34 @@ Versioning follows [Semantic Versioning](https://semver.org/).
   confirm/cancel identically. Tests: `test_authorize.py`,
   `test_webchat_webauthn.py`, `test_webchat_invites.py`, `test_audit.py`,
   `test_webchat_api_webauthn.py`, `test_webchat_app.py`,
-  `test_control_api_webchat_invite.py`.
+  `test_control_api_webchat_invite.py`. Phase 2 closed a gap the plan
+  hadn't scheduled: `User.telegram_id` was still required, so a
+  genuinely web-only `User` (Option A's whole point) couldn't actually
+  exist — a new `POST /admin/users` now provisions a household member
+  with no channel identity at all, `User.telegram_id` is nullable
+  (SQLite keeps multiple `NULL`s distinct under its `UNIQUE` index), and
+  Telegram ingress resolution (`app.bot._get_or_create_user`) checks
+  `ChannelMapping` before the legacy direct `telegram_id` match. A new
+  `/link <code>` Telegram command (special-cased ahead of the auto-create
+  path, not a `SlashCommand`, so linking a brand-new Telegram account
+  never first spawns a throwaway placeholder `User`) redeems an admin-
+  issued, one-time, human-typable code (`app/webchat/link_codes.py`,
+  `POST /admin/users/link-code`) to write that `ChannelMapping` — rejecting
+  outright if the telegram_id already has any identity, never merging by
+  name. `authorize()` gained per-surface `telegram_enabled`/
+  `web_chat_enabled` flags (default on) and is now enforced on Telegram
+  ingress too (AND with `ALLOWED_TELEGRAM_IDS`, not a hand-off) via a new
+  shared `app/policy/principal.py` (`load_principal`). Web chat's
+  WebSocket loop now checks `authorize()` before every frame, not just at
+  connect; `WebChannel` gained a `user_id` index and
+  `close_connections_for_user()` so an admin revoking access force-closes
+  an idle connection immediately. New admin dashboard "Access" tab:
+  household member × surface toggles, "+ New member", and per-row
+  invite/link-code issuance, backed by `PATCH /admin/users/{id}/access`.
+  Tests: `test_policy_principal.py`, `test_webchat_link_codes.py`,
+  `test_bot_telegram_linking.py`, `test_control_api_access.py`,
+  `test_ws_loop.py`, plus additions to `test_authorize.py` and
+  `test_webchat_channel.py`.
 - **Web chat channel** — browser-based chat UI for household members without
   Telegram on the current device, behind `FEATURE_WEB_CHAT` (default off).
   Runs as its own standalone FastAPI app/port (`WEB_CHAT_PORT`, default

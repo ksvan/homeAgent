@@ -39,6 +39,7 @@ from app.models import (  # noqa: E402, F401  — imported for side effects (met
     Relationship,
     RoutineEntity,
     Task,
+    TelegramLinkCode,
     User,
     FlightEventRow,
     FlightStatusSnapshotRow,
@@ -83,7 +84,7 @@ DATABASES: dict[str, set[str]] = {
         "flightwatch", "flightstatussnapshot", "flightevent",
         "emailmessage", "emailattachment", "emailintakeconfirmation",
         "webchatsession", "oauthstate", "webauthnchallenge", "webchatinvite",
-        "auditlog",
+        "auditlog", "telegramlinkcode",
     },
 }
 

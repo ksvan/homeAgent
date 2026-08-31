@@ -18,6 +18,8 @@ from collections.abc import Callable
 
 from fastapi import WebSocket, WebSocketDisconnect
 
+from app.policy.authorize import authorize
+from app.policy.principal import load_principal
 from app.webchat.channel import WebChannel
 from app.webchat.dispatch import handle_web_cancel, handle_web_confirm, handle_web_message
 from app.webchat.session import SessionInfo
@@ -52,6 +54,17 @@ async def run_chat_ws_loop(
                 frame = json.loads(raw)
             except (ValueError, TypeError):
                 continue
+
+            # Live per-message check (docs/household-identity-and-access-
+            # design.md Option D) — the handshake-time authorize() call
+            # alone isn't enough: a session that's since been revoked, or
+            # an account whose web-chat access was just turned off, must
+            # not keep acting for as long as this socket happens to stay
+            # open.
+            decision = authorize(load_principal(session.user_id), "web_chat")
+            if not decision.allowed:
+                await websocket.close(code=4403)
+                break
 
             frame_type = frame.get("type")
 

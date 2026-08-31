@@ -57,6 +57,82 @@ def _ensure_telegram_channel_mapping(session: "Session", user: "User") -> None:
         )
 
 
+def _resolve_existing_telegram_user_id(session: "Session", telegram_id: int) -> str | None:
+    """Same lookup as _get_or_create_user, minus the auto-create fallback
+    — used by /link to tell "genuinely no identity yet" apart from "this
+    telegram_id already belongs to someone" without side effects."""
+    mapping = session.exec(
+        select(ChannelMapping).where(
+            ChannelMapping.channel == "telegram",
+            ChannelMapping.channel_user_id == str(telegram_id),
+        )
+    ).first()
+    if mapping:
+        return mapping.user_id
+    user = session.exec(select(User).where(User.telegram_id == telegram_id)).first()
+    return user.id if user else None
+
+
+async def _handle_link_command(telegram_id: int, text: str) -> str:
+    """Special-cased ahead of the normal auto-create-on-first-message path
+    (docs/household-identity-and-access-design.md Option B) — a person
+    linking a brand-new Telegram account to an existing web-only `User`
+    must not first get a throwaway placeholder `User` auto-created for
+    this same telegram_id, which `_get_or_create_user` would otherwise do
+    before a slash command ever runs."""
+    from app.control.audit import record_audit_event
+    from app.webchat.link_codes import consume_link_code
+
+    parts = text.split(maxsplit=1)
+    code = parts[1].strip() if len(parts) > 1 else ""
+    if not code:
+        return "Usage: /link <code> — get a code from a household admin."
+
+    with users_session() as session:
+        existing_user_id = _resolve_existing_telegram_user_id(session, telegram_id)
+        if existing_user_id is not None:
+            existing_user = session.exec(select(User).where(User.id == existing_user_id)).first()
+            record_audit_event(
+                "telegram.link_rejected_already_linked",
+                existing_user.household_id if existing_user else "",
+                target_user_id=existing_user_id,
+                detail={"telegram_id": telegram_id},
+            )
+            return "This Telegram account is already linked to a household member."
+
+        info = consume_link_code(code)
+        if info is None:
+            household = session.exec(select(Household)).first()
+            record_audit_event(
+                "telegram.link_failed",
+                household.id if household else "",
+                detail={"telegram_id": telegram_id},
+            )
+            return "That code is invalid or has expired. Ask an admin for a new one."
+
+        user = session.exec(select(User).where(User.id == info.user_id)).first()
+        if user is None:
+            return "That code is invalid or has expired. Ask an admin for a new one."
+
+        session.add(
+            ChannelMapping(user_id=user.id, channel="telegram", channel_user_id=str(telegram_id))
+        )
+        if user.telegram_id is None:
+            user.telegram_id = telegram_id
+            session.add(user)
+        session.commit()
+        user_name = user.name
+
+    record_audit_event(
+        "telegram.link_succeeded",
+        info.household_id,
+        target_user_id=info.user_id,
+        detail={"telegram_id": telegram_id},
+    )
+    logger.info("Telegram account linked (telegram_id=%d, user_id=%s)", telegram_id, info.user_id)
+    return f"Linked! This Telegram account is now {user_name}'s."
+
+
 def _is_rate_limited(key: int | str, limit_per_minute: int) -> bool:
     """Return True if `key` has exceeded limit_per_minute calls in 60 s."""
     now = monotonic()
@@ -83,7 +159,25 @@ class _UserInfo:
 def _get_or_create_user(telegram_id: int) -> _UserInfo:
     settings = get_settings()
     with users_session() as session:
-        user = session.exec(select(User).where(User.telegram_id == telegram_id)).first()
+        # ChannelMapping is the authoritative lookup (docs/household-
+        # identity-and-access-design.md Option B) — a User created via a
+        # web chat invite has no telegram_id until /link writes this
+        # mapping, and linking never touches User.telegram_id-matching
+        # logic. The direct telegram_id match below is a defensive
+        # fallback for rows that predate this mapping being consulted
+        # here; every resolution path (including this one) keeps both in
+        # sync via _ensure_telegram_channel_mapping.
+        mapping = session.exec(
+            select(ChannelMapping).where(
+                ChannelMapping.channel == "telegram",
+                ChannelMapping.channel_user_id == str(telegram_id),
+            )
+        ).first()
+        user = (
+            session.exec(select(User).where(User.id == mapping.user_id)).first()
+            if mapping
+            else session.exec(select(User).where(User.telegram_id == telegram_id)).first()
+        )
 
         if user:
             household = session.exec(
@@ -157,6 +251,9 @@ async def handle_incoming_message(
     if telegram_id not in settings.allowed_telegram_ids:
         return None  # silent drop
 
+    if text.strip().lower().startswith("/link"):
+        return await _handle_link_command(telegram_id, text.strip())
+
     if not (settings.is_development or settings.is_test) and _is_rate_limited(
         telegram_id, settings.rate_limit_per_user_per_minute
     ):
@@ -164,6 +261,18 @@ async def handle_incoming_message(
         return "You're sending messages too quickly. Please wait a moment before trying again."
 
     user = _get_or_create_user(telegram_id)
+
+    # Option D's AND, not a hand-off: ALLOWED_TELEGRAM_IDS above is the
+    # deploy-time bootstrap ceiling, this is the independently-required,
+    # live per-message database check (docs/household-identity-and-
+    # access-design.md Phase 2). Both must agree; neither alone suffices.
+    from app.policy.authorize import authorize
+    from app.policy.principal import load_principal
+
+    decision = authorize(load_principal(user.id), "telegram")
+    if not decision.allowed:
+        logger.info("Telegram message denied for user_id=%s (%s)", user.id, decision.reason)
+        return None  # silent drop — symmetric with the allowlist-miss case above
 
     if text.startswith("/"):
         from app.commands.dispatcher import try_dispatch

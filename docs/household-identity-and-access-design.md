@@ -3,11 +3,11 @@
 Status: design complete — problem definition, resolved Decisions, and
 security-hardened Options (see "Options for the next pass") are now
 followed by a Phased Implementation Plan (Phase 0–5, each with an exit
-gate). Phase 0 and Phase 1 are done (see "Phased Implementation Plan");
-next up is Phase 2. A second, implementation-time security review is
-planned for after coding, to catch actual-code issues the way this pass
-caught design issues.
-Last code check: 2026-08-30
+gate). Phases 0–2 are done (see "Phased Implementation Plan"); next up is
+Phase 3. A second, implementation-time security review is planned for
+after coding, to catch actual-code issues the way this pass caught
+design issues.
+Last code check: 2026-08-31
 Related docs: `docs/user-identity-memory-link-design.md` (identity↔memory
 link, predates web chat), `docs/web-chat-channel-design.md` (Decision #1
 and "Explicitly Deferred" — the PIN and `telegram_id`-optional items this
@@ -1144,21 +1144,76 @@ alone the internet — until Phase 5.
   browser-native ceremony, so this remains a manual, pre-Phase-2 gate
   rather than something automated tests can close.
 
-**Phase 2 — Telegram linking + permission matrix**
+**Phase 2 — Telegram linking + permission matrix — done (2026-08-31)**
 
-- `/link <code>` Telegram command (`app/commands/handlers.py`) plus
-  linking-code issuance; `authorize()` enforced on Telegram ingress too —
-  `ALLOWED_TELEGRAM_IDS` and DB-enabled-and-linked are both required
-  (Option D's AND, not a hand-off).
-- Admin "Access" tab: household member × surface permission matrix,
-  extending `app/control/dashboard.html` plus a new mutation endpoint
-  alongside the existing read-only `/admin/users`.
-- WebSocket and HTTP checks move from connect-time/expiry-only to live
-  per-message `authorize()` calls; revoke force-closes any open
-  connection.
-- **Exit gate:** regression tests shaped around TM-003/TM-004 — revoked
-  access stops working mid-session, Telegram linking rejects name-based
-  collisions, duplicate/relink attempts are audited.
+- **Closed a gap discovered while starting this phase, not originally
+  called out in the plan above:** Option B's "linking a later-acquired
+  Telegram account to an existing web-only `User`" scenario couldn't
+  actually happen yet — `User.telegram_id` was still `NOT NULL`+unique,
+  and Telegram's auto-create-on-first-message path
+  (`app.bot._get_or_create_user`) was the *only* place a `User` row could
+  be created, so nobody was ever truly web-only in practice. Fixed as
+  part of this phase: `telegram_id` is now nullable (SQLite treats
+  multiple `NULL`s as distinct under a `UNIQUE` index, so uniqueness
+  still holds for every row that does have one), a new
+  `POST /admin/users` lets an admin provision a household member with no
+  channel identity at all, and `app.bot`'s Telegram-ingress resolution
+  now checks `ChannelMapping` first (falling back to the legacy direct
+  `telegram_id` match) so a web-only `User` becomes reachable over
+  Telegram the moment `/link` writes that mapping — without ever
+  touching `User.telegram_id`-matching/merge logic. A `/link <code>`
+  attempt is special-cased *ahead of* that auto-create path in
+  `handle_incoming_message`, specifically so a person linking a brand
+  new Telegram account never first gets a throwaway placeholder `User`
+  (and a spurious `HouseholdMember` upsert) created for that same
+  telegram_id before the command runs.
+- `/link <code>` Telegram command (`app/bot.py`, not the `SlashCommand`
+  registry — see above for why) plus admin-provisioned linking-code
+  issuance (`app/webchat/link_codes.py`, `POST /admin/users/link-code`):
+  a 12-character human-typable code (unambiguous alphabet, ~60 bits of
+  entropy), hashed/short-lived/single-use/revocable, mirroring
+  `app/webchat/invites.py`'s security contract. A telegram_id that
+  already resolves to *any* existing `User` is rejected outright before
+  the code is even checked — the "no automatic merging of accounts"
+  invariant applied to this new path, and durably audited either way
+  (`telegram.link_succeeded` / `telegram.link_rejected_already_linked` /
+  `telegram.link_failed`).
+- `authorize()` (`app/policy/authorize.py`) gained the per-surface
+  `telegram_enabled`/`web_chat_enabled` flags on `Principal` (defaulting
+  `True`, so every existing account keeps today's access until an admin
+  turns one off), and is now enforced on Telegram ingress too —
+  `ALLOWED_TELEGRAM_IDS` and the live per-message DB check are both
+  required (Option D's AND, not a hand-off). A shared
+  `app/policy/principal.py` (`load_principal`) builds a `Principal` from
+  a `user_id`, used by both the Telegram and web chat call sites so
+  there's exactly one place deciding which `User` columns feed a
+  decision.
+- Admin "Access" tab (`app/control/dashboard.html`): household member ×
+  surface (Telegram/web chat/admin) permission matrix with inline
+  toggles, a "+ New member" action, and per-row "Telegram code"/"Web chat
+  invite" issuance — backed by `PATCH /admin/users/{id}/access` alongside
+  the existing read-only `/admin/users`.
+- WebSocket and HTTP checks moved from connect-time/expiry-only to live
+  per-message `authorize()` calls (`app/webchat/ws_loop.py`, checked
+  before dispatching every frame — closes the socket with 4403 the
+  moment access is revoked, rather than waiting for it to reconnect).
+  For a connection that's open but idle when access is revoked,
+  `WebChannel` gained a `user_id` index and
+  `close_connections_for_user()`, called by the access-mutation endpoint
+  itself so revocation force-closes immediately instead of waiting for
+  that socket's next message.
+- **Exit gate:** regression tests cover revoked access stopping mid-
+  session (both the live per-message check and the active force-close),
+  Telegram linking rejecting an already-linked telegram_id (the
+  "collision" case — this codebase has no separate name-based user
+  matching for `/link` to exploit; `User.id` is looked up directly, so
+  the collision that needs guarding against is telegram-identity reuse,
+  not name collision), and duplicate/relink/failed attempts all being
+  durably audited. 58 new/updated tests
+  (`test_authorize.py`, `test_policy_principal.py`,
+  `test_webchat_link_codes.py`, `test_webchat_channel.py`,
+  `test_bot_telegram_linking.py`, `test_control_api_access.py`,
+  `test_ws_loop.py`), all passing; `ruff`/`mypy` clean.
 
 **Phase 3 — CSP and origin hardening**
 
