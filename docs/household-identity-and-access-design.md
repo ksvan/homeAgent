@@ -2,10 +2,12 @@
 
 Status: design complete — problem definition, resolved Decisions, and
 security-hardened Options (see "Options for the next pass") are now
-followed by a Phased Implementation Plan (Phase 0–5, each with an exit
-gate). Phases 0–2 are done; Phase 3's application code is done but its
-deployment-verification half (headers at the real Cloudflare edge,
-origin unreachability) is a manual step still outstanding — see "Phased
+followed by a Phased Implementation Plan (Phase 0–5, plus Phase 6, each
+with an exit gate). Phases 0, 1, 2, and 4 are done; Phase 3's application
+code is done but its deployment-verification half (headers at the real
+Cloudflare edge, origin unreachability) is a manual step still
+outstanding; Phase 6 (retrofitting durable audit onto pre-existing admin
+mutation endpoints) is tracked but not started — see "Phased
 Implementation Plan." A second, implementation-time security review is
 planned for after coding, to catch actual-code issues the way this pass
 caught design issues.
@@ -1276,17 +1278,64 @@ deployment verification still outstanding**
   Cloudflare edge; a direct-origin request confirmed rejected or
   unreachable) is still open, per the above.
 
-**Phase 4 — Admin auth migration**
+**Phase 4 — Admin auth migration — done (2026-08-31)**
 
-- Admin dashboard onto the same WebAuthn plumbing — named, per-person
-  admin principals instead of the shared `APP_SECRET_KEY`; durable audit
-  for every admin mutation; SSE moves off a query-string secret onto the
-  authenticated session.
-- Server-enforced invariant: cannot disable or remove the last admin or
-  the last working recovery path, checked at the mutation itself, not
-  only hidden in the UI.
-- **Exit gate:** admin login/mutation audit trail verified end-to-end;
-  the last-admin invariant has a regression test.
+- Admin dashboard onto the same WebAuthn plumbing as web chat — literally
+  the same code (`app.webchat.webauthn`, `app.webchat.session`,
+  `WebAuthnCredential`; a credential is `user_id`-scoped, not surface-
+  scoped), not a parallel reimplementation. New endpoints on the existing
+  admin router: `POST /admin/auth/login/options`, `POST
+  /admin/auth/login/verify`, `GET /admin/auth/me`, `DELETE
+  /admin/auth/session`, gated by `authorize(principal, "admin")` instead
+  of `"web_chat"`. The first admin passkey is registered through the
+  exact same admin-provisioned invite flow as web chat
+  (`POST /admin/users/invite`), reached under the break-glass secret
+  before any admin passkey exists — no separate bootstrap mechanism
+  needed. `app/control/auth.py`'s `require_admin_auth` is now dual-path
+  and returns a typed `AdminIdentity` (`via="passkey"` or
+  `"break_glass"`) instead of `None`; **the shared `APP_SECRET_KEY`
+  path is deliberately kept, not removed** — see the Decisions section's
+  choice to keep it as the local/LAN-only audited break-glass recovery
+  route the design doc already required, not a transition step to be
+  "finished" by deleting it. A successful break-glass auth on any
+  state-changing (non-`GET`) request is durably audited
+  (`admin.break_glass_used`), as are `admin.login_succeeded`/
+  `_denied`/`admin.logout`. Introducing cookie-based admin auth alongside
+  the CSRF-immune-by-construction Bearer path made CSRF protection a
+  necessary part of this phase, not deferred scope: `require_admin_auth`
+  itself now enforces a matching `X-CSRF-Token` header on every
+  state-changing request authenticated via the passkey-session path
+  (Bearer/break-glass requests are exempt, same reasoning as web chat's
+  own cookie design) — folded into the one existing dependency every
+  `/admin/*` route already uses, so none of the ~20 pre-existing route
+  decorators needed to change. Durable audit was scoped to auth events
+  plus this actor-identity infrastructure only, not retrofitted onto
+  those ~20 pre-existing mutation endpoints' own business logic — see
+  the new Phase 6 below, split out deliberately so it isn't forgotten.
+  `dashboard.html` gained a minimal passkey login gate (a button shown
+  only when neither auth path is already working) and a matching
+  sign-out control; the pre-existing Bearer/sessionStorage flow is
+  completely unchanged for anyone who keeps using it. The dead
+  `?token=`-for-SSE code path this bullet originally flagged turned out
+  to already be moot — the SSE stream was already rewritten to use
+  `fetch()` + a `ReadableStream` with a Bearer header before this phase
+  (Safari compatibility, unrelated prior work) — so this phase's only
+  SSE-adjacent change was deleting the now-dead `_authQ` variable.
+- Server-enforced invariant: cannot deactivate the last active admin,
+  checked inside `PATCH /admin/users/{id}/access` itself (Phase 2's
+  endpoint), not only hidden in the UI. The "remove admin status" half of
+  this invariant is currently vacuous — no mutation grants/revokes
+  `is_admin` post-creation yet (still bootstrap-only, via
+  `ADMIN_TELEGRAM_IDS`), so there's nothing yet for that half to guard;
+  worth revisiting if an `is_admin` toggle is ever added.
+- **Exit gate:** 27 new/updated tests (`test_control_auth.py`,
+  `test_control_api_admin_auth.py`, plus additions to
+  `test_control_api_access.py`), all passing; `ruff`/`mypy` clean. Covers
+  both auth paths (including dev-mode/no-`APP_SECRET_KEY` behavior
+  staying unchanged), CSRF enforcement scoped to mutations on the cookie
+  path only, break-glass audit firing only on mutations, and the
+  last-admin invariant (blocked when it's the last one, allowed when
+  another active admin remains, unaffected for non-admins).
 
 **Phase 5 — Enable the public hostname**
 
@@ -1297,6 +1346,34 @@ deployment verification still outstanding**
 - This is the one phase with a genuinely irreversible-feeling consequence
   — worth a deliberate go/no-go moment with Kristian, not the tail end of
   a routine deploy.
+
+**Phase 6 — Retrofit durable audit onto pre-existing admin mutation
+endpoints**
+
+Split out deliberately, not an oversight: when Phase 4 was scoped
+(2026-08-31), it explicitly limited "durable audit for every admin
+mutation" to auth events (login/logout/break-glass use) plus the actor-
+identity infrastructure, and left retrofitting the ~20 pre-existing admin
+endpoints that had zero durable audit before Phase 4 (event rules CRUD,
+world-model edits, task actions, scheduler run-now, integrations connect/
+disconnect) as its own follow-up — a bigger, differently-shaped diff than
+"migrate the auth mechanism," touching many otherwise-unrelated handlers
+in one pass. Recorded here as its own phase specifically so it doesn't
+quietly get dropped once Phase 4 feels "done."
+
+- Every mutating `/admin/*` endpoint gets a `record_audit_event(...)`
+  call using the real actor identity Phase 4's `require_admin_auth`
+  already resolves (passkey session → real `user_id`; break-glass secret
+  → the existing `"break_glass"` marker) — no new identity plumbing
+  needed, just wiring it through to each handler.
+- Not blocking, and not ordered strictly after Phase 5 — can land
+  whenever convenient once Phase 4 is verified working; only sequenced
+  last on this list because it's lower-stakes than shipping the public
+  hostname.
+- **Exit gate:** every `/admin/*` POST/PUT/PATCH/DELETE handler has a
+  corresponding durable audit event with a real actor identity, verified
+  by a regression test per endpoint category (world model, event rules,
+  tasks, scheduler, integrations, users).
 
 Each phase after 0 should land as its own reviewed change rather than one
 large diff, consistent with how the original web chat channel was built.

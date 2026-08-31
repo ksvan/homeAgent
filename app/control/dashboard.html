@@ -180,6 +180,9 @@ header { background: var(--surface); border-bottom: 1px solid var(--border); pad
     <span class="hdr-stat" id="hdr-cpu"><span id="v-cpu">—</span> CPU</span>
     <span class="hdr-stat" id="hdr-mem"><span id="v-mem">—</span> MB</span>
     <span class="hdr-stat">uptime <span id="v-uptime">—</span></span>
+    <button id="admin-login-btn" class="details-btn" style="display:none">Sign in with passkey</button>
+    <span id="admin-whoami" class="hdr-stat" style="display:none"></span>
+    <button id="admin-logout-btn" class="details-btn" style="display:none">Sign out</button>
   </div>
 </header>
 
@@ -656,11 +659,17 @@ header { background: var(--surface); border-bottom: 1px solid var(--border); pad
   </div>
 </div>
 
+<script src="/admin/webauthn-common.js"></script>
 <script>
-// Token management: strip ?token= from the address bar on first load so it
-// never enters browser history or bookmarks. Store in sessionStorage and use
-// Bearer header for all fetch() calls. EventSource still uses ?token= since
-// browsers cannot send custom headers for SSE connections.
+// Auth: two paths, both always valid (docs/household-identity-and-access-
+// design.md Phase 4). Bearer token (break-glass/shared-secret) — strip
+// ?token= from the address bar on first load so it never enters browser
+// history or bookmarks, store in sessionStorage, send as a Bearer header.
+// Passkey login sets an HttpOnly session cookie instead (sent
+// automatically by the browser, nothing to store here) plus a
+// non-HttpOnly CSRF cookie this page echoes back on state-changing
+// requests — both headers are safe to send unconditionally since an
+// empty one is simply ignored server-side.
 (function() {
   const params = new URLSearchParams(window.location.search);
   const urlToken = params.get('token');
@@ -672,8 +681,72 @@ header { background: var(--surface); border-bottom: 1px solid var(--border); pad
   }
 })();
 const _tok = sessionStorage.getItem('admin_token') || '';
-const _authHeaders = _tok ? {'Authorization': 'Bearer ' + _tok} : {};
-const _authQ = _tok ? '?token=' + encodeURIComponent(_tok) : '';  // SSE only
+function _readCookie(name) {
+  const m = document.cookie.match(new RegExp('(?:^|; )' + name + '=([^;]*)'));
+  return m ? decodeURIComponent(m[1]) : '';
+}
+const _authHeaders = Object.assign(
+  {},
+  _tok ? {'Authorization': 'Bearer ' + _tok} : {},
+  _readCookie('hac_csrf') ? {'X-CSRF-Token': _readCookie('hac_csrf')} : {}
+);
+
+// Passkey login gate — only shown when neither auth path above is already
+// working (a break-glass Bearer token in sessionStorage, or an existing
+// admin session cookie). Everything else on this page keeps working
+// exactly as before regardless of whether this resolves: an admin who's
+// only ever used the shared secret sees nothing new.
+(async function() {
+  const btn = document.getElementById('admin-login-btn');
+  const whoami = document.getElementById('admin-whoami');
+  const logoutBtn = document.getElementById('admin-logout-btn');
+  try {
+    const r = await fetch('/admin/auth/me', {credentials: 'same-origin'});
+    if (r.ok) {
+      const me = await r.json();
+      whoami.textContent = me.name;
+      whoami.style.display = '';
+      logoutBtn.style.display = '';
+      return;
+    }
+  } catch (e) { /* fall through to showing the login button */ }
+  if (!_tok) btn.style.display = '';
+})();
+
+document.getElementById('admin-logout-btn').addEventListener('click', async function() {
+  try {
+    await fetch('/admin/auth/session', {
+      method: 'DELETE',
+      headers: {'X-CSRF-Token': _readCookie('hac_csrf')},
+    });
+  } catch (e) { /* best-effort */ }
+  location.reload();
+});
+
+document.getElementById('admin-login-btn').addEventListener('click', async function() {
+  const btn = this;
+  btn.disabled = true;
+  try {
+    const optionsResp = await fetch('/admin/auth/login/options', {method: 'POST'});
+    if (!optionsResp.ok) throw new Error('options failed');
+    const data = await optionsResp.json();
+    const publicKey = HomeAgentWebAuthn.decodeLoginOptions(data.options);
+    const credential = await navigator.credentials.get({publicKey: publicKey});
+    const verifyResp = await fetch('/admin/auth/login/verify', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({
+        challenge_id: data.challenge_id,
+        credential: HomeAgentWebAuthn.encodeAssertion(credential),
+      }),
+    });
+    if (!verifyResp.ok) throw new Error('verify failed');
+    location.reload();
+  } catch (e) {
+    alert('Passkey sign-in failed or was cancelled.');
+    btn.disabled = false;
+  }
+});
 
 let autoScroll = true;
 let evCount = 0;

@@ -7,16 +7,19 @@ import pathlib
 import time
 from typing import TYPE_CHECKING, Any, AsyncGenerator, Sequence
 
-from fastapi import APIRouter, Depends
-from fastapi.responses import HTMLResponse, StreamingResponse
+from fastapi import APIRouter, Cookie, Depends, HTTPException, Request, Response
+from fastapi.responses import HTMLResponse, PlainTextResponse, StreamingResponse
 from pydantic import BaseModel
 
-from app.control.auth import require_admin_auth
+from app.control.auth import CSRF_COOKIE, SESSION_COOKIE, require_admin_auth
 
 if TYPE_CHECKING:
     from app.models.cache import AgentRunLog
 
 _auth = [Depends(require_admin_auth)]
+_ADMIN_COOKIE_MAX_AGE_SECONDS = (
+    60 * 60 * 24 * 90
+)  # matches web_chat_session_absolute_ttl_days default
 
 logger = logging.getLogger(__name__)
 
@@ -38,6 +41,167 @@ async def admin_page() -> HTMLResponse:
         content=_ADMIN_HTML,
         headers={"Cache-Control": "no-store, must-revalidate"},
     )
+
+
+# ---------------------------------------------------------------------------
+# Admin passkey login — Phase 4 (docs/household-identity-and-access-design.md)
+#
+# Same WebAuthn plumbing as web chat (app.webchat.webauthn, app.webchat.session,
+# WebAuthnCredential — a credential isn't surface-specific, just user_id-
+# specific), gated by authorize(principal, "admin") instead of "web_chat".
+# Registering the first admin passkey uses the exact same admin-provisioned
+# invite flow as web chat (POST /admin/users/invite) — reached under the
+# existing break-glass shared secret before any admin passkey exists yet.
+# ---------------------------------------------------------------------------
+
+
+def _admin_cookie_secure() -> bool:
+    from app.config import get_settings
+
+    return not get_settings().is_development
+
+
+def _set_admin_session_cookie(response: Response, token: str) -> None:
+    response.set_cookie(
+        SESSION_COOKIE,
+        token,
+        httponly=True,
+        secure=_admin_cookie_secure(),
+        samesite="lax",
+        max_age=_ADMIN_COOKIE_MAX_AGE_SECONDS,
+        path="/",
+    )
+
+
+def _set_admin_csrf_cookie(response: Response) -> str:
+    import secrets as _secrets
+
+    csrf_token = _secrets.token_urlsafe(32)
+    response.set_cookie(
+        CSRF_COOKIE,
+        csrf_token,
+        httponly=False,
+        secure=_admin_cookie_secure(),
+        samesite="lax",
+        max_age=_ADMIN_COOKIE_MAX_AGE_SECONDS,
+        path="/",
+    )
+    return csrf_token
+
+
+async def _require_admin_preauth_rate_limit(request: Request) -> None:
+    from app.bot import _is_rate_limited
+    from app.config import get_settings
+    from app.webchat.client_ip import get_client_ip
+
+    ip = get_client_ip(
+        request.client.host if request.client else None,
+        request.headers.get("x-forwarded-for"),
+    )
+    if _is_rate_limited(
+        f"admin-preauth:{ip}", get_settings().webchat_preauth_rate_limit_per_minute
+    ):
+        raise HTTPException(status_code=429, detail="Too many attempts. Please wait a moment.")
+
+
+@router.get("/webauthn-common.js")
+async def admin_webauthn_common_js() -> PlainTextResponse:
+    from app.webchat.static_files import serve_js
+
+    return serve_js("webauthn-common.js")
+
+
+@router.post("/auth/login/options", dependencies=[Depends(_require_admin_preauth_rate_limit)])
+async def admin_login_options() -> dict[str, Any]:
+    from app.webchat.webauthn import build_login_options
+
+    challenge_id, options_json = build_login_options()
+    return {"challenge_id": challenge_id, "options": json.loads(options_json)}
+
+
+class _AdminLoginVerifyRequest(BaseModel):
+    challenge_id: str
+    credential: dict[str, Any]
+
+
+@router.post("/auth/login/verify", dependencies=[Depends(_require_admin_preauth_rate_limit)])
+async def admin_login_verify(body: _AdminLoginVerifyRequest, response: Response) -> dict[str, Any]:
+    from sqlmodel import select
+
+    from app.control.audit import record_audit_event
+    from app.db import users_session
+    from app.models.users import User
+    from app.policy.authorize import authorize
+    from app.policy.principal import load_principal
+    from app.webchat.session import create_session
+    from app.webchat.webauthn import WebAuthnError, verify_login
+
+    try:
+        result = verify_login(body.challenge_id, json.dumps(body.credential))
+    except WebAuthnError:
+        logger.warning("Admin WebAuthn login failed", exc_info=True)
+        raise HTTPException(status_code=401, detail="Login verification failed") from None
+
+    with users_session() as db:
+        user = db.exec(select(User).where(User.id == result.user_id)).first()
+    if user is None:
+        raise HTTPException(status_code=401, detail="Login verification failed")
+
+    decision = authorize(load_principal(user.id), "admin")
+    if not decision.allowed:
+        record_audit_event(
+            "admin.login_denied",
+            user.household_id,
+            actor_user_id=user.id,
+            detail={"reason": decision.reason},
+        )
+        raise HTTPException(status_code=403, detail=decision.reason)
+
+    record_audit_event("admin.login_succeeded", user.household_id, actor_user_id=user.id)
+
+    session_info = create_session(user.id, user.household_id)
+    _set_admin_session_cookie(response, session_info.token)
+    csrf_token = _set_admin_csrf_cookie(response)
+    return {"ok": True, "name": user.name, "csrf_token": csrf_token}
+
+
+@router.get("/auth/me")
+async def admin_auth_me(hac_session: str | None = Cookie(default=None)) -> dict[str, Any]:
+    from sqlmodel import select
+
+    from app.db import users_session
+    from app.models.users import User
+    from app.policy.authorize import authorize
+    from app.policy.principal import load_principal
+    from app.webchat.session import get_session
+
+    session = get_session(hac_session or "")
+    if session is None:
+        raise HTTPException(status_code=401, detail="Not signed in")
+
+    decision = authorize(load_principal(session.user_id), "admin")
+    if not decision.allowed:
+        raise HTTPException(status_code=403, detail=decision.reason)
+
+    with users_session() as db:
+        user = db.exec(select(User).where(User.id == session.user_id)).first()
+    return {"user_id": session.user_id, "name": user.name if user else ""}
+
+
+@router.delete("/auth/session", dependencies=_auth)
+async def admin_end_session(
+    response: Response, hac_session: str | None = Cookie(default=None)
+) -> dict[str, bool]:
+    from app.control.audit import record_audit_event
+    from app.webchat.session import get_session, revoke_session
+
+    session = get_session(hac_session or "")
+    if session is not None:
+        revoke_session(hac_session or "")
+        record_audit_event("admin.logout", session.household_id, actor_user_id=session.user_id)
+    response.delete_cookie(SESSION_COOKIE, path="/")
+    response.delete_cookie(CSRF_COOKIE, path="/")
+    return {"ok": True}
 
 
 def _aggregate_run_stats(runs: "Sequence[AgentRunLog]") -> dict[str, Any]:
@@ -1270,6 +1434,22 @@ async def admin_update_user_access(user_id: str, body: _UpdateAccessRequest) -> 
         user = session.exec(select(User).where(User.id == user_id)).first()
         if user is None:
             return {"error": "Unknown user"}
+
+        # Server-enforced invariant (docs/household-identity-and-access-
+        # design.md Phase 4) — checked here, not only hidden in the admin
+        # UI, since this endpoint is reachable directly.
+        deactivating_admin = body.is_active is False and user.is_active and user.is_admin
+        if deactivating_admin:
+            other_active_admins = session.exec(
+                select(User).where(
+                    User.household_id == user.household_id,
+                    User.is_admin == True,  # noqa: E712
+                    User.is_active == True,  # noqa: E712
+                    User.id != user_id,
+                )
+            ).first()
+            if other_active_admins is None:
+                return {"error": "Cannot deactivate the last active admin"}
 
         changes: dict[str, bool] = {}
         if body.is_active is not None and body.is_active != user.is_active:

@@ -24,8 +24,9 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 
 ### Added
 
-- **Household identity & access, Phase 0-3 (WebAuthn passkey login,
-  Telegram linking, permission matrix, CSP/origin hardening)** — see
+- **Household identity & access, Phase 0-4 (WebAuthn passkey login,
+  Telegram linking, permission matrix, CSP/origin hardening, admin auth
+  migration)** — see
   `docs/household-identity-and-access-design.md`. Phase 0 laid the
   foundation: `User.is_active`, a `WebAuthnCredential` table, a hardened
   `WebChatSession` (hashed token, sliding + absolute expiry, revoke-not-
@@ -106,7 +107,28 @@ Versioning follows [Semantic Versioning](https://semver.org/).
   (`WEBCHAT_MAX_WS_FRAME_BYTES`). Tests: `test_client_ip.py`,
   `test_security_headers.py`, plus additions to `test_ws_loop.py`,
   `test_webchat_channel.py`, `test_webchat_api.py`, and
-  `test_webchat_api_webauthn.py`.
+  `test_webchat_api_webauthn.py`. Phase 4 moves the admin dashboard onto
+  the same WebAuthn plumbing as web chat — literally the same code
+  (`app.webchat.webauthn`, `app.webchat.session`, `WebAuthnCredential`),
+  gated by `authorize(principal, "admin")` instead of `"web_chat"`. New
+  endpoints on the admin router: `POST /admin/auth/login/options`,
+  `POST /admin/auth/login/verify`, `GET /admin/auth/me`,
+  `DELETE /admin/auth/session`. `app/control/auth.py`'s
+  `require_admin_auth` is now dual-path (shared `APP_SECRET_KEY` kept
+  deliberately as an always-available, audited break-glass recovery
+  route — never removed — alongside the new per-person passkey path) and
+  folds in CSRF enforcement for state-changing requests authenticated via
+  the cookie path, so all ~20 pre-existing `/admin/*` mutation endpoints
+  gained CSRF protection without any of their own route decorators
+  changing. Break-glass use on a mutation, passkey login/logout, and
+  login-denied are all durably audited; retrofitting audit onto those
+  ~20 pre-existing endpoints' own business logic is intentionally
+  deferred to a new tracked Phase 6, not done here. Server-enforced
+  invariant: `PATCH /admin/users/{id}/access` now refuses to deactivate
+  the last active admin. `dashboard.html` gained a minimal passkey login
+  gate and sign-out control; the existing Bearer/sessionStorage flow is
+  unchanged. Tests: `test_control_auth.py`, `test_control_api_admin_auth.py`,
+  plus additions to `test_control_api_access.py`.
 - **Web chat channel** — browser-based chat UI for household members without
   Telegram on the current device, behind `FEATURE_WEB_CHAT` (default off).
   Runs as its own standalone FastAPI app/port (`WEB_CHAT_PORT`, default

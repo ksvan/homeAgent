@@ -255,3 +255,61 @@ def test_event_rule_creation_rejects_user_with_no_telegram_id(client: TestClient
     )
     assert resp.status_code == 200
     assert "no linked Telegram account" in resp.json()["error"]
+
+
+# ---------------------------------------------------------------------------
+# Last-admin invariant (Phase 4)
+# ---------------------------------------------------------------------------
+
+
+def _seed_admin(engines: tuple[object, object], user_id: str, telegram_id: int) -> None:
+    users_engine, _ = engines
+    with Session(users_engine) as s:  # type: ignore[arg-type]
+        s.add(
+            User(
+                id=user_id,
+                household_id="hh-1",
+                telegram_id=telegram_id,
+                name=user_id,
+                is_admin=True,
+            )
+        )
+        s.commit()
+
+
+def test_cannot_deactivate_the_last_active_admin(
+    client: TestClient, engines: tuple[object, object]
+) -> None:
+    _seed_admin(engines, "admin-1", 900)
+
+    resp = client.patch("/admin/users/admin-1/access", json={"is_active": False}, headers=_AUTH)
+
+    assert resp.status_code == 200
+    assert "Cannot deactivate the last active admin" in resp.json()["error"]
+
+    listing = client.get("/admin/users", headers=_AUTH).json()["users"]
+    admin_row = next(u for u in listing if u["id"] == "admin-1")
+    assert admin_row["is_active"] is True
+
+
+def test_can_deactivate_an_admin_when_another_active_admin_remains(
+    client: TestClient, engines: tuple[object, object]
+) -> None:
+    _seed_admin(engines, "admin-1", 901)
+    _seed_admin(engines, "admin-2", 902)
+
+    resp = client.patch("/admin/users/admin-1/access", json={"is_active": False}, headers=_AUTH)
+
+    assert resp.status_code == 200
+    assert "error" not in resp.json()
+
+    listing = client.get("/admin/users", headers=_AUTH).json()["users"]
+    admin_row = next(u for u in listing if u["id"] == "admin-1")
+    assert admin_row["is_active"] is False
+
+
+def test_non_admin_deactivation_is_unaffected_by_the_invariant(client: TestClient) -> None:
+    """The seeded non-admin user-1 should never trip the last-admin guard."""
+    resp = client.patch("/admin/users/user-1/access", json={"is_active": False}, headers=_AUTH)
+    assert resp.status_code == 200
+    assert "error" not in resp.json()
