@@ -648,11 +648,14 @@ async def admin_scheduler_runs(prompt_id: str) -> dict[str, Any]:
     }
 
 
-@router.post("/scheduler/{prompt_id}/run-now", dependencies=_auth)
-async def admin_run_prompt_now(prompt_id: str) -> dict[str, str]:
+@router.post("/scheduler/{prompt_id}/run-now")
+async def admin_run_prompt_now(
+    prompt_id: str, identity: AdminIdentity = Depends(require_admin_auth)
+) -> dict[str, str]:
     """Fire a scheduled prompt immediately (for debugging)."""
     import asyncio
 
+    from app.control.audit import record_audit_event
     from app.db import users_session
     from app.models.scheduled_prompts import ScheduledPrompt
     from app.scheduler.jobs import fire_scheduled_prompt
@@ -680,6 +683,12 @@ async def admin_run_prompt_now(prompt_id: str) -> dict[str, str]:
             name=_name,
             is_one_shot=False,
         )
+    )
+    record_audit_event(
+        "admin.scheduler.run_now",
+        _household_id,
+        actor_user_id=identity.user_id or "admin",
+        detail={"prompt_id": _prompt_id, "name": _name},
     )
     return {"status": "ok", "message": f"Fired '{_name}'"}
 
@@ -766,8 +775,11 @@ def _get_household_id() -> str:
     return household.id if household else ""
 
 
-@router.put("/world-model/member", dependencies=_auth)
-async def admin_upsert_member(body: _MemberBody) -> dict[str, Any]:
+@router.put("/world-model/member")
+async def admin_upsert_member(
+    body: _MemberBody, identity: AdminIdentity = Depends(require_admin_auth)
+) -> dict[str, Any]:
+    from app.control.audit import record_audit_event
     from app.control.events import emit
     from app.world.repository import WorldModelRepository as repo
 
@@ -781,11 +793,20 @@ async def admin_upsert_member(body: _MemberBody) -> dict[str, Any]:
         source="admin_authored",
     )
     emit("world.update", {"entity_type": "member", "action": "upsert", "name": member.name})
+    record_audit_event(
+        "admin.world_model.member_upserted",
+        hid,
+        actor_user_id=identity.user_id or "admin",
+        detail={"name": member.name, "role": member.role},
+    )
     return {"ok": True, "name": member.name, "role": member.role}
 
 
-@router.put("/world-model/fact", dependencies=_auth)
-async def admin_upsert_fact(body: _FactBody) -> dict[str, Any]:
+@router.put("/world-model/fact")
+async def admin_upsert_fact(
+    body: _FactBody, identity: AdminIdentity = Depends(require_admin_auth)
+) -> dict[str, Any]:
+    from app.control.audit import record_audit_event
     from app.control.events import emit
     from app.world.repository import WorldModelRepository as repo
 
@@ -801,22 +822,40 @@ async def admin_upsert_fact(body: _FactBody) -> dict[str, Any]:
         overwrite=True,
     )
     emit("world.update", {"entity_type": "fact", "action": "upsert", "key": body.key})
+    record_audit_event(
+        "admin.world_model.fact_upserted",
+        hid,
+        actor_user_id=identity.user_id or "admin",
+        detail={"scope": body.scope, "key": body.key},
+    )
     return {"ok": True, "scope": body.scope, "key": body.key}
 
 
-@router.delete("/world-model/fact/{fact_id}", dependencies=_auth)
-async def admin_delete_fact(fact_id: str) -> dict[str, Any]:
+@router.delete("/world-model/fact/{fact_id}")
+async def admin_delete_fact(
+    fact_id: str, identity: AdminIdentity = Depends(require_admin_auth)
+) -> dict[str, Any]:
+    from app.control.audit import record_audit_event
     from app.control.events import emit
     from app.world.repository import WorldModelRepository as repo
 
     ok = repo.delete_entity("worldfact", fact_id)
     if ok:
         emit("world.update", {"entity_type": "fact", "action": "delete", "id": fact_id})
+        record_audit_event(
+            "admin.world_model.fact_deleted",
+            _get_household_id(),
+            actor_user_id=identity.user_id or "admin",
+            detail={"fact_id": fact_id},
+        )
     return {"ok": ok}
 
 
-@router.put("/world-model/routine", dependencies=_auth)
-async def admin_upsert_routine(body: _RoutineBody) -> dict[str, Any]:
+@router.put("/world-model/routine")
+async def admin_upsert_routine(
+    body: _RoutineBody, identity: AdminIdentity = Depends(require_admin_auth)
+) -> dict[str, Any]:
+    from app.control.audit import record_audit_event
     from app.control.events import emit
     from app.world.repository import WorldModelRepository as repo
 
@@ -831,11 +870,20 @@ async def admin_upsert_routine(body: _RoutineBody) -> dict[str, Any]:
         source="admin_authored",
     )
     emit("world.update", {"entity_type": "routine", "action": "upsert", "name": body.name})
+    record_audit_event(
+        "admin.world_model.routine_upserted",
+        hid,
+        actor_user_id=identity.user_id or "admin",
+        detail={"name": body.name},
+    )
     return {"ok": True, "name": body.name}
 
 
-@router.put("/world-model/alias", dependencies=_auth)
-async def admin_add_alias(body: _AliasBody) -> dict[str, Any]:
+@router.put("/world-model/alias")
+async def admin_add_alias(
+    body: _AliasBody, identity: AdminIdentity = Depends(require_admin_auth)
+) -> dict[str, Any]:
+    from app.control.audit import record_audit_event
     from app.control.events import emit
     from app.world.repository import WorldModelRepository as repo
 
@@ -848,11 +896,24 @@ async def admin_add_alias(body: _AliasBody) -> dict[str, Any]:
             "world.update",
             {"entity_type": body.entity_type, "action": "alias_added", "alias": body.alias},
         )
+        record_audit_event(
+            "admin.world_model.alias_added",
+            hid,
+            actor_user_id=identity.user_id or "admin",
+            detail={
+                "entity_type": body.entity_type,
+                "entity_id": body.entity_id,
+                "alias": body.alias,
+            },
+        )
     return {"ok": ok}
 
 
-@router.put("/world-model/member-detail", dependencies=_auth)
-async def admin_upsert_member_detail(body: _MemberDetailBody) -> dict[str, Any]:
+@router.put("/world-model/member-detail")
+async def admin_upsert_member_detail(
+    body: _MemberDetailBody, identity: AdminIdentity = Depends(require_admin_auth)
+) -> dict[str, Any]:
+    from app.control.audit import record_audit_event
     from app.control.events import emit
     from app.world.repository import WorldModelRepository as repo
 
@@ -881,17 +942,34 @@ async def admin_upsert_member_detail(body: _MemberDetailBody) -> dict[str, Any]:
         return {"error": f"Unknown detail_type: {body.detail_type}"}
 
     emit("world.update", {"entity_type": body.detail_type, "action": "upsert", "name": body.name})
+    record_audit_event(
+        "admin.world_model.member_detail_upserted",
+        hid,
+        actor_user_id=identity.user_id or "admin",
+        detail={"detail_type": body.detail_type, "member_id": body.member_id, "name": body.name},
+    )
     return {"ok": True, "detail_type": body.detail_type, "name": body.name}
 
 
-@router.delete("/world-model/entity/{entity_type}/{entity_id}", dependencies=_auth)
-async def admin_delete_entity(entity_type: str, entity_id: str) -> dict[str, Any]:
+@router.delete("/world-model/entity/{entity_type}/{entity_id}")
+async def admin_delete_entity(
+    entity_type: str,
+    entity_id: str,
+    identity: AdminIdentity = Depends(require_admin_auth),
+) -> dict[str, Any]:
+    from app.control.audit import record_audit_event
     from app.control.events import emit
     from app.world.repository import WorldModelRepository as repo
 
     ok = repo.delete_entity(entity_type, entity_id)
     if ok:
         emit("world.update", {"entity_type": entity_type, "action": "delete", "id": entity_id})
+        record_audit_event(
+            "admin.world_model.entity_deleted",
+            _get_household_id(),
+            actor_user_id=identity.user_id or "admin",
+            detail={"entity_type": entity_type, "entity_id": entity_id},
+        )
     return {"ok": ok}
 
 
@@ -932,15 +1010,21 @@ class _ProposalDecision(BaseModel):
     decision: str  # "accepted" | "rejected"
 
 
-@router.post("/world-model/proposals/{proposal_id}/review", dependencies=_auth)
-async def admin_review_proposal(proposal_id: str, body: _ProposalDecision) -> dict[str, Any]:
+@router.post("/world-model/proposals/{proposal_id}/review")
+async def admin_review_proposal(
+    proposal_id: str,
+    body: _ProposalDecision,
+    identity: AdminIdentity = Depends(require_admin_auth),
+) -> dict[str, Any]:
+    from app.control.audit import record_audit_event
     from app.control.events import emit
     from app.world.repository import WorldModelRepository as repo
 
     if body.decision not in ("accepted", "rejected"):
         return {"error": "decision must be 'accepted' or 'rejected'"}
 
-    p = repo.review_proposal(proposal_id, body.decision)
+    actor = identity.user_id or "admin"
+    p = repo.review_proposal(proposal_id, body.decision, reviewed_by=actor)
     if p is None:
         return {"error": "Proposal not found or already reviewed"}
 
@@ -951,6 +1035,12 @@ async def admin_review_proposal(proposal_id: str, body: _ProposalDecision) -> di
         "world.update",
         {"action": "proposal_reviewed", "proposal_id": proposal_id, "decision": body.decision},
     )
+    record_audit_event(
+        "admin.world_model.proposal_reviewed",
+        _get_household_id(),
+        actor_user_id=actor,
+        detail={"proposal_id": proposal_id, "decision": body.decision},
+    )
     return {"ok": True, "status": p.status}
 
 
@@ -959,17 +1049,21 @@ class _BulkDecision(BaseModel):
     decision: str  # "accepted" | "rejected"
 
 
-@router.post("/world-model/proposals/bulk", dependencies=_auth)
-async def admin_bulk_review(body: _BulkDecision) -> dict[str, Any]:
+@router.post("/world-model/proposals/bulk")
+async def admin_bulk_review(
+    body: _BulkDecision, identity: AdminIdentity = Depends(require_admin_auth)
+) -> dict[str, Any]:
+    from app.control.audit import record_audit_event
     from app.control.events import emit
     from app.world.repository import WorldModelRepository as repo
 
     if body.decision not in ("accepted", "rejected"):
         return {"error": "decision must be 'accepted' or 'rejected'"}
 
+    actor = identity.user_id or "admin"
     reviewed = 0
     for pid in body.proposal_ids:
-        p = repo.review_proposal(pid, body.decision)
+        p = repo.review_proposal(pid, body.decision, reviewed_by=actor)
         if p is not None:
             if body.decision == "accepted":
                 _apply_accepted_proposal(p)
@@ -979,6 +1073,12 @@ async def admin_bulk_review(body: _BulkDecision) -> dict[str, Any]:
         emit(
             "world.update",
             {"action": "bulk_review", "count": reviewed, "decision": body.decision},
+        )
+        record_audit_event(
+            "admin.world_model.proposals_bulk_reviewed",
+            _get_household_id(),
+            actor_user_id=actor,
+            detail={"count": reviewed, "decision": body.decision},
         )
     return {"ok": True, "reviewed": reviewed}
 
@@ -1194,9 +1294,14 @@ class _TaskActionBody(BaseModel):
     action: str  # "cancel" | "resume"
 
 
-@router.post("/tasks/{task_id}/action", dependencies=_auth)
-async def admin_task_action(task_id: str, body: _TaskActionBody) -> dict[str, str]:
+@router.post("/tasks/{task_id}/action")
+async def admin_task_action(
+    task_id: str,
+    body: _TaskActionBody,
+    identity: AdminIdentity = Depends(require_admin_auth),
+) -> dict[str, str]:
     """Admin cancel or resume a task."""
+    from app.control.audit import record_audit_event
     from app.control.events import emit
     from app.tasks.repository import TaskRepository
 
@@ -1205,11 +1310,18 @@ async def admin_task_action(task_id: str, body: _TaskActionBody) -> dict[str, st
     if task is None:
         return {"error": "Task not found"}
 
+    actor = identity.user_id or "admin"
     if body.action == "cancel":
         try:
             repo.transition_status(task_id, "CANCELLED")
             repo.update_task(task_id, summary="Cancelled by admin")
             emit("task.cancel", {"task_id": task_id, "reason": "admin"})
+            record_audit_event(
+                "admin.task.cancelled",
+                task.household_id,
+                actor_user_id=actor,
+                detail={"task_id": task_id},
+            )
             return {"status": "cancelled"}
         except ValueError as exc:
             return {"error": str(exc)}
@@ -1218,6 +1330,12 @@ async def admin_task_action(task_id: str, body: _TaskActionBody) -> dict[str, st
             repo.transition_status(task_id, "ACTIVE")
             repo.update_task(task_id, awaiting_input_hint=None)
             emit("task.update", {"task_id": task_id, "summary": "Resumed by admin"})
+            record_audit_event(
+                "admin.task.resumed",
+                task.household_id,
+                actor_user_id=actor,
+                detail={"task_id": task_id},
+            )
             return {"status": "resumed"}
         except ValueError as exc:
             return {"error": str(exc)}
@@ -1525,13 +1643,16 @@ async def admin_event_rules() -> dict[str, Any]:
     return {"rules": [_rule_to_dict(r) for r in rules]}
 
 
-@router.post("/event-rules", dependencies=_auth)
-async def admin_create_event_rule(body: _EventRuleBody) -> dict[str, Any]:
+@router.post("/event-rules")
+async def admin_create_event_rule(
+    body: _EventRuleBody, identity: AdminIdentity = Depends(require_admin_auth)
+) -> dict[str, Any]:
     """Create a new EventRule."""
     from datetime import datetime, timezone
 
     from sqlmodel import select
 
+    from app.control.audit import record_audit_event
     from app.db import users_session
     from app.models.events import EventRule
     from app.models.users import User
@@ -1577,16 +1698,27 @@ async def admin_create_event_rule(body: _EventRuleBody) -> dict[str, Any]:
         session.refresh(rule)
 
     logger.info("EventRule created: id=%s name=%r", rule.id, rule.name)
+    record_audit_event(
+        "admin.event_rule.created",
+        hid,
+        actor_user_id=identity.user_id or "admin",
+        detail={"rule_id": rule.id, "name": rule.name},
+    )
     return {"rule": _rule_to_dict(rule)}
 
 
-@router.put("/event-rules/{rule_id}", dependencies=_auth)
-async def admin_update_event_rule(rule_id: str, body: _EventRuleBody) -> dict[str, Any]:
+@router.put("/event-rules/{rule_id}")
+async def admin_update_event_rule(
+    rule_id: str,
+    body: _EventRuleBody,
+    identity: AdminIdentity = Depends(require_admin_auth),
+) -> dict[str, Any]:
     """Update an existing EventRule (full replace of editable fields)."""
     from datetime import datetime, timezone
 
     from sqlmodel import select
 
+    from app.control.audit import record_audit_event
     from app.db import users_session
     from app.models.events import EventRule
     from app.models.users import User
@@ -1626,14 +1758,23 @@ async def admin_update_event_rule(rule_id: str, body: _EventRuleBody) -> dict[st
         session.refresh(rule)
 
     logger.info("EventRule updated: id=%s name=%r", rule.id, rule.name)
+    record_audit_event(
+        "admin.event_rule.updated",
+        rule.household_id,
+        actor_user_id=identity.user_id or "admin",
+        detail={"rule_id": rule.id, "name": rule.name},
+    )
     return {"rule": _rule_to_dict(rule)}
 
 
-@router.patch("/event-rules/{rule_id}/toggle", dependencies=_auth)
-async def admin_toggle_event_rule(rule_id: str) -> dict[str, Any]:
+@router.patch("/event-rules/{rule_id}/toggle")
+async def admin_toggle_event_rule(
+    rule_id: str, identity: AdminIdentity = Depends(require_admin_auth)
+) -> dict[str, Any]:
     """Toggle the enabled state of an EventRule."""
     from datetime import datetime, timezone
 
+    from app.control.audit import record_audit_event
     from app.db import users_session
     from app.models.events import EventRule
 
@@ -1648,12 +1789,21 @@ async def admin_toggle_event_rule(rule_id: str) -> dict[str, Any]:
         session.refresh(rule)
 
     logger.info("EventRule toggled: id=%s enabled=%s", rule.id, rule.enabled)
+    record_audit_event(
+        "admin.event_rule.toggled",
+        rule.household_id,
+        actor_user_id=identity.user_id or "admin",
+        detail={"rule_id": rule.id, "enabled": rule.enabled},
+    )
     return {"rule": _rule_to_dict(rule)}
 
 
-@router.delete("/event-rules/{rule_id}", dependencies=_auth)
-async def admin_delete_event_rule(rule_id: str) -> dict[str, str]:
+@router.delete("/event-rules/{rule_id}")
+async def admin_delete_event_rule(
+    rule_id: str, identity: AdminIdentity = Depends(require_admin_auth)
+) -> dict[str, str]:
     """Delete an EventRule."""
+    from app.control.audit import record_audit_event
     from app.db import users_session
     from app.models.events import EventRule
 
@@ -1661,10 +1811,17 @@ async def admin_delete_event_rule(rule_id: str) -> dict[str, str]:
         rule = session.get(EventRule, rule_id)
         if not rule:
             return {"status": "not_found"}
+        household_id = rule.household_id
         session.delete(rule)
         session.commit()
 
     logger.info("EventRule deleted: id=%s", rule_id)
+    record_audit_event(
+        "admin.event_rule.deleted",
+        household_id,
+        actor_user_id=identity.user_id or "admin",
+        detail={"rule_id": rule_id},
+    )
     return {"status": "deleted"}
 
 
@@ -1676,9 +1833,11 @@ class _EventRuleTestBody(BaseModel):
     force: bool = False  # bypass cooldown for this test fire
 
 
-@router.post("/event-rules/{rule_id}/test", dependencies=_auth)
+@router.post("/event-rules/{rule_id}/test")
 async def admin_test_event_rule(  # noqa: E501
-    rule_id: str, body: _EventRuleTestBody | None = None
+    rule_id: str,
+    body: _EventRuleTestBody | None = None,
+    identity: AdminIdentity = Depends(require_admin_auth),
 ) -> dict[str, Any]:
     """Fire a synthetic event that matches this rule, bypassing auth/secret checks.
 
@@ -1757,6 +1916,14 @@ async def admin_test_event_rule(  # noqa: E501
         rule_id,
         rule_snapshot["name"],
         body.force,
+    )
+    from app.control.audit import record_audit_event
+
+    record_audit_event(
+        "admin.event_rule.tested",
+        household.id,
+        actor_user_id=identity.user_id or "admin",
+        detail={"rule_id": rule_id, "force": body.force},
     )
     return {
         "status": "fired",
@@ -1894,8 +2061,12 @@ async def admin_list_integrations() -> dict[str, Any]:
     return {"integrations": integrations}
 
 
-@router.post("/integrations/{provider}/connect", dependencies=_auth)
-async def admin_connect_integration(provider: str, body: _IntegrationConnectBody) -> dict[str, Any]:
+@router.post("/integrations/{provider}/connect")
+async def admin_connect_integration(
+    provider: str,
+    body: _IntegrationConnectBody,
+    identity: AdminIdentity = Depends(require_admin_auth),
+) -> dict[str, Any]:
     """Start an OAuth connect flow for the given provider.
 
     Returns {"authorize_url": ...} for the admin's browser to navigate to.
@@ -1953,11 +2124,22 @@ async def admin_connect_integration(provider: str, body: _IntegrationConnectBody
         state=state,
         code_challenge=challenge,
     )
+
+    from app.control.audit import record_audit_event
+
+    record_audit_event(
+        "admin.integration.connect_started",
+        hid,
+        actor_user_id=identity.user_id or "admin",
+        detail={"provider": provider, "authorizing_user_id": body.user_id},
+    )
     return {"authorize_url": authorize_url}
 
 
-@router.post("/integrations/{provider}/disconnect", dependencies=_auth)
-async def admin_disconnect_integration(provider: str) -> dict[str, Any]:
+@router.post("/integrations/{provider}/disconnect")
+async def admin_disconnect_integration(
+    provider: str, identity: AdminIdentity = Depends(require_admin_auth)
+) -> dict[str, Any]:
     """Disconnect a provider: best-effort token revocation, then delete the
     local account, then tear down the MCP connection and rebuild the agent
     so the Oda toolset actually disappears from the running agent. Revocation
@@ -2004,6 +2186,14 @@ async def admin_disconnect_integration(provider: str) -> dict[str, Any]:
     await stop_mcp()
     reload_agent()  # rebuild agent singleton without the Oda toolset
 
+    from app.control.audit import record_audit_event
+
+    record_audit_event(
+        "admin.integration.disconnected",
+        hid,
+        actor_user_id=identity.user_id or "admin",
+        detail={"provider": provider},
+    )
     return {"disconnected": True}
 
 

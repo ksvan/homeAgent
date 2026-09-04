@@ -2,19 +2,17 @@
 
 Status: design complete — problem definition, resolved Decisions, and
 security-hardened Options (see "Options for the next pass") are now
-followed by a Phased Implementation Plan (Phase 0–5, plus Phase 6, each
-with an exit gate). Phases 0, 1, 2, 4, and 5's application code are all
-done; the implementation-time security review this doc always planned to
-follow coding happened as a bounded 2026-08-31 re-review
-(`SECURITY_REVIEW.md`) and its identity/access-relevant findings
-(BR-01/05/06/07) are incorporated and fixed — see Phase 5 below for the
-detail. What's still outstanding: Phase 3's deployment-verification half
-(headers at the real Cloudflare edge, origin unreachability); Phase 5's
-actual go-live cutover (Cloudflare dashboard hostname + real-device
-passkey pass — Kristian's own deliberate action, not something a coding
-pass performs, per this doc's own framing of that moment); and Phase 6
-(retrofitting durable audit onto pre-existing admin mutation endpoints),
-tracked but not started. See "Phased Implementation Plan."
+followed by a Phased Implementation Plan (Phase 0–6, each with an exit
+gate). All application code across Phases 0–6 is done, including the
+2026-08-31 bounded security re-review (`SECURITY_REVIEW.md`) whose
+identity/access-relevant findings (BR-01/05/06/07) are incorporated and
+fixed — see Phase 5 for the detail. What's still outstanding, and can
+only be done by Kristian against a real deployment, not by further
+coding: Phase 3's deployment-verification half (headers at the real
+Cloudflare edge, origin unreachability) and Phase 5's actual go-live
+cutover (Cloudflare dashboard hostname + real-device passkey pass — a
+deliberate go/no-go moment, per this doc's own framing). See "Phased
+Implementation Plan."
 Last code check: 2026-08-31
 Related docs: `docs/user-identity-memory-link-design.md` (identity↔memory
 link, predates web chat), `docs/web-chat-channel-design.md` (Decision #1
@@ -1438,7 +1436,7 @@ not something this pass performs**
   to execute using the new runbook, not claimed done here.
 
 **Phase 6 — Retrofit durable audit onto pre-existing admin mutation
-endpoints**
+endpoints — done (2026-09-04)**
 
 Split out deliberately, not an oversight: when Phase 4 was scoped
 (2026-08-31), it explicitly limited "durable audit for every admin
@@ -1451,19 +1449,49 @@ disconnect) as its own follow-up — a bigger, differently-shaped diff than
 in one pass. Recorded here as its own phase specifically so it doesn't
 quietly get dropped once Phase 4 feels "done."
 
-- Every mutating `/admin/*` endpoint gets a `record_audit_event(...)`
-  call using the real actor identity Phase 4's `require_admin_auth`
-  already resolves (passkey session → real `user_id`; break-glass secret
-  → the existing `"break_glass"` marker) — no new identity plumbing
-  needed, just wiring it through to each handler.
-- Not blocking, and not ordered strictly after Phase 5 — can land
-  whenever convenient once Phase 4 is verified working; only sequenced
-  last on this list because it's lower-stakes than shipping the public
-  hostname.
+- All 18 mutating `/admin/*` endpoints across world model (9), event
+  rules (5), tasks (1), scheduler (1), and integrations (2) now declare
+  `identity: AdminIdentity = Depends(require_admin_auth)` (replacing the
+  bare `dependencies=_auth` list — FastAPI's dependency cache means this
+  doesn't run `require_admin_auth` twice per request) and call
+  `record_audit_event(...)` with `identity.user_id or "admin"` as the
+  actor — passkey session → real `user_id`, break-glass secret → the
+  `"admin"` marker, matching Phase 5's BR-05 fix for the newer endpoints.
+  Event-type names follow an `admin.<area>.<action>` convention (e.g.
+  `admin.world_model.fact_upserted`, `admin.event_rule.deleted`,
+  `admin.task.cancelled`, `admin.scheduler.run_now`,
+  `admin.integration.connect_started`). `admin_review_proposal`/
+  `admin_bulk_review` also now pass the real actor through to
+  `WorldModelRepository.review_proposal`'s pre-existing `reviewed_by`
+  parameter, which no caller had ever actually populated before this —
+  closing a small BR-05-adjacent gap found while doing this work, not a
+  separately-scoped fix.
+- **Found and worked around, not a new production bug:** `
+  app.world.repository` and `app.tasks.repository` both import
+  `users_session` at module level rather than deferring it inside each
+  function — a pre-existing codebase pattern (also true of `app.bot`,
+  `app.integrations.accounts`, `app.webchat.dispatch`, and others),
+  already correctly handled by three existing test files
+  (`test_task_state_machine.py` and siblings) that patch
+  `app.tasks.repository.users_session` specifically, not just the global
+  `app.db.users_session`. This phase's new tests are the *first* to ever
+  exercise the admin world-model/task endpoints at the API layer, so
+  they're also the first to need to know this — the new test fixture
+  patches both module-specific targets. Verified no data was at risk:
+  every code path that would have executed a write is gated behind a
+  preceding lookup-by-id that would find nothing for the fresh UUIDs
+  these tests generate, so even before the fixture was corrected the
+  failure mode was a harmless miss, not a write, against the real
+  database — still worth fixing properly rather than leaving the gap for
+  the next person to rediscover the same way.
+- Not blocking, and not ordered strictly after Phase 5 — landed once
+  Phase 4/5 were verified working; sequenced last because it was lower-
+  stakes than shipping the public hostname, not because it was skipped.
 - **Exit gate:** every `/admin/*` POST/PUT/PATCH/DELETE handler has a
   corresponding durable audit event with a real actor identity, verified
-  by a regression test per endpoint category (world model, event rules,
-  tasks, scheduler, integrations, users).
+  by 19 new regression tests covering all five endpoint categories
+  (`test_control_api_audit_retrofit.py`) — all passing; `ruff`/`mypy`
+  clean.
 
 Each phase after 0 should land as its own reviewed change rather than one
 large diff, consistent with how the original web chat channel was built.

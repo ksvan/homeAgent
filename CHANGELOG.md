@@ -24,9 +24,9 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 
 ### Added
 
-- **Household identity & access, Phase 0-5 (WebAuthn passkey login,
+- **Household identity & access, Phase 0-6 (WebAuthn passkey login,
   Telegram linking, permission matrix, CSP/origin hardening, admin auth
-  migration, public hostname prerequisites)** — see
+  migration, public hostname prerequisites, admin audit retrofit)** — see
   `docs/household-identity-and-access-design.md`. Phase 0 laid the
   foundation: `User.is_active`, a `WebAuthnCredential` table, a hardened
   `WebChatSession` (hashed token, sliding + absolute expiry, revoke-not-
@@ -155,7 +155,26 @@ Versioning follows [Semantic Versioning](https://semver.org/).
   additions to `test_webchat_app.py`, `test_webchat_webauthn.py`,
   `test_webchat_api_webauthn.py`, `test_control_api_admin_auth.py`;
   `test_webchat_api.py` (the legacy router's own tests) removed along
-  with the router.
+  with the router. **Phase 6 retrofits durable audit onto the 18
+  pre-existing admin mutation endpoints** (world model, event rules,
+  tasks, scheduler, integrations) that had none before Phase 4 — each now
+  declares `identity: AdminIdentity = Depends(require_admin_auth)` and
+  calls `record_audit_event(...)` attributed to the real admin's
+  `user_id` (passkey) or the `"admin"` marker (break-glass), under an
+  `admin.<area>.<action>` event-type naming convention. Proposal review
+  also now passes the real actor through to
+  `WorldModelRepository.review_proposal`'s pre-existing `reviewed_by`
+  parameter, which no caller had ever populated before. New
+  `test_control_api_audit_retrofit.py` (19 tests) is the first API-level
+  test coverage these endpoints have ever had, and along the way
+  surfaced (not introduced) a pre-existing gotcha: `app.world.repository`
+  and `app.tasks.repository` import `users_session` at module level
+  rather than deferring it, so tests must patch each module's own bound
+  name specifically, not just `app.db.users_session` globally — already
+  correctly handled by `test_task_state_machine.py` and siblings, now
+  also by this new file. No data was ever at risk: every write in those
+  modules is gated behind a preceding lookup that would find nothing for
+  a fresh test UUID.
 - **Web chat channel** — browser-based chat UI for household members without
   Telegram on the current device, behind `FEATURE_WEB_CHAT` (default off).
   Runs as its own standalone FastAPI app/port (`WEB_CHAT_PORT`, default
