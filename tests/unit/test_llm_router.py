@@ -142,10 +142,21 @@ def test_thinking_is_omitted_for_classic_openai_fallback_model() -> None:
     assert LLMRouter(s).get_thinking(TaskType.CONVERSATION, "gpt-4o-mini") is None
 
 
+def test_thinking_is_omitted_for_gpt5_family_on_chat_completions() -> None:
+    # Regression (GitHub issue #1): the API rejects function tools +
+    # reasoning_effort together for gpt-5* on /v1/chat/completions — which
+    # is the only endpoint pydantic-ai's OpenAIChatModel (what this router
+    # instantiates) uses. Confirmed live against gpt-5.6-terra/gpt-5.6-luna.
+    s = _settings(thinking_conversation="high")
+    assert LLMRouter(s).get_thinking(TaskType.CONVERSATION, "gpt-5.6") is None
+    assert LLMRouter(s).get_thinking(TaskType.CONVERSATION, "gpt-5.6-terra") is None
+    assert LLMRouter(s).get_thinking(TaskType.CONVERSATION, "gpt-5.6-luna") is None
+
+
 def test_thinking_is_applied_for_openai_reasoning_model() -> None:
     s = _settings(thinking_conversation="medium")
-    assert LLMRouter(s).get_thinking(TaskType.CONVERSATION, "gpt-5.6") == "medium"
     assert LLMRouter(s).get_thinking(TaskType.CONVERSATION, "o3-mini") == "medium"
+    assert LLMRouter(s).get_thinking(TaskType.CONVERSATION, "o1") == "medium"
 
 
 def test_get_model_settings_omits_thinking_for_unsupported_model() -> None:

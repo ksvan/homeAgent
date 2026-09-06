@@ -281,6 +281,15 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 
 ### Fixed
 
+- **`gpt-5*` still broke on reasoning_effort + tools** — found in production
+  (GitHub issue #1) right after the previous fix below shipped:
+  `_model_supports_thinking()`'s `gpt-5` prefix match was too broad. The
+  live OpenAI Chat Completions API rejects function tools together with
+  `reasoning_effort` for the whole `gpt-5` family (confirmed against
+  `gpt-5.6-terra`/`gpt-5.6-luna`, the production `MODEL_PRIMARY`/
+  `MODEL_BACKGROUND`) — it needs the Responses API instead, which this app
+  doesn't use. Narrowed the allowlist to `o1`/`o3`/`o4` only. Tests:
+  `tests/unit/test_llm_router.py`.
 - **`purge_old_tasks` scheduled job could fail with `IntegrityError`** —
   found in production after the identity/access rollout: the daily cleanup
   job bulk-deleted old `Task` rows directly, but `TaskStep.task_id` and

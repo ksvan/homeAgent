@@ -77,18 +77,30 @@ def provider_for_model(model_name: str) -> str:
 
 
 def _model_supports_thinking(model_name: str) -> bool:
-    """Whether `model_name` accepts pydantic-ai's ModelSettings.thinking key.
+    """Whether `model_name` accepts pydantic-ai's ModelSettings.thinking key
+    on the Chat Completions API (pydantic-ai's OpenAIChatModel — what this
+    router instantiates for every OpenAI model name; see _make_model()).
 
     Anthropic's Claude models all support extended thinking. OpenAI's
     classic Chat Completions models (gpt-4o, gpt-4o-mini — exactly what
     MODEL_FALLBACK/MODEL_BACKGROUND_FALLBACK default to) reject a
     reasoning_effort request outright, and do so specifically when tools
-    are attached, which every conversation-agent call carries. Only
-    OpenAI's reasoning-model families opt in.
+    are attached, which every conversation-agent call carries.
+
+    Only the o1/o3/o4 reasoning-model families are known to accept
+    reasoning_effort *and* tools together on Chat Completions. gpt-5* does
+    not — confirmed in production (see GitHub issue #1) against
+    gpt-5.6-terra/gpt-5.6-luna, which the API rejected with "Function tools
+    with reasoning_effort are not supported ... in /v1/chat/completions.
+    To use function tools, use /v1/responses or set reasoning_effort to
+    'none'." A previous version of this function matched any "gpt-5"
+    prefix, which was wrong — don't re-add it without switching those
+    models to pydantic-ai's Responses API model class instead of
+    OpenAIChatModel.
     """
     if provider_for_model(model_name) == "anthropic":
         return True
-    return model_name.startswith(("o1", "o3", "o4", "gpt-5"))
+    return model_name.startswith(("o1", "o3", "o4"))
 
 
 def _resolve_key(slot_key: str, model_name: str, s: Settings) -> str:
