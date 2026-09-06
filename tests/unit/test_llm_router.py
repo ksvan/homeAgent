@@ -4,6 +4,7 @@ from __future__ import annotations
 import pytest
 from pydantic_ai.models.anthropic import AnthropicModel
 from pydantic_ai.models.openai import OpenAIChatModel
+from pydantic_ai.providers.openai import OpenAIProvider
 
 from app.agent.llm_router import LLMRouter, TaskType, provider_for_model
 from app.config import Settings
@@ -120,3 +121,39 @@ def test_get_model_raises_when_nothing_configured() -> None:
     s = _settings(anthropic_api_key="", openai_api_key="", feature_fallback_model=False)
     with pytest.raises(RuntimeError, match="No LLM provider configured"):
         LLMRouter(s).get_model(TaskType.CONVERSATION)
+
+
+# ---------------------------------------------------------------------------
+# get_thinking / get_model_settings — gated by whether the given model
+# actually supports the reasoning/thinking parameter. A run can fail over
+# from Claude to a classic OpenAI model (gpt-4o) that rejects
+# reasoning_effort outright, especially with tools attached.
+# ---------------------------------------------------------------------------
+
+
+def test_thinking_is_applied_for_claude_model() -> None:
+    s = _settings(thinking_conversation="high")
+    assert LLMRouter(s).get_thinking(TaskType.CONVERSATION, "claude-sonnet-5") == "high"
+
+
+def test_thinking_is_omitted_for_classic_openai_fallback_model() -> None:
+    s = _settings(thinking_conversation="high")
+    assert LLMRouter(s).get_thinking(TaskType.CONVERSATION, "gpt-4o") is None
+    assert LLMRouter(s).get_thinking(TaskType.CONVERSATION, "gpt-4o-mini") is None
+
+
+def test_thinking_is_applied_for_openai_reasoning_model() -> None:
+    s = _settings(thinking_conversation="medium")
+    assert LLMRouter(s).get_thinking(TaskType.CONVERSATION, "gpt-5.6") == "medium"
+    assert LLMRouter(s).get_thinking(TaskType.CONVERSATION, "o3-mini") == "medium"
+
+
+def test_get_model_settings_omits_thinking_for_unsupported_model() -> None:
+    s = _settings(thinking_memory_extraction="high")
+    model = LLMRouter(s).get_model(TaskType.MEMORY_EXTRACTION)  # background model = claude
+    settings = LLMRouter(s).get_model_settings(TaskType.MEMORY_EXTRACTION, model)
+    assert settings == {"thinking": "high"}
+
+    fallback_model = OpenAIChatModel("gpt-4o-mini", provider=OpenAIProvider(api_key="sk-x"))
+    settings = LLMRouter(s).get_model_settings(TaskType.MEMORY_EXTRACTION, fallback_model)
+    assert settings is None

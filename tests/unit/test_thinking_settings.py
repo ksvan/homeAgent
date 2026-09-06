@@ -9,6 +9,8 @@ extraction) instead of only picking which model to use.
 from __future__ import annotations
 
 import pytest
+from pydantic_ai.models.anthropic import AnthropicModel
+from pydantic_ai.providers.anthropic import AnthropicProvider
 
 from app.agent.llm_router import LLMRouter, TaskType, parse_thinking_level
 from app.config import Settings
@@ -66,6 +68,10 @@ def test_parse_unrecognized_value_is_none() -> None:
 # ---------------------------------------------------------------------------
 
 
+_CLAUDE = "claude-sonnet-5"
+_CLAUDE_MODEL = AnthropicModel(_CLAUDE, provider=AnthropicProvider(api_key="sk-ant-x"))
+
+
 def test_get_thinking_reads_the_right_field_per_task_type() -> None:
     s = _settings(
         thinking_conversation="high",
@@ -74,31 +80,40 @@ def test_get_thinking_reads_the_right_field_per_task_type() -> None:
         thinking_world_model_extraction="xhigh",
     )
     router = LLMRouter(s)
-    assert router.get_thinking(TaskType.CONVERSATION) == "high"
-    assert router.get_thinking(TaskType.MEMORY_EXTRACTION) == "low"
-    assert router.get_thinking(TaskType.SUMMARIZATION) == "minimal"
-    assert router.get_thinking(TaskType.WORLD_MODEL_EXTRACTION) == "xhigh"
+    assert router.get_thinking(TaskType.CONVERSATION, _CLAUDE) == "high"
+    assert router.get_thinking(TaskType.MEMORY_EXTRACTION, _CLAUDE) == "low"
+    assert router.get_thinking(TaskType.SUMMARIZATION, _CLAUDE) == "minimal"
+    assert router.get_thinking(TaskType.WORLD_MODEL_EXTRACTION, _CLAUDE) == "xhigh"
 
 
 def test_get_thinking_unset_returns_none() -> None:
     s = _settings()
     router = LLMRouter(s)
-    assert router.get_thinking(TaskType.CONVERSATION) is None
+    assert router.get_thinking(TaskType.CONVERSATION, _CLAUDE) is None
 
 
 def test_get_thinking_unmapped_task_type_returns_none() -> None:
     # HOME_CONTROL/PLANNING/EMBEDDING have no call site and no settings field.
     s = _settings(thinking_conversation="high")
     router = LLMRouter(s)
-    assert router.get_thinking(TaskType.HOME_CONTROL) is None
-    assert router.get_thinking(TaskType.PLANNING) is None
-    assert router.get_thinking(TaskType.EMBEDDING) is None
+    assert router.get_thinking(TaskType.HOME_CONTROL, _CLAUDE) is None
+    assert router.get_thinking(TaskType.PLANNING, _CLAUDE) is None
+    assert router.get_thinking(TaskType.EMBEDDING, _CLAUDE) is None
 
 
 def test_get_thinking_accepts_bool_setting() -> None:
     s = _settings(thinking_conversation="true")
     router = LLMRouter(s)
-    assert router.get_thinking(TaskType.CONVERSATION) is True
+    assert router.get_thinking(TaskType.CONVERSATION, _CLAUDE) is True
+
+
+def test_get_thinking_omitted_for_model_that_does_not_support_it() -> None:
+    # gpt-4o (a classic, non-reasoning OpenAI model) rejects a
+    # reasoning_effort request outright — see test_model_settings_caching.py
+    # for the end-to-end regression this guards against.
+    s = _settings(thinking_conversation="high")
+    router = LLMRouter(s)
+    assert router.get_thinking(TaskType.CONVERSATION, "gpt-4o") is None
 
 
 # ---------------------------------------------------------------------------
@@ -109,11 +124,11 @@ def test_get_thinking_accepts_bool_setting() -> None:
 def test_get_model_settings_none_when_unconfigured() -> None:
     s = _settings()
     router = LLMRouter(s)
-    assert router.get_model_settings(TaskType.MEMORY_EXTRACTION) is None
+    assert router.get_model_settings(TaskType.MEMORY_EXTRACTION, _CLAUDE_MODEL) is None
 
 
 def test_get_model_settings_returns_thinking_dict_when_configured() -> None:
     s = _settings(thinking_summarization="low")
     router = LLMRouter(s)
-    result = router.get_model_settings(TaskType.SUMMARIZATION)
+    result = router.get_model_settings(TaskType.SUMMARIZATION, _CLAUDE_MODEL)
     assert result == {"thinking": "low"}

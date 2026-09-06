@@ -32,7 +32,7 @@ async def test_memory_extraction_passes_configured_model_settings() -> None:
     from app.memory.extraction import extract_and_store_memories
 
     fake_run = AsyncMock(return_value=_FakeOutput(type("Facts", (), {"facts": []})()))
-    fake_agent = type("FakeAgent", (), {"run": fake_run})()
+    fake_agent = type("FakeAgent", (), {"run": fake_run, "model": object()})()
 
     messages = [
         ModelRequest(parts=[UserPromptPart(content="Remind me to water the plants weekly")]),
@@ -58,7 +58,7 @@ async def test_memory_extraction_passes_none_when_unconfigured() -> None:
     from app.memory.extraction import extract_and_store_memories
 
     fake_run = AsyncMock(return_value=_FakeOutput(type("Facts", (), {"facts": []})()))
-    fake_agent = type("FakeAgent", (), {"run": fake_run})()
+    fake_agent = type("FakeAgent", (), {"run": fake_run, "model": object()})()
     messages = [ModelRequest(parts=[UserPromptPart(content="hello")])]
 
     with (
@@ -76,7 +76,7 @@ async def test_world_model_extraction_passes_configured_model_settings() -> None
     from app.world.extraction import extract_and_propose_world_updates
 
     fake_run = AsyncMock(return_value=_FakeOutput(type("Proposals", (), {"proposals": []})()))
-    fake_agent = type("FakeAgent", (), {"run": fake_run})()
+    fake_agent = type("FakeAgent", (), {"run": fake_run, "model": object()})()
     messages = [ModelRequest(parts=[UserPromptPart(content="The oven is in the kitchen")])]
 
     with (
@@ -122,7 +122,7 @@ async def test_summarization_passes_configured_model_settings(memory_db: Session
     memory_db.commit()
 
     fake_run = AsyncMock(return_value=_FakeOutput("summary text"))
-    fake_agent = type("FakeAgent", (), {"run": fake_run})()
+    fake_agent = type("FakeAgent", (), {"run": fake_run, "model": object()})()
 
     with (
         patch("app.memory.conversation._get_summarizer", return_value=fake_agent),

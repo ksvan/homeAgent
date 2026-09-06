@@ -76,6 +76,21 @@ def provider_for_model(model_name: str) -> str:
     return "anthropic" if model_name.startswith("claude") else "openai"
 
 
+def _model_supports_thinking(model_name: str) -> bool:
+    """Whether `model_name` accepts pydantic-ai's ModelSettings.thinking key.
+
+    Anthropic's Claude models all support extended thinking. OpenAI's
+    classic Chat Completions models (gpt-4o, gpt-4o-mini — exactly what
+    MODEL_FALLBACK/MODEL_BACKGROUND_FALLBACK default to) reject a
+    reasoning_effort request outright, and do so specifically when tools
+    are attached, which every conversation-agent call carries. Only
+    OpenAI's reasoning-model families opt in.
+    """
+    if provider_for_model(model_name) == "anthropic":
+        return True
+    return model_name.startswith(("o1", "o3", "o4", "gpt-5"))
+
+
 def _resolve_key(slot_key: str, model_name: str, s: Settings) -> str:
     """Return the per-slot key if set, else fall back to the matching global key."""
     if slot_key:
@@ -136,27 +151,35 @@ class LLMRouter:
             )
         return chain
 
-    def get_thinking(self, task_type: TaskType) -> bool | str | None:
-        """Configured reasoning/thinking level for this task type, if any.
+    def get_thinking(self, task_type: TaskType, model_name: str) -> bool | str | None:
+        """Configured reasoning/thinking level for this task type, if any,
+        gated by whether `model_name` actually supports it.
 
-        Returns None when unset or unparseable — callers should omit the
-        `thinking` key entirely in that case rather than pass None through
-        to pydantic-ai (which is itself a valid-but-different setting).
+        Returns None when unset, unparseable, or unsupported by the given
+        model — callers should omit the `thinking` key entirely in that
+        case rather than pass None through to pydantic-ai (which is itself
+        a valid-but-different setting). The model check matters because a
+        run can fail over to a different model than the one the setting was
+        tuned for (see app/agent/runner.py's cross-provider chain) — sending
+        e.g. `reasoning_effort` to gpt-4o gets rejected outright.
         """
         field = _THINKING_SETTINGS_FIELD.get(task_type)
         if field is None:
             return None
         raw = getattr(self._s, field, "")
-        return parse_thinking_level(raw)
+        parsed = parse_thinking_level(raw)
+        if parsed is None or not _model_supports_thinking(model_name):
+            return None
+        return parsed
 
-    def get_model_settings(self, task_type: TaskType) -> "ModelSettings | None":
+    def get_model_settings(self, task_type: TaskType, model: Model) -> "ModelSettings | None":
         """model_settings override for task types with no other per-call
         settings to merge (the three background extraction/summarization
         agents). The conversation agent builds its own richer settings in
         app/agent/agent.py._build_model_settings() and calls get_thinking()
         directly instead.
         """
-        thinking = self.get_thinking(task_type)
+        thinking = self.get_thinking(task_type, model.model_name)
         if thinking is None:
             return None
         return cast("ModelSettings", {"thinking": thinking})

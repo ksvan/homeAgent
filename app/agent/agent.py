@@ -299,18 +299,19 @@ async def run_conversation(
         user_prompt,
         deps=deps,
         message_history=message_history or [],
-        model_settings=_build_model_settings(settings),
+        model_settings=_build_model_settings(settings, model or cast(Model, agent.model)),
         model=model,
     )
 
 
-def _build_model_settings(settings: "Settings") -> "ModelSettings":
+def _build_model_settings(settings: "Settings", model: Model) -> "ModelSettings":
     """Build the model_settings dict passed to agent.run().
 
-    Cross-provider by construction: extra provider-specific keys are ignored
-    by whichever provider isn't handling the call (primary or fallback — see
-    app/agent/llm_router.py get_model_chain()). See
-    docs/prompt-caching-design.md for the caching rationale.
+    `model` must be the actual model this call will run against (the
+    failover candidate from app/agent/runner.py's model chain when present,
+    else the agent's own default) — settings like `thinking` are only valid
+    for some models, and a run can fail over to a different one than it was
+    tuned for. See docs/prompt-caching-design.md for the caching rationale.
     """
     raw: dict[str, object] = {"max_tokens": settings.max_tokens_per_run}
     if settings.feature_prompt_caching:
@@ -322,7 +323,7 @@ def _build_model_settings(settings: "Settings") -> "ModelSettings":
         # offsetting reads. See docs/prompt-caching-design.md.
         raw["openai_prompt_cache_options"] = {"mode": "explicit"}
 
-    thinking = LLMRouter(settings).get_thinking(TaskType.CONVERSATION)
+    thinking = LLMRouter(settings).get_thinking(TaskType.CONVERSATION, model.model_name)
     if thinking is not None:
         raw["thinking"] = thinking
 

@@ -281,6 +281,21 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 
 ### Fixed
 
+- **Reasoning/thinking setting sent to models that reject it** — a
+  `THINKING_*` setting (e.g. `THINKING_CONVERSATION`) was applied
+  unconditionally to whichever model actually ran the call, including a
+  fallback a run failed over to. Claude models support extended thinking,
+  but the default OpenAI fallbacks (`gpt-4o`, `gpt-4o-mini`) reject a
+  `reasoning_effort` request outright, especially with tools attached
+  (which every conversation-agent call carries) — production hit "model
+  does not support the combination of calls + reasoning level" on
+  failover. `LLMRouter.get_thinking()`/`get_model_settings()` now take the
+  actual model and omit `thinking` for models that don't support it
+  (`app/agent/llm_router.py::_model_supports_thinking()`). No `.env` change
+  needed — existing `THINKING_*` settings keep working for Claude and are
+  now automatically skipped on an OpenAI fallback. Tests:
+  `tests/unit/test_llm_router.py`, `tests/unit/test_model_settings_caching.py`,
+  `tests/unit/test_thinking_settings.py`.
 - **Provider detection now derived from model name everywhere** — previously
   `app/agent/llm_router.py` picked the provider class from the API key
   prefix (`sk-ant-...`) while key *resolution* picked it from the model name

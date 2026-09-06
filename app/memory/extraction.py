@@ -9,10 +9,12 @@ Called as a fire-and-forget coroutine from bot.py — never blocks the response.
 from __future__ import annotations
 
 import logging
+from typing import cast
 
 from pydantic import BaseModel
 from pydantic_ai import Agent
 from pydantic_ai.messages import ModelMessage, TextPart, UserPromptPart
+from pydantic_ai.models import Model
 
 logger = logging.getLogger(__name__)
 
@@ -104,8 +106,11 @@ async def extract_and_store_memories(
     try:
         from app.agent.llm_router import LLMRouter, TaskType
 
-        model_settings = LLMRouter().get_model_settings(TaskType.MEMORY_EXTRACTION)
-        result = await _get_extractor().run(text, model_settings=model_settings)
+        extractor = _get_extractor()
+        model_settings = LLMRouter().get_model_settings(
+            TaskType.MEMORY_EXTRACTION, cast(Model, extractor.model)
+        )
+        result = await extractor.run(text, model_settings=model_settings)
         facts = result.output.facts
     except Exception:
         logger.warning("Memory extraction failed for run %s", run_id[:8], exc_info=True)

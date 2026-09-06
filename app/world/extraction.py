@@ -12,11 +12,12 @@ Called as a fire-and-forget coroutine from bot.py — never blocks the response.
 from __future__ import annotations
 
 import logging
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, cast
 
 from pydantic import BaseModel
 from pydantic_ai import Agent
 from pydantic_ai.messages import ModelMessage, TextPart, UserPromptPart
+from pydantic_ai.models import Model
 
 if TYPE_CHECKING:
     from app.world.repository import WorldModelRepository
@@ -127,8 +128,11 @@ async def extract_and_propose_world_updates(
     try:
         from app.agent.llm_router import LLMRouter, TaskType
 
-        model_settings = LLMRouter().get_model_settings(TaskType.WORLD_MODEL_EXTRACTION)
-        result = await _get_extractor().run(prompt, model_settings=model_settings)
+        extractor = _get_extractor()
+        model_settings = LLMRouter().get_model_settings(
+            TaskType.WORLD_MODEL_EXTRACTION, cast(Model, extractor.model)
+        )
+        result = await extractor.run(prompt, model_settings=model_settings)
         proposals = result.output.proposals
     except Exception:
         logger.warning("World-model extraction failed for run %s", run_id[:8], exc_info=True)
