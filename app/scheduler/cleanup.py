@@ -122,28 +122,39 @@ async def purge_stale_memories() -> None:
 
 async def purge_old_tasks() -> None:
     """
-    Delete completed/failed/cancelled Task rows older than _TASK_RETENTION_DAYS.
-    ACTIVE tasks are never touched. Runs daily via APScheduler.
+    Delete completed/failed/cancelled Task rows older than _TASK_RETENTION_DAYS,
+    along with their TaskStep/TaskLink children. ACTIVE tasks are never
+    touched. Runs daily via APScheduler.
+
+    Children must go first — Task.id is a FOREIGN KEY target for both
+    TaskStep.task_id and TaskLink.task_id, and SQLite has foreign_keys=ON
+    (see app/db.py), so deleting a Task that still has rows referencing it
+    raises IntegrityError.
     """
     try:
-        from sqlmodel import col, delete
+        from sqlmodel import col, delete, select
 
         from app.db import users_session
-        from app.models.tasks import Task
+        from app.models.tasks import Task, TaskLink, TaskStep
 
         cutoff = datetime.now(timezone.utc) - timedelta(days=_TASK_RETENTION_DAYS)
 
         with users_session() as session:
-            result = session.exec(
-                delete(Task).where(
+            task_ids = session.exec(
+                select(Task.id).where(
                     col(Task.status) != "ACTIVE",
                     col(Task.created_at) < cutoff,
                 )
-            )
+            ).all()
+
+            if task_ids:
+                session.exec(delete(TaskStep).where(col(TaskStep.task_id).in_(task_ids)))
+                session.exec(delete(TaskLink).where(col(TaskLink.task_id).in_(task_ids)))
+                session.exec(delete(Task).where(col(Task.id).in_(task_ids)))
             session.commit()
 
-        if result.rowcount:
-            logger.info("Task purge: removed %d old task(s)", result.rowcount)
+        if task_ids:
+            logger.info("Task purge: removed %d old task(s)", len(task_ids))
         else:
             logger.debug("Task purge: nothing to remove")
     except Exception:

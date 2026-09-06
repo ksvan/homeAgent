@@ -281,6 +281,24 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 
 ### Fixed
 
+- **`purge_old_tasks` scheduled job could fail with `IntegrityError`** —
+  found in production after the identity/access rollout: the daily cleanup
+  job bulk-deleted old `Task` rows directly, but `TaskStep.task_id` and
+  `TaskLink.task_id` are `FOREIGN KEY` references to `task.id` and SQLite
+  runs with `foreign_keys=ON` (`app/db.py`) — deleting a task that still
+  had steps or links attached raised `FOREIGN KEY constraint failed`, and
+  since the job's own `except Exception` swallows and logs it, the task
+  was silently left behind instead of purged. Pre-existing bug (both the
+  job and the FK relations predate the identity/access work by several
+  milestones) — it surfaced now because this was apparently the first time
+  a completed/failed/cancelled task old enough to purge also had step/link
+  rows attached. `purge_old_tasks` now deletes `TaskStep`/`TaskLink` rows
+  for the affected tasks before deleting the `Task` rows, in the same
+  transaction. Also fixed: the shared `in_memory_engine` test fixture
+  doesn't enable SQLite FK enforcement (SQLite's own default is off),
+  unlike every real engine in `app/db.py` — the new regression tests turn
+  it on explicitly so this class of bug is actually catchable in tests
+  going forward. Tests: `tests/unit/test_scheduler_cleanup.py`.
 - **Reasoning/thinking setting sent to models that reject it** — a
   `THINKING_*` setting (e.g. `THINKING_CONVERSATION`) was applied
   unconditionally to whichever model actually ran the call, including a
