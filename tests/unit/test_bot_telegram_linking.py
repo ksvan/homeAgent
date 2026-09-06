@@ -28,6 +28,11 @@ def patch_users_session(monkeypatch: pytest.MonkeyPatch, in_memory_engine: objec
 
     monkeypatch.setattr(bot_module, "users_session", _session)
     monkeypatch.setattr("app.db.users_session", _session)
+    # app.world.repository imports users_session at module level (its own
+    # bound copy, unaffected by patching app.db.users_session above) — the
+    # auto-create-user path below calls into WorldModelRepository.upsert_member,
+    # which would otherwise hit the real on-disk data/db/users.db.
+    monkeypatch.setattr("app.world.repository.users_session", _session)
 
     with _session() as db:
         db.add(Household(id="hh-1", name="The Home"))
