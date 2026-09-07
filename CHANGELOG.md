@@ -175,6 +175,14 @@ Versioning follows [Semantic Versioning](https://semver.org/).
   also by this new file. No data was ever at risk: every write in those
   modules is gated behind a preceding lookup that would find nothing for
   a fresh test UUID.
+- **UniFi Prometheus network skill** — a portable, lazy-loaded
+  `unifi-prometheus-network` skill guides HomeAgent through evidence-based
+  network, Wi-Fi, WAN, and Blackbox Exporter probe diagnosis from live
+  Prometheus metrics. It discovers the connected installation's metric schema
+  and labels at runtime, uses a generic hypothesis-based failure-domain
+  workflow, and includes a bounded Python helper for one DNS, TCP, or HTTP(S)
+  present-state test when historical telemetry is insufficient. It contains no
+  household topology or other private network details.
 - **Web chat channel** — browser-based chat UI for household members without
   Telegram on the current device, behind `FEATURE_WEB_CHAT` (default off).
   Runs as its own standalone FastAPI app/port (`WEB_CHAT_PORT`, default

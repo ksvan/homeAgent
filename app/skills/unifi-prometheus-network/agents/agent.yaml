@@ -1,0 +1,4 @@
+interface:
+  display_name: "UniFi Network Operations"
+  short_description: "Diagnose household UniFi and Wi-Fi performance from Prometheus"
+  default_prompt: "Use $unifi-prometheus-network to investigate or report on the household UniFi network, Wi-Fi, and WAN performance using live Prometheus metrics."
